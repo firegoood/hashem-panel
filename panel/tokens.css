@@ -382,6 +382,23 @@ body[data-t="dark"], body {
   stroke-width: 2.2;
 }
 
+/* Enterprise Network Dashboard — density + data surfaces (Phase 1, additive only) */
+:root {
+  --ent-w-sidebar: 232px;
+  --ent-w-page: 1180px;
+  --ent-gap: 12px;
+  --ent-gap-lg: 16px;
+  --ent-row-h: 40px;
+  --ent-kpi-val: 22px;
+  --ent-tbl-head-fs: 11px;
+  --ent-tbl-fs: 12.5px;
+  --ent-code-fs: 12px;
+  --ent-chart-grid: rgba(255,255,255,.06);
+  --ent-chart-axis: var(--mu);
+  --ent-modal-bg: rgba(0,0,0,.55);
+  --ent-toast-w: min(92vw, 420px);
+  --ent-focus: color-mix(in srgb, var(--ac) 70%, transparent);
+}
 /* One focus ring for every control, whichever family it belongs to: the
    keyboard path has to look the same on the dashboard and in a dialog. */
 .hashem-btn:focus-visible,

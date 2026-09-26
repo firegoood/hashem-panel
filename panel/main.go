@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-//go:embed index.html tokens.css base.css favicon.png
+//go:embed index.html tokens.css base.css enterprise.css favicon.png
 var panelFS embed.FS
 
 var configDir = "/etc/gre-panel"
@@ -112,6 +112,7 @@ func main() {
 	mux.HandleFunc("GET "+base+"/", serveIndex)
 	mux.HandleFunc("GET "+base+"/tokens.css", serveAsset("tokens.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET "+base+"/base.css", serveAsset("base.css", "text/css; charset=utf-8"))
+	mux.HandleFunc("GET "+base+"/enterprise.css", serveAsset("enterprise.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET "+base+"/favicon.png", serveAsset("favicon.png", "image/png"))
 	mux.HandleFunc("GET "+base+"/api/health", handleHealth)
 	mux.HandleFunc("GET "+base+"/api/status", requireAuth(handleStatus))
