@@ -80,6 +80,15 @@ var errCatalog = map[string]errInfo{
 	"E-FRP-03": {0, "frp bind conflict (address already in use)", "Another tunnel uses this port — change frp_port or the reverse port."},
 	"E-FRP-04": {0, "frp cannot reach server (connection refused/timeout)", "Iran unreachable: wrong IP/port, firewall, or frps down."},
 	"E-SYS-01": {0, "host tool unavailable", "journalctl/systemctl/ip missing on this host."},
+	// terminal (Phase 3)
+	"E-TERM-00": {0, "terminal command audit", "Informational: redacted command line from the terminal session."},
+	"E-TERM-01": {500, "cannot start shell", "bash/sh missing or PTY unavailable on this host."},
+	"E-TERM-06": {500, "terminal output overflow (session killed)", "A command produced >256KB unread output — avoid full dumps, use pipes/less."},
+	"E-TERM-07": {409, "terminal busy (another shell is active)", "Kill the active session from the Terminal tab first."},
+	"E-TERM-08": {440, "terminal session idle too long (killed)", "Reconnect from the Terminal tab; sessions die after 10 idle minutes."},
+	"E-TERM-09": {440, "terminal session reached 30 minute cap (killed)", "Reconnect for a fresh shell."},
+	"E-TERM-10": {400, "no active terminal session", "Nothing to kill — connect first."},
+	"E-TERM-11": {400, "bad terminal flag request", "Send {\"enabled\":true|false}."},
 }
 
 type errEvent struct {

@@ -152,3 +152,25 @@ body[data-t="light"] .ent-topo-node { background: var(--s1); }
 
 /* ---------- code / log text ---------- */
 .ent-code { font-family: var(--font-mono); font-size: var(--ent-code-fs); font-variant-numeric: tabular-nums; }
+
+/* ---------- interactive terminal (Phase 3) ---------- */
+.term-live { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 65%, transparent); animation: entPulse 2s ease-in-out infinite; }
+.term-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.term-toolbar .hashem-btn { height: 32px; padding: 0 12px; font-size: 12.5px; }
+.term-search { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.term-search .hashem-input { flex: 1; min-width: 160px; }
+.term-wrap { position: relative; border: 1px solid var(--ln2); border-radius: var(--r-md); background: #0a0e17; min-height: 420px; height: 52dvh; overflow: hidden; }
+.term-wrap.full { position: fixed; inset: 12px; z-index: 140; height: auto; }
+.term-wrap #termBox, .term-wrap .xterm { height: 100%; }
+.term-wrap #termBox { padding: 8px; }
+.term-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(6,9,15,.72); backdrop-filter: blur(3px); }
+.term-overlay-card { display: grid; gap: 10px; justify-items: center; text-align: center; background: var(--s1); border: 1px solid var(--ln2); border-radius: var(--r-lg); padding: 22px 26px; max-width: min(92%, 380px); }
+.term-overlay-card b { color: var(--tx); font-size: var(--fs-h4); }
+.term-keys { display: flex; gap: 6px; flex-wrap: wrap; }
+.term-keys button { border: 1px solid var(--ln2); background: var(--s2); color: var(--tx2); border-radius: 8px; padding: 7px 11px; font-size: 12px; font-family: var(--font-mono); cursor: pointer; }
+.term-keys button:hover { border-color: var(--ac); color: var(--tx); }
+.term-keys button:active { transform: translateY(1px); }
+@media (max-width: 760px) {
+  .term-wrap { min-height: 340px; height: 56dvh; }
+  .term-keys button { padding: 10px 14px; font-size: 13px; }
+}

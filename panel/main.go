@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-//go:embed index.html tokens.css base.css enterprise.css favicon.png
+//go:embed index.html tokens.css base.css enterprise.css favicon.png xterm.js xterm-fit.js xterm-search.js xterm.css
 var panelFS embed.FS
 
 var configDir = "/etc/gre-panel"
@@ -28,7 +28,12 @@ type panelConfig struct {
 	PassHash string `json:"pass_hash"`
 	Port     int    `json:"port"`
 	BasePath string `json:"base_path"`
+	// TerminalEnabled gates the Phase 3 interactive terminal tab
+	// (feature flag, default off; user enables after testing).
+	TerminalEnabled bool `json:"terminal_enabled,omitempty"`
 }
+
+func termEnabled() bool { return cfg.TerminalEnabled }
 
 var (
 	cfg panelConfig
@@ -114,6 +119,14 @@ func main() {
 	mux.HandleFunc("GET "+base+"/base.css", serveAsset("base.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET "+base+"/enterprise.css", serveAsset("enterprise.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET "+base+"/favicon.png", serveAsset("favicon.png", "image/png"))
+	mux.HandleFunc("GET "+base+"/xterm.js", serveAsset("xterm.js", "text/javascript; charset=utf-8"))
+	mux.HandleFunc("GET "+base+"/xterm-fit.js", serveAsset("xterm-fit.js", "text/javascript; charset=utf-8"))
+	mux.HandleFunc("GET "+base+"/xterm-search.js", serveAsset("xterm-search.js", "text/javascript; charset=utf-8"))
+	mux.HandleFunc("GET "+base+"/xterm.css", serveAsset("xterm.css", "text/css; charset=utf-8"))
+	mux.HandleFunc("GET "+base+"/api/term/ws", requireAuth(handleTermWS))
+	mux.HandleFunc("GET "+base+"/api/term/status", requireAuth(handleTermStatus))
+	mux.HandleFunc("POST "+base+"/api/term/kill", requireAuth(handleTermKill))
+	mux.HandleFunc("POST "+base+"/api/term/enable", requireAuth(handleTermEnable))
 	mux.HandleFunc("GET "+base+"/api/health", handleHealth)
 	mux.HandleFunc("GET "+base+"/api/status", requireAuth(handleStatus))
 	mux.HandleFunc("GET "+base+"/api/dashboard", requireAuth(handleDashboard))
