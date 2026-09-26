@@ -119,6 +119,7 @@ func main() {
 	mux.HandleFunc("POST "+base+"/api/login", handleLogin)
 	mux.HandleFunc("POST "+base+"/api/logout", handleLogout)
 	mux.HandleFunc("GET "+base+"/api/logs", requireAuth(handleLogs))
+	mux.HandleFunc("GET "+base+"/api/errors", requireAuth(handleErrors))
 	mux.HandleFunc("POST "+base+"/api/action", requireAuth(handleAction))
 	mux.HandleFunc("POST "+base+"/api/password", requireAuth(handlePassword))
 	mux.HandleFunc("GET "+base+"/api/setup", requireAuth(handleSetupGet))

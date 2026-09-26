@@ -51,18 +51,18 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	if _, err := exec.LookPath("journalctl"); err == nil {
 		out, err := exec.Command("journalctl", "-u", unit, "-n", strconv.Itoa(lines), "--no-pager").CombinedOutput()
 		if err == nil {
-			writeJSON(w, map[string]string{"logs": string(out), "svc": svc})
+			writeJSON(w, map[string]any{"logs": string(out), "svc": svc, "findings": summarizeLogs(string(out))})
 			return
 		}
 	}
 	// fallback: log files
 	for _, q := range []string{"/var/log/" + svc + ".log", "/root/" + svc + ".log"} {
 		if data, err := os.ReadFile(q); err == nil {
-			writeJSON(w, map[string]string{"logs": string(data), "svc": svc})
+			writeJSON(w, map[string]any{"logs": string(data), "svc": svc, "findings": summarizeLogs(string(data))})
 			return
 		}
 	}
-	writeJSON(w, map[string]string{"logs": "(no logs available — is " + svc + " installed?)", "svc": svc})
+	writeJSON(w, map[string]any{"logs": "(no logs available — is " + svc + " installed?)", "svc": svc, "findings": []logFinding{}})
 }
 
 // actions: restart frps/frpc/gre, ping peer, optimize/restore network tuning.
@@ -72,14 +72,14 @@ func handleAction(w http.ResponseWriter, r *http.Request) {
 		PeerID int    `json:"peer_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeAPIError(w, r, "E-ACTION-02", "")
 		return
 	}
 	switch body.Action {
 	case "restart-frps", "restart-frpc", "restart-gre", "ping", "remove-tunnel":
 		out, err := runAction(body.Action, body.PeerID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeAPIError(w, r, "E-ACTION-03", err.Error())
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok", "output": out})
@@ -87,12 +87,12 @@ func handleAction(w http.ResponseWriter, r *http.Request) {
 		// network tuning via the installer (single source of truth).
 		out, err := tuneViaInstaller(body.Action)
 		if err != nil {
-			http.Error(w, out+": "+err.Error(), http.StatusBadRequest)
+			writeAPIError(w, r, "E-ACTION-03", out+": "+err.Error())
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok", "output": out})
 	default:
-		http.Error(w, "unknown action", http.StatusBadRequest)
+		writeAPIError(w, r, "E-ACTION-01", "")
 	}
 }
 

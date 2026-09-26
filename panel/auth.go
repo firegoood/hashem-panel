@@ -49,7 +49,7 @@ func authed(r *http.Request) bool {
 func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !authed(r) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			writeAPIError(w, r, "E-AUTH-01", "")
 			return
 		}
 		next(w, r)
@@ -62,14 +62,14 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeAPIError(w, r, "E-AUTH-03", "")
 		return
 	}
 	h := sha256.Sum256([]byte(body.Password))
 	got := hex.EncodeToString(h[:])
 	if subtle.ConstantTimeCompare([]byte(body.Username), []byte(cfg.Username)) != 1 ||
 		subtle.ConstantTimeCompare([]byte(got), []byte(cfg.PassHash)) != 1 {
-		http.Error(w, "wrong username or password", http.StatusUnauthorized)
+		writeAPIError(w, r, "E-AUTH-02", "")
 		return
 	}
 	mac := sha256.Sum256(append(nonce[:], []byte(cfg.PassHash)...))
@@ -92,7 +92,7 @@ func handlePassword(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Password) < 4 {
-		http.Error(w, "password must be at least 4 characters", http.StatusBadRequest)
+		writeAPIError(w, r, "E-AUTH-04", "")
 		return
 	}
 	mu.Lock()
@@ -103,7 +103,7 @@ func handlePassword(w http.ResponseWriter, r *http.Request) {
 	_ = os.WriteFile(filepath.Join(configDir, "panel.pass"), []byte(body.Password), 0600)
 	if _, err := rand.Read(nonce[:]); err != nil {
 		mu.Unlock()
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeAPIError(w, r, "E-AUTH-05", "")
 		return
 	}
 	mu.Unlock()

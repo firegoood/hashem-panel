@@ -120,7 +120,7 @@ type setupRequest struct {
 func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 	var body setupRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeAPIError(w, r, "E-SETUP-01", "")
 		return
 	}
 	body.LocalPub = strings.TrimSpace(body.LocalPub)
@@ -138,50 +138,50 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 			body.Token = randomToken(16)
 		}
 		if len(loadPeers()) >= 5 {
-			http.Error(w, "peer table full (max 5 foreign servers) — remove one first", http.StatusConflict)
+			writeAPIError(w, r, "E-PEER-01", "")
 			return
 		}
 	}
 
 	// validation (mirrors gre.sh prompt_* / validate_setup_common rules)
 	if body.Role != "iran" && body.Role != "foreign" && body.Role != "add-peer" {
-		http.Error(w, "role must be iran, foreign or add-peer", http.StatusBadRequest)
+		writeAPIError(w, r, "E-SETUP-02", "")
 		return
 	}
 	if net.ParseIP(body.LocalPub) == nil {
-		http.Error(w, "invalid local public IP", http.StatusBadRequest)
+		writeAPIError(w, r, "E-SETUP-03", "")
 		return
 	}
 	if net.ParseIP(body.RemotePub) == nil {
-		http.Error(w, "invalid remote public IP", http.StatusBadRequest)
+		writeAPIError(w, r, "E-SETUP-04", "")
 		return
 	}
 	if net.ParseIP(body.LocalGre) == nil || !isV4(body.LocalGre) {
-		http.Error(w, "invalid local GRE IP", http.StatusBadRequest)
+		writeAPIError(w, r, "E-SETUP-05", "")
 		return
 	}
 	if net.ParseIP(body.PeerGre) == nil || !isV4(body.PeerGre) {
-		http.Error(w, "invalid peer GRE IP", http.StatusBadRequest)
+		writeAPIError(w, r, "E-SETUP-06", "")
 		return
 	}
 	if body.FrpPort < 1 || body.FrpPort > 65535 {
-		http.Error(w, "frp port must be 1-65535", http.StatusBadRequest)
+		writeAPIError(w, r, "E-SETUP-07", "")
 		return
 	}
 
 	var ports []int
 	if body.Role == "foreign" || body.Role == "add-peer" {
 		if body.Token == "" {
-			http.Error(w, "token from Iran side is required", http.StatusBadRequest)
+			writeAPIError(w, r, "E-SETUP-08", "")
 			return
 		}
 		if len(body.Token) > 128 {
-			http.Error(w, "token too long", http.StatusBadRequest)
+			writeAPIError(w, r, "E-SETUP-09", "")
 			return
 		}
 		ports = parsePorts(body.Ports)
 		if len(ports) == 0 {
-			http.Error(w, "at least one reverse port is required (e.g. 443, 2083)", http.StatusBadRequest)
+			writeAPIError(w, r, "E-SETUP-10", "")
 			return
 		}
 	}
@@ -189,10 +189,7 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 	// add-peer pre-check: reject ports another tunnel already serves (409 + peer name)
 	if body.Role == "add-peer" {
 		if clash := peerPortClash(ports, -1); clash != "" {
-			w.WriteHeader(http.StatusConflict)
-			writeJSON(w, map[string]string{
-				"error": "port " + clash + " is already served by another tunnel — pick a different port",
-			})
+			writeAPIError(w, r, "E-PEER-02", "port "+clash+" is already served by another tunnel — pick a different port")
 			return
 		}
 	}
@@ -200,10 +197,7 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 	// overwrite guard (per user decision: warn first, proceed only with force)
 	// add-peer never overwrites: it appends a new tunnel instead.
 	if body.Role != "add-peer" && tunnelExists() && !body.Force {
-		w.WriteHeader(http.StatusConflict)
-		writeJSON(w, map[string]string{
-			"error": "tunnel already exists — resubmit with force:true to overwrite",
-		})
+		writeAPIError(w, r, "E-PEER-03", "tunnel already exists — resubmit with force:true to overwrite")
 		return
 	}
 
@@ -213,8 +207,15 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 	token, steps, err := runInstaller(body, ports)
 	if err != nil {
 		steps = append(steps, "FAILED: "+err.Error())
-		w.WriteHeader(http.StatusInternalServerError)
-		writeJSON(w, map[string]any{"steps": steps})
+		code := "E-INSTALL-02"
+		if strings.Contains(err.Error(), "not found") {
+			code = "E-INSTALL-01"
+		}
+		info := errCatalog[code]
+		recordError(code, r.Method+" "+r.URL.Path, err.Error())
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(info.Status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error_code": code, "error": err.Error(), "hint": info.Hint, "steps": steps})
 		return
 	}
 	out := map[string]any{"status": "ok", "steps": steps}
@@ -305,19 +306,19 @@ func handlePeersGet(w http.ResponseWriter, r *http.Request) {
 	if idStr := r.URL.Query().Get("id"); idStr != "" {
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			http.Error(w, "bad id", http.StatusBadRequest)
+			writeAPIError(w, r, "E-PEER-05", "")
 			return
 		}
 		script, err := greScriptPath()
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeAPIError(w, r, "E-INSTALL-01", err.Error())
 			return
 		}
 		cmd := exec.Command("bash", script, "peer-token", "--id", strconv.Itoa(id))
 		cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			http.Error(w, strings.TrimSpace(string(out)), http.StatusNotFound)
+			writeAPIError(w, r, "E-PEER-04", strings.TrimSpace(string(out)))
 			return
 		}
 		writeJSON(w, map[string]string{"id": idStr, "token": strings.TrimSpace(string(out))})
@@ -334,7 +335,7 @@ func handlePeersGet(w http.ResponseWriter, r *http.Request) {
 // The real creation path is /api/setup (role add-peer) so only one code path
 // shells out to gre.sh. This endpoint exists for future per-peer edits.
 func handlePeersPost(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "use POST /api/setup with role=add-peer", http.StatusBadRequest)
+	writeAPIError(w, r, "E-PEER-06", "")
 }
 
 func isV4(s string) bool {

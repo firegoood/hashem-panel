@@ -534,7 +534,13 @@
             </select></div>
           </div>
           <div class="qs-hint" id="logMeta" style="margin-top:8px">—</div>
+          <div id="logFindings" style="display:grid;gap:8px;margin-top:8px"></div>
           <pre id="logs" class="logs" style="margin-top:8px">(pick a service)</pre>
+          <div class="tc-header" style="margin-top:14px"><p class="tc-title" style="font-size:13px">Panel errors</p>
+            <button class="hashem-btn" id="errRefresh" style="padding:4px 10px;font-size:12px">Refresh</button>
+          </div>
+          <div class="qs-hint">Every failed panel action is recorded here with its code — newest last.</div>
+          <div id="errList" style="display:grid;gap:6px;margin-top:8px"><div class="qs-hint">—</div></div>
         </div>
       </section>
       <section id="tab-update" hidden>
@@ -579,7 +585,18 @@ async function api(path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   if (r.status === 401) { showLogin(); throw new Error('session expired'); }
-  if (!r.ok) throw new Error(await r.text() || r.statusText);
+  if (!r.ok) {
+    const txt = await r.text();
+    try {
+      const j = JSON.parse(txt);
+      if (j.error_code) {
+        const e = new Error((j.error_code ? '[' + j.error_code + '] ' : '') + (j.error || r.statusText) + (j.hint ? '\n\u21AA ' + j.hint : ''));
+        e.code = j.error_code; e.hint = j.hint; e.steps = j.steps;
+        throw e;
+      }
+    } catch(e) { if (e.code) throw e; }
+    throw new Error(txt || r.statusText);
+  }
   return r.json();
 }
 function showLogin() { $('login').classList.remove('hidden'); $('app').classList.add('hidden'); }
@@ -589,7 +606,7 @@ function goTab(name) {
   ['dashboard','tunnel','setup','logs','update','settings'].forEach(t => { $('tab-'+t).hidden = t !== name; });
   document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   if (name === 'update') loadVersion();
-  if (name === 'logs') { refreshLogPeers(); loadLogs(); armLogFollow(); }
+  if (name === 'logs') { refreshLogPeers(); loadLogs(); loadErrors(); armLogFollow(); }
 }
 document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => goTab(b.dataset.tab));
 // theme (hashem-style: localStorage + data-t on html and body)
@@ -1193,7 +1210,7 @@ document.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
   } catch(e) { toast(e.message); }
   b.disabled = false;
 });
-let logSvc = 'frps', logTimer = null, logRaw = '';
+let logSvc = 'frps', logTimer = null, logRaw = '', logFindings = [];
 function logLevelMatch(line, lvl) {
   if (!lvl) return true;
   const l = line.toLowerCase();
@@ -1208,11 +1225,34 @@ function paintLogs() {
   const lines = logRaw.split('\n').filter(ln => (!q || ln.toLowerCase().includes(q)) && logLevelMatch(ln, lvl));
   $('logs').textContent = lines.length ? lines.join('\n') : '(no lines match the filter)';
   $('logMeta').textContent = logRaw ? `${logRaw.split('\n').length} lines from ${logSvc} · showing ${lines.length}` : '—';
+  const box = $('logFindings');
+  if (!logFindings.length) { box.innerHTML = '<div class="qs-hint">\u2713 no known error signatures in these lines.</div>'; }
+  else box.innerHTML = logFindings.map(f =>
+    `<div style="border:1px solid rgba(255,90,90,.35);background:rgba(255,90,90,.07);border-radius:10px;padding:10px 12px">` +
+    `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="badge" style="border-color:rgba(255,90,90,.5);color:#ff8f8f"><span class="dot" style="background:#ff5f5f"></span>${esc(f.code)}${f.count > 1 ? ' ×' + f.count : ''}</span>` +
+    `<b>${esc(f.msg)}</b></div>` +
+    (f.hint ? `<div class="qs-hint" style="margin-top:4px">\u21AA ${esc(f.hint)}</div>` : '') +
+    (f.line ? `<div class="qs-hint" style="margin-top:4px;font-family:monospace">“${esc(f.line)}”</div>` : '') +
+    `</div>`).join('');
+}
+async function loadErrors() {
+  try {
+    const j = await api('/api/errors?n=50');
+    const evs = j.events || [];
+    $('errList').innerHTML = evs.length ? evs.slice().reverse().map(e =>
+      `<div style="border:1px solid var(--ln);border-radius:10px;padding:8px 10px;display:grid;gap:2px">` +
+      `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="badge"><span class="dot"></span>${esc(e.code)}</span>` +
+      `<span class="qs-hint">${esc(e.time || '')} · ${esc(e.endpoint || '')}</span></div>` +
+      `<div style="font-size:13px">${esc(e.detail || '')}</div></div>`).join('')
+      : '<div class="qs-hint">No panel errors recorded — clean run.</div>';
+  } catch(e) { $('errList').innerHTML = '<div class="qs-hint">Could not load error history.</div>'; }
 }
 async function loadLogs() {
   try {
     const r = await fetch(at('/api/logs?svc=' + encodeURIComponent(logSvc) + '&n=' + $('logLines').value));
-    logRaw = (await r.json()).logs || '';
+    const j = await r.json();
+    logRaw = j.logs || '';
+    logFindings = j.findings || [];
     paintLogs();
   } catch(e) { toast(e.message); }
 }
@@ -1224,10 +1264,11 @@ function setLogSvc(svc) {
 function armLogFollow() {
   if (logTimer) clearInterval(logTimer);
   logTimer = setInterval(() => {
-    if (!$('app').classList.contains('hidden') && !$('tab-logs').hidden && $('logFollow').checked) loadLogs();
+    if (!$('app').classList.contains('hidden') && !$('tab-logs').hidden && $('logFollow').checked) { loadLogs(); loadErrors(); }
   }, 5000);
 }
 document.querySelectorAll('#logSvcSeg [data-log]').forEach(b => b.onclick = () => setLogSvc(b.dataset.log));
+$('errRefresh').onclick = loadErrors;
 $('logSearch').oninput = paintLogs;
 $('logLevel').onchange = paintLogs;
 $('logLines').onchange = loadLogs;

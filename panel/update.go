@@ -58,13 +58,13 @@ func latestReleaseTag() (string, error) {
 func handleUpdate(w http.ResponseWriter, r *http.Request) {
 	arch, asset, err := panelAsset()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeAPIError(w, r, "E-UPDATE-05", err.Error())
 		return
 	}
 	_ = arch
 	latest, err := latestReleaseTag()
 	if err != nil || latest == "" {
-		http.Error(w, "cannot check latest release (network or GitHub API unavailable)", http.StatusBadGateway)
+		writeAPIError(w, r, "E-UPDATE-01", "")
 		return
 	}
 	if latest == panelVersion {
@@ -74,34 +74,34 @@ func handleUpdate(w http.ResponseWriter, r *http.Request) {
 	dlURL := "https://github.com/pdnczone/hashem-panel/releases/download/" + latest + "/" + asset
 	tmp, err := os.CreateTemp("", "gre-panel-update-*")
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeAPIError(w, r, "E-UPDATE-04", "")
 		return
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 	if err := downloadFile(dlURL, tmp); err != nil {
-		http.Error(w, "download failed: "+err.Error(), http.StatusBadGateway)
+		writeAPIError(w, r, "E-UPDATE-02", err.Error())
 		return
 	}
 	if err := verifyELF(tmpPath); err != nil {
-		http.Error(w, "downloaded file failed verification: "+err.Error(), http.StatusBadGateway)
+		writeAPIError(w, r, "E-UPDATE-03", err.Error())
 		return
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeAPIError(w, r, "E-UPDATE-04", "")
 		return
 	}
 	// Swap in the new binary. Keep a .bak so a bad binary can be rolled back.
 	bak := exe + ".bak"
 	_ = os.Remove(bak)
 	if err := os.Rename(exe, bak); err != nil {
-		http.Error(w, "cannot replace binary: "+err.Error(), http.StatusInternalServerError)
+		writeAPIError(w, r, "E-UPDATE-04", err.Error())
 		return
 	}
 	if err := copyFile(tmpPath, exe); err != nil {
 		_ = os.Rename(bak, exe) // roll back
-		http.Error(w, "cannot install new binary, rolled back: "+err.Error(), http.StatusInternalServerError)
+		writeAPIError(w, r, "E-UPDATE-04", err.Error())
 		return
 	}
 	_ = os.Chmod(exe, 0755)
