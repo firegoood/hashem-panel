@@ -358,7 +358,7 @@
     </div>
     <main class="page">
       <section id="tab-dashboard">
-        <div class="dash-grid" id="dashGrid">
+        <div class="dash-grid ent-dense" id="dashGrid">
           <div class="tunnel-card kpi">
             <div class="kpi-top"><span class="kpi-label">Total Traffic</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span></div>
             <div class="kpi-val" id="kpiTraffic">N/A</div>
@@ -423,6 +423,7 @@
         <div class="tunnel-card">
           <div class="tc-header"><p class="tc-title">Tunnel status</p><span class="status-indicator" id="tunnelDot"><span class="dot"></span><span id="tunnelDotTxt">—</span></span></div>
           <div id="tunnel"></div>
+          <div class="ent-sec-label" style="margin-top:6px">Peer tunnels</div>
           <div id="peerCards" style="display:grid;gap:10px"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
             <button class="hashem-btn hashem-btn-secondary" data-act="ping">Ping peer</button>
@@ -538,7 +539,10 @@
           <div id="logFindings" style="display:grid;gap:8px;margin-top:8px"></div>
           <pre id="logs" class="logs" style="margin-top:8px">(pick a service)</pre>
           <div class="tc-header" style="margin-top:14px"><p class="tc-title" style="font-size:13px">Panel errors</p>
-            <button class="hashem-btn" id="errRefresh" style="padding:4px 10px;font-size:12px">Refresh</button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span class="qs-hint" id="errCount"></span>
+              <button class="hashem-btn hashem-btn-secondary" id="errRefresh" style="padding:4px 10px;font-size:12px">Refresh</button>
+            </div>
           </div>
           <div class="qs-hint">Every failed panel action is recorded here with its code — newest last.</div>
           <div id="errList" style="display:grid;gap:6px;margin-top:8px"><div class="qs-hint">—</div></div>
@@ -549,7 +553,7 @@
           <div class="tc-header"><p class="tc-title">Panel update</p><span class="status-indicator" id="updDot"><span class="dot"></span><span id="updDotTxt">—</span></span></div>
           <div class="ver-big" id="verCurrent">—</div>
           <div class="qs-hint">Installed version</div>
-          <div id="verRowsUpd" style="display:grid;gap:0;margin-top:4px"></div>
+          <div id="verRowsUpd" style="display:grid;gap:0;margin-top:4px"><div class="qs-hint">Press Check to load release info.</div></div>
           <div class="qs-actions" style="margin-top:8px">
             <button class="hashem-btn hashem-btn-primary" id="updateBtn">Check for updates</button>
           </div>
@@ -559,7 +563,8 @@
       <section id="tab-settings" hidden>
         <div class="tunnel-card">
           <div class="tc-header"><p class="tc-title">Settings</p></div>
-          <div class="fg"><label for="newPass">New panel password</label><input class="hashem-input" id="newPass" type="password"></div>
+          <div class="fg"><label for="newPass">New panel password</label><input class="hashem-input" id="newPass" type="password" autocomplete="new-password" minlength="4"></div>
+          <div class="ent-help">Minimum 4 characters. Changing it logs out all other sessions; this one stays.</div>
           <div><button class="hashem-btn hashem-btn-primary" id="savePass">Change password</button></div>
         </div>
       </section>
@@ -568,6 +573,14 @@
 </div>
 </div>
 <div id="toast" class="toast hidden"></div>
+<div id="entToasts" aria-live="polite"></div>
+<div class="ent-modal-ov" id="entModal" hidden>
+  <div class="ent-modal" role="dialog" aria-modal="true" aria-labelledby="entModalTitle">
+    <div class="ent-modal-h"><b id="entModalTitle">Confirm</b><button class="ent-x" id="entModalX" aria-label="Close">×</button></div>
+    <div class="ent-modal-b"><p style="margin:0;color:var(--tx2)" id="entModalBody"></p></div>
+    <div class="ent-modal-f"><button class="hashem-btn hashem-btn-ghost" id="entModalNo">Cancel</button><button class="hashem-btn hashem-btn-danger" id="entModalYes">Confirm</button></div>
+  </div>
+</div>
 
 <script>
 const BASE = document.documentElement.dataset.base || '';
@@ -575,9 +588,33 @@ const at = p => BASE + p;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-function toast(msg) {
-  const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
-  setTimeout(() => t.classList.add('hidden'), 2500);
+function toast(msg) { toastMsg('info', String(msg)); }
+function toastOk(title, sub) { toastMsg('ok', title, sub); }
+function toastErr(title, sub) { toastMsg('err', title, sub); }
+function toastWarn(title, sub) { toastMsg('warn', title, sub); }
+// Typed enterprise toast. First line = title, rest (e.g. E-CODE hint) = sub.
+function toastMsg(kind, title, sub) {
+  let box = $('entToasts');
+  if (!box) { // fallback to legacy toast if container missing
+    const t = $('toast'); if (t) { t.textContent = title; t.classList.remove('hidden'); setTimeout(() => t.classList.add('hidden'), 2500); }
+    return;
+  }
+  if (sub === undefined && /\n/.test(title)) {
+    const i = title.indexOf('\n');
+    sub = title.slice(i + 1).replace(/^↪\s*/, '');
+    title = title.slice(0, i);
+  }
+  const el = document.createElement('div');
+  el.className = 'ent-toast ' + kind;
+  el.setAttribute('role', kind === 'err' ? 'alert' : 'status');
+  const b = document.createElement('b'); b.textContent = title;
+  const wrap = document.createElement('div'); wrap.appendChild(b);
+  if (sub) { const s = document.createElement('small'); s.textContent = sub; wrap.appendChild(s); }
+  const dot = document.createElement('i');
+  el.appendChild(dot); el.appendChild(wrap);
+  box.appendChild(el);
+  while (box.children.length > 4) box.firstChild.remove();
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 320); }, kind === 'err' ? 5000 : 2800);
 }
 async function api(path, body) {
   const r = await fetch(at(path), {
@@ -602,6 +639,37 @@ async function api(path, body) {
 }
 function showLogin() { $('login').classList.remove('hidden'); $('app').classList.add('hidden'); }
 function showApp() { $('login').classList.add('hidden'); $('app').classList.remove('hidden'); }
+// Enterprise confirm modal (replaces native confirm(); same approve/cancel contract).
+// confirmYes: danger button label; returns a Promise<boolean>.
+let _entModalCleanup = null;
+function entConfirm(title, body, confirmYes) {
+  return new Promise(resolve => {
+    const ov = $('entModal');
+    $('entModalTitle').textContent = title;
+    $('entModalBody').textContent = body;
+    $('entModalYes').textContent = confirmYes || 'Confirm';
+    ov.hidden = false;
+    $('entModalYes').focus();
+    const done = v => {
+      ov.hidden = true;
+      document.removeEventListener('keydown', onKey, true);
+      resolve(v);
+    };
+    const onKey = e => { if (e.key === 'Escape') done(false); };
+    document.addEventListener('keydown', onKey, true);
+    if (_entModalCleanup) _entModalCleanup();
+    const yes = () => done(true), no = () => done(false);
+    $('entModalYes').onclick = yes; $('entModalNo').onclick = no; $('entModalX').onclick = no;
+    ov.onclick = e => { if (e.target === ov) done(false); };
+    _entModalCleanup = () => { $('entModalYes').onclick = $('entModalNo').onclick = $('entModalX').onclick = null; ov.onclick = null; };
+  });
+}
+// Skeleton blocks for loading states (Dashboard/Logs/Update reuse).
+function skel(n) {
+  let s = '';
+  for (let i = 0; i < (n || 3); i++) s += '<div class="ent-skel" style="height:14px"></div>';
+  return '<div style="display:grid;gap:8px">' + s + '</div>';
+}
 // tabs (sidebar + mobile nav)
 function goTab(name) {
   ['dashboard','tunnel','setup','logs','update','settings'].forEach(t => { $('tab-'+t).hidden = t !== name; });
@@ -626,57 +694,62 @@ function peerAct(action, peerId) {
       const r = await api('/api/action', {action, peer_id: peerId});
       $('actOut').classList.remove('hidden');
       $('actOut').textContent = r.output || 'ok';
+      toastOk(action + ' ok', r.output ? String(r.output).slice(0, 120) : '');
       refresh();
-    } catch(e) { toast(e.message); }
+    } catch(e) { toastErr(action + ' failed', e.message); }
   })();
 }
 async function removePeer(peerId, name) {
-  if (!confirm(`Remove tunnel '${name}'? Its GRE + frps go away; other tunnels keep running.`)) return;
+  if (!await entConfirm('Remove tunnel?', `Tunnel '${name}' (#${peerId}): its GRE + frps go away; other tunnels keep running.`, 'Remove')) return;
   try {
     const r = await api('/api/action', {action: 'remove-tunnel', peer_id: peerId});
-    toast(`tunnel '${name}' removed`);
+    toastOk(`tunnel '${name}' removed`);
     refresh();
-  } catch(e) { toast(e.message); }
+  } catch(e) { toastErr('remove failed', e.message); }
 }
 async function showPeerToken(peerId, name) {
   try {
     const r = await api('/api/peers?id=' + peerId);
-    toast(`token for '${name}': ${r.token} (also in logs)`);
+    toastOk(`token for '${name}'`, String(r.token || '') + ' (also in logs)');
     $('actOut').classList.remove('hidden');
     $('actOut').textContent = `Token for '${name}': ${r.token}\nForeign side: frpc with this token + the peer's ports.`;
-  } catch(e) { toast(e.message); }
+  } catch(e) { toastErr('token lookup failed', e.message); }
 }
 function renderPeers(peers) {
   const box = $('peerCards');
   if (!box) return;
-  if (!peers || !peers.length) { box.innerHTML = ''; return; }
-  box.innerHTML = peers.map(p => {
+  if (!peers || !peers.length) {
+    box.innerHTML = '<div class="ent-empty"><span class="ent-empty-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span><b>No peer tunnels yet</b>Add one below — each foreign server gets its own card here.</div>';
+    return;
+  }
+  const stBadge = (ok, label) => `<span class="badge ${ok ? 'ok' : 'err'}"><span class="dot"></span>${esc(label)}</span>`;
+  box.innerHTML = '<div class="ent-tbl-wrap" tabindex="0"><table class="ent-tbl"><thead><tr>'
+    + '<th>Tunnel</th><th class="mono">Foreign IP</th><th class="mono">GRE inner</th><th>GRE</th><th class="mono">FRP</th><th class="mono">Ports</th>'
+    + '<th class="num">Ping</th><th class="num">Traffic</th><th>Actions</th>'
+    + '</tr></thead><tbody>' + peers.map(p => {
     const up = !!(p.gre_up || p.frp_up);
-    const badge = (ok, label) => `<span class="badge ${ok ? 'ok' : 'err'}"><span class="dot"></span>${esc(label)}</span>`;
+    const nm = p.name || ('peer-' + p.id);
     const traffic = (p.rx != null && p.tx != null)
-      ? `↓ ${fmtBytes(p.rx)} · ↑ ${fmtBytes(p.tx)}`
-      : 'traffic N/A';
-    return `<div class="tunnel-card" style="padding:14px">
-      <div class="tc-header">
-        <p class="tc-title">🔗 ${esc(p.name || ('peer-' + p.id))} <span class="qs-hint">#${p.id}</span></p>
-        <span class="status-indicator ${up ? 'active' : 'offline'}"><span class="dot"></span><span>${up ? 'up' : 'down'}</span></span>
-      </div>
-      <div class="trow"><span class="k">Foreign IP</span><span class="v mono">${esc(p.remote_pub || '?')}</span></div>
-      <div class="trow"><span class="k">GRE path</span><span class="v mono">${esc(p.local_pub || '?')} → ${esc(p.remote_pub || '?')}</span></div>
-      <div class="trow"><span class="k">GRE inner</span><span class="v mono">${esc(p.local_gre || '?')} ⇄ ${esc(p.peer_gre || '?')} ${badge(p.gre_up, p.gre_up ? p.gre_if : 'down')}</span></div>
-      <div class="trow"><span class="k">FRP</span><span class="v mono">${esc(p.frps_svc || '')} :${esc(String(p.frp_port || '?'))} ${badge(p.frp_up, p.frp_up ? 'up' : 'down')}</span></div>
-      <div class="trow"><span class="k">Ports</span><span class="v mono">${esc((p.ports || []).join(', ') || '—')}</span></div>
-      <div class="trow"><span class="k">Ping</span><span class="v">${badge(p.ping_ok, p.ping_ms || 'no answer')}</span></div>
-      <div class="trow"><span class="k">Traffic</span><span class="v mono">${esc(traffic)}</span></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-        <button class="hashem-btn hashem-btn-secondary" onclick="peerAct('ping', ${p.id})">Ping</button>
-        <button class="hashem-btn hashem-btn-secondary" onclick="peerAct('restart-gre', ${p.id})">Restart GRE</button>
-        <button class="hashem-btn hashem-btn-secondary" onclick="peerAct('restart-frps', ${p.id})">Restart frps</button>
-        <button class="hashem-btn hashem-btn-secondary" onclick="showPeerToken(${p.id}, '${esc(p.name || ('peer-' + p.id))}')">Show token</button>
-        <button class="hashem-btn hashem-btn-danger" onclick="removePeer(${p.id}, '${esc(p.name || ('peer-' + p.id))}')">Remove</button>
-      </div>
-    </div>`;
-  }).join('');
+      ? ('↓ ' + fmtBytes(p.rx) + ' · ↑ ' + fmtBytes(p.tx))
+      : 'N/A';
+    return `<tr>
+      <td><span class="ent-st ${up ? 'on' : 'off'}"><i></i>${esc(nm)} <span class="qs-hint">#${p.id}</span></span></td>
+      <td class="mono">${esc(p.remote_pub || '?')}</td>
+      <td class="mono">${esc(p.local_gre || '?')} ⇄ ${esc(p.peer_gre || '?')}</td>
+      <td>${stBadge(p.gre_up, p.gre_up ? (p.gre_if || 'up') : 'down')}</td>
+      <td class="mono">${esc(p.frps_svc || '')} :${esc(String(p.frp_port || '?'))} ${stBadge(p.frp_up, p.frp_up ? 'up' : 'down')}</td>
+      <td class="mono">${esc((p.ports || []).join(', ') || '—')}</td>
+      <td class="num">${stBadge(p.ping_ok, p.ping_ms || 'no answer')}</td>
+      <td class="num mono">${esc(traffic)}</td>
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 10px;font-size:12px" onclick="peerAct('ping', ${p.id})">Ping</button>
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 10px;font-size:12px" onclick="peerAct('restart-gre', ${p.id})">GRE</button>
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 10px;font-size:12px" onclick="peerAct('restart-frps', ${p.id})">frps</button>
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 10px;font-size:12px" onclick="showPeerToken(${p.id}, '${esc(nm)}')">Token</button>
+        <button class="hashem-btn hashem-btn-danger" style="height:30px;padding:0 10px;font-size:12px" onclick="removePeer(${p.id}, '${esc(nm)}')">Remove</button>
+      </div></td>
+    </tr>`;
+  }).join('') + '</tbody></table></div>';
 }
 function renderTunnel(st) {
   $('roleLine').textContent = esc(st.role || 'unknown role');
@@ -701,7 +774,7 @@ async function refresh() {
     renderTunnel(s.local);
     renderPeers(s.peers);
     updatePeerHints(s);
-  } catch(e) { if (!/session|expired|unauthorized/i.test(e.message)) toast(e.message); }
+  } catch(e) { if (!/session|expired|unauthorized/i.test(e.message)) toastErr('refresh failed', e.message); }
   refreshDash();
 }
 // peer add-form: prefill Iran IP + suggest next control port / GRE pair
@@ -720,6 +793,8 @@ async function updatePeerHints(s) {
 $('addPeerBtn').onclick = async () => {
   const b = $('addPeerBtn');
   b.disabled = true;
+  const oldTxt = b.textContent;
+  b.innerHTML = '<span class="ent-spinner"></span> Adding…';
   $('peerToken').classList.add('hidden');
   $('peerWarn').classList.add('hidden');
   try {
@@ -743,7 +818,9 @@ $('addPeerBtn').onclick = async () => {
         const w = $('peerWarn');
         w.innerHTML = '⚠️ ' + esc(e.message);
         w.classList.remove('hidden');
-        toast('pick a different port');
+        toastWarn('pick a different port', e.code ? '[' + e.code + ']' : '');
+        b.disabled = false;
+        b.textContent = oldTxt;
         return;
       }
       throw e;
@@ -756,10 +833,11 @@ $('addPeerBtn').onclick = async () => {
       t.innerHTML = '🔑 Token (enter on the Foreign side with ports <b>' + esc($('pPorts').value) + '</b>): <b>' + esc(r.token) + '</b>';
       t.classList.remove('hidden');
     }
-    toast('tunnel added');
+    toastOk('tunnel added', $('pName').value.trim() || 'peer');
     refresh();
-  } catch(e) { toast(e.message); }
+  } catch(e) { toastErr('add tunnel failed', e.message); }
   b.disabled = false;
+  b.textContent = oldTxt;
 };
 // ---- dashboard ----
 const NA = 'N/A';
@@ -930,6 +1008,35 @@ async function refreshDash() {
     const cd = $('chartDown'), cc = $('chartCard');
     if (cd) cd.classList.toggle('hidden', on);
     if (cc) cc.classList.toggle('is-down', !on);
+    // Chart hover tooltip (read-only; data source untouched).
+    const cv = $('trafficChart');
+    if (cv && !cv.dataset.tipBound) {
+      cv.dataset.tipBound = '1';
+      const wrap = cv.parentElement;
+      if (wrap && getComputedStyle(wrap).position === 'static') wrap.classList.add('ent-chart-wrap');
+      const tip = document.createElement('div');
+      tip.className = 'ent-chart-tip'; tip.style.display = 'none';
+      (wrap || cv.parentElement).appendChild(tip);
+      cv.addEventListener('mousemove', e => {
+        const hist = cv._hist;
+        if (!hist || hist.length < 2) { tip.style.display = 'none'; return; }
+        const r = cv.getBoundingClientRect();
+        const fx = (e.clientX - r.left - 46) / Math.max(1, r.width - 56);
+        const idx = Math.round(fx * (hist.length - 1));
+        const p = hist[Math.max(0, Math.min(hist.length - 1, idx))];
+        if (!p || p.t == null) { tip.style.display = 'none'; return; }
+        const d = new Date(p.t * 1000);
+        const when = dashRange === '24h'
+          ? String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+          : d.toLocaleDateString();
+        tip.innerHTML = '<b>' + esc(when) + '</b> · ↓ ' + esc(fmtBytes(p.down)) + ' · ↑ ' + esc(fmtBytes(p.up));
+        tip.style.display = 'block';
+        tip.style.left = Math.min(Math.max(e.clientX - r.left + 12, 4), r.width - 170) + 'px';
+        tip.style.top = (e.clientY - r.top - 10) + 'px';
+      });
+      cv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    }
+    if (cv && d.history) cv._hist = d.history;
     const w = $('tunnelWarn');
     if (w) {
       if (!on) { w.innerHTML = '⚠️ <b>Tunnel is not running.</b> Go to Setup to configure GRE + FRP, or check the Tunnel tab.'; w.classList.remove('hidden'); }
@@ -995,6 +1102,8 @@ async function loadSetupDefaults() {
 async function doSetup(force) {
   const btn = force ? $('setupForceBtn') : $('setupBtn');
   btn.disabled = true;
+  const oldTxt = btn.textContent;
+  btn.innerHTML = '<span class="ent-spinner"></span> Applying…';
   $('setupToken').classList.add('hidden');
   try {
     const body = {
@@ -1012,8 +1121,11 @@ async function doSetup(force) {
     try {
       r = await api('/api/setup', body);
     } catch(e) {
-      if (/already exists/.test(e.message)) { toast('exists — press Overwrite anyway'); return; }
-      throw e;
+      if (/already exists/.test(e.message)) { toastWarn('exists — press Overwrite anyway', e.code ? '[' + e.code + ']' : ''); btn.disabled = false; btn.textContent = oldTxt; return; }
+      toastErr('setup failed', e.message);
+      btn.disabled = false;
+      btn.textContent = oldTxt;
+      return;
     }
     const out = $('setupOut');
     out.classList.remove('hidden');
@@ -1023,10 +1135,11 @@ async function doSetup(force) {
       t.innerHTML = '🔑 Token (copy to Foreign side): <b>' + esc(r.token) + '</b>';
       t.classList.remove('hidden');
     }
-    toast('setup done');
+    toastOk('setup done', $('sRole').value);
     refresh();
-  } catch(e) { toast(e.message); }
+  } catch(e) { toastErr('setup failed', e.message); }
   btn.disabled = false;
+  btn.textContent = oldTxt;
 }
 $('setupBtn').onclick = () => doSetup(false);
 $('setupForceBtn').onclick = () => doSetup(true);
@@ -1162,20 +1275,20 @@ $('toggle').addEventListener('click', () => {
 $('logoutBtn').onclick = async () => { try { await api('/api/logout', {}); } catch(e){} showLogin(); };
 $('refreshBtn').onclick = refresh;
 $('removeTunnelBtn').onclick = async () => {
-  if (!confirm('Remove the tunnel from THIS server? GRE + FRP will be deleted; the panel stays.')) return;
+  if (!await entConfirm('Remove tunnel?', 'Remove the tunnel from THIS server? GRE + FRP will be deleted; the panel stays.', 'Remove tunnel')) return;
   const b = $('removeTunnelBtn');
   b.disabled = true;
   try {
     const r = await api('/api/action', {action: 'remove-tunnel'});
     $('actOut').classList.remove('hidden');
     $('actOut').textContent = r.output || 'tunnel removed';
-    toast('tunnel removed');
+    toastOk('tunnel removed');
     refresh();
-  } catch(e) { toast(e.message); }
+  } catch(e) { toastErr('tunnel remove failed', e.message); }
   b.disabled = false;
 };
 $('optimizeBtn').onclick = async () => {
-  if (!confirm('Optimize network for tunnel throughput? (BBR + buffers + MTU/MSS — current settings are backed up first)')) return;
+  if (!await entConfirm('Optimize network?', 'Optimize network for tunnel throughput? (BBR + buffers + MTU/MSS — current settings are backed up first)', 'Optimize')) return;
   const b = $('optimizeBtn');
   b.disabled = true;
   try {
@@ -1183,22 +1296,22 @@ $('optimizeBtn').onclick = async () => {
     $('actOut').classList.remove('hidden');
     $('actOut').textContent = r.output || 'optimized';
     $('restoreBtn').classList.remove('hidden');
-    toast('tunnel optimized');
+    toastOk('tunnel optimized');
     refresh();
-  } catch(e) { toast(e.message); }
+  } catch(e) { toastErr('optimize failed', e.message); }
   b.disabled = false;
 };
 $('restoreBtn').onclick = async () => {
-  if (!confirm('Restore the settings from before optimization?')) return;
+  if (!await entConfirm('Restore settings?', 'Restore the settings from before optimization?', 'Restore')) return;
   const b = $('restoreBtn');
   b.disabled = true;
   try {
     const r = await api('/api/action', {action: 'restore'});
     $('actOut').classList.remove('hidden');
     $('actOut').textContent = r.output || 'restored';
-    toast('settings restored');
+    toastOk('settings restored');
     refresh();
-  } catch(e) { toast(e.message); }
+  } catch(e) { toastErr('restore failed', e.message); }
   b.disabled = false;
 };
 document.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
@@ -1207,8 +1320,9 @@ document.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
     const r = await api('/api/action', {action: b.dataset.act});
     $('actOut').classList.remove('hidden');
     $('actOut').textContent = r.output || 'ok';
+    toastOk(b.dataset.act + ' ok');
     refresh();
-  } catch(e) { toast(e.message); }
+  } catch(e) { toastErr(b.dataset.act + ' failed', e.message); }
   b.disabled = false;
 });
 let logSvc = 'frps', logTimer = null, logRaw = '', logFindings = [];
@@ -1240,22 +1354,25 @@ async function loadErrors() {
   try {
     const j = await api('/api/errors?n=50');
     const evs = j.events || [];
-    $('errList').innerHTML = evs.length ? evs.slice().reverse().map(e =>
-      `<div style="border:1px solid var(--ln);border-radius:10px;padding:8px 10px;display:grid;gap:2px">` +
-      `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="badge"><span class="dot"></span>${esc(e.code)}</span>` +
-      `<span class="qs-hint">${esc(e.time || '')} · ${esc(e.endpoint || '')}</span></div>` +
-      `<div style="font-size:13px">${esc(e.detail || '')}</div></div>`).join('')
-      : '<div class="qs-hint">No panel errors recorded — clean run.</div>';
-  } catch(e) { $('errList').innerHTML = '<div class="qs-hint">Could not load error history.</div>'; }
+    const ec = $('errCount'); if (ec) ec.textContent = evs.length ? evs.length + ' recorded' : '';
+    $('errList').innerHTML = evs.length ? '<div class="ent-tbl-wrap" tabindex="0"><table class="ent-tbl"><thead><tr><th>Code</th><th>Time · Endpoint</th><th>Detail</th></tr></thead><tbody>'
+      + evs.slice().reverse().map(e =>
+      `<tr><td><span class="badge err"><span class="dot"></span>${esc(e.code)}</span></td>` +
+      `<td class="mono" style="white-space:normal">${esc(e.time || '')}<br>${esc(e.endpoint || '')}</td>` +
+      `<td style="white-space:normal">${esc(e.detail || '')}</td></tr>`).join('') + '</tbody></table></div>'
+      : '<div class="ent-empty"><b>No panel errors</b>Clean run — every failure will appear here with its code.</div>';
+  } catch(e) { $('errList').innerHTML = '<div class="warnbox">Could not load error history: ' + esc(e.message) + '</div>'; }
 }
 async function loadLogs() {
+  const pre = $('logs');
+  if (!logRaw) pre.innerHTML = '<span class="qs-hint">Loading…</span>';
   try {
     const r = await fetch(at('/api/logs?svc=' + encodeURIComponent(logSvc) + '&n=' + $('logLines').value));
     const j = await r.json();
     logRaw = j.logs || '';
     logFindings = j.findings || [];
     paintLogs();
-  } catch(e) { toast(e.message); }
+  } catch(e) { toastErr('logs load failed', e.message); }
 }
 function setLogSvc(svc) {
   logSvc = svc;
@@ -1293,8 +1410,12 @@ async function refreshLogPeers() {
   } catch(e) {}
 }
 $('savePass').onclick = async () => {
-  try { await api('/api/password', {password: $('newPass').value}); $('newPass').value=''; toast('password changed'); }
-  catch(e) { toast(e.message); }
+  const v = $('newPass').value;
+  if (!v || v.length < 4) { toastWarn('password too short', 'Minimum 4 characters.'); return; }
+  const b = $('savePass'); b.disabled = true;
+  try { await api('/api/password', {password: v}); $('newPass').value=''; toastOk('password changed'); }
+  catch(e) { toastErr('password change failed', e.message); }
+  b.disabled = false;
 };
 async function loadVersion() {
   try {
@@ -1311,7 +1432,7 @@ async function loadVersion() {
     else { btn.disabled = true; btn.textContent = 'Check for updates'; }
     $('updateMsg').textContent = v.update_available ? 'A newer release (' + v.latest + ') is ready. Press Update to install it here.' : 'You are on the latest release.';
   } catch(e) {
-    const rows = $('verRowsUpd'); if (rows) rows.textContent = 'N/A';
+    const rows = $('verRowsUpd'); if (rows) rows.innerHTML = '<div class="warnbox">Version check failed: ' + esc(e.message) + '</div>';
     $('updateMsg').textContent = 'Check failed — will retry. (' + e.message + ')';
     // Auto-retry once after 5s so a transient GitHub hiccup doesn't stick.
     setTimeout(async () => { try { await api('/api/status'); loadVersion(); } catch(_){} }, 5000);
@@ -1322,13 +1443,13 @@ $('updateBtn').onclick = async () => {
   // First click = check; second click (when update known) = install.
   if (btn.disabled) return;
   if (/^Check/.test(btn.textContent)) { btn.disabled = true; btn.textContent = 'Checking…'; loadVersion(); setTimeout(() => { if (/^Checking/.test(btn.textContent)) { btn.disabled = false; btn.textContent = 'Check for updates'; } }, 8000); return; }
-  if (!confirm('Update panel to the latest release? The panel will restart (a few seconds downtime). Tunnel services keep running.')) return;
+  if (!await entConfirm('Update panel?', 'Update panel to the latest release? The panel will restart (a few seconds downtime). Tunnel services keep running.', 'Update')) return;
   btn.disabled = true;
   $('updateMsg').textContent = 'Updating… the panel will restart. This page refreshes automatically.';
   try {
     const r = await api('/api/update', {});
     $('updateMsg').textContent = (r.detail || 'updated') + ' — refreshing…';
-    toast('update started');
+    toastOk('update started', r.detail || '');
     // Poll health until the new binary is up, then reload (max ~60s).
     let n = 0;
     const iv = setInterval(async () => {
@@ -1338,7 +1459,7 @@ $('updateBtn').onclick = async () => {
       if (n > 30) { clearInterval(iv); $('updateMsg').textContent = 'Update sent — if this page does not refresh, reload it manually in ~20s.'; }
     }, 2000);
   }
-  catch(e) { $('updateMsg').textContent = e.message; toast(e.message); btn.disabled = false; }
+  catch(e) { $('updateMsg').textContent = e.message; toastErr('update failed', e.message); btn.disabled = false; }
 };
 // boot: if already logged in, status works; else show login
 (async () => {
