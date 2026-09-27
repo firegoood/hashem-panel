@@ -55,9 +55,9 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"peer_count": len(peers),
 		"peers":      peers,
 		"ping_ok":    st.PingOK,
-		"ping":      nilIfEmpty(st.PingMs),
-		"role":      nilIfEmpty(st.Role),
-		"local_pub": nilIfEmpty(detectPublicIP()),
+		"ping":       nilIfEmpty(st.PingMs),
+		"role":       nilIfEmpty(st.Role),
+		"local_pub":  nilIfEmpty(detectPublicIP()),
 		"gre": map[string]any{
 			"exists": st.Gre.Exists,
 			"inner":  nilIfEmpty(st.Gre.Inner),
@@ -65,10 +65,10 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 			"peer":   nilIfEmpty(peerOr(st)),
 		},
 		"frp": map[string]any{
-			"up":      st.FrpUp,
-			"svc":     nilIfEmpty(st.FrpSvc),
-			"port":    nilIfZero(st.FrpPort),
-			"proxies": st.Proxies,
+			"up":          st.FrpUp,
+			"svc":         nilIfEmpty(st.FrpSvc),
+			"port":        nilIfZero(st.FrpPort),
+			"proxies":     st.Proxies,
 			"proxy_ports": st.ProxyPorts,
 		},
 		"traffic": traffic,
@@ -311,7 +311,7 @@ func activeConns() any {
 // ---- traffic history: cumulative rx/tx sampled into a ring on disk ----
 
 type trafficPoint struct {
-	T     int64  `json:"t"`
+	T     int64   `json:"t"`
 	Up    *uint64 `json:"up"`
 	Down  *uint64 `json:"down"`
 	Total *uint64 `json:"total"`
@@ -377,7 +377,7 @@ func recordTrafficSample(traffic map[string]any) {
 	saveHistoryLocked()
 }
 
-// trafficHistory returns downsampled points for range=24h|7d|30d|90d.
+// trafficHistory returns downsampled points for range=1h|24h|7d|30d|90d.
 // Default 24h. Missing interface (tunnel down) yields gaps: null values.
 func trafficHistory(rng string) []trafficPoint {
 	histMu.Lock()
@@ -386,6 +386,8 @@ func trafficHistory(rng string) []trafficPoint {
 	now := time.Now().Unix()
 	span := int64(24 * 3600)
 	switch rng {
+	case "1h":
+		span = 3600
 	case "7d":
 		span = 7 * 86400
 	case "30d":

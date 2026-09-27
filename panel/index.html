@@ -160,6 +160,38 @@
   .kpi-hero .kpi-sub { font-size:12.5px; }
   @media (max-width:560px) { .kpi-hero .kpi-val { font-size:26px !important; } }
   .chart-head { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+  .chart-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .chart-live-badge {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:4px 9px; border-radius:99px;
+    font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+    line-height:1; font-variant-numeric:tabular-nums;
+    background:rgba(56,189,248,.09); border:1px solid rgba(56,189,248,.25);
+    color:#38bdf8; user-select:none;
+    transition:background .2s ease, border-color .2s ease, color .2s ease;
+  }
+  .chart-live-badge .live-dot {
+    width:6px; height:6px; border-radius:50%;
+    background:#38bdf8;
+    box-shadow:0 0 6px rgba(56,189,248,.65);
+    animation:liveDotPulse 2s cubic-bezier(.4,0,.6,1) infinite;
+  }
+  @keyframes liveDotPulse {
+    0%, 100% { opacity:1; transform:scale(1); box-shadow:0 0 0 0 rgba(56,189,248,.65); }
+    50% { opacity:.5; transform:scale(.92); box-shadow:0 0 0 4px rgba(56,189,248,0); }
+  }
+  .chart-live-badge.is-paused {
+    background:rgba(255,255,255,.04); border-color:var(--ln);
+    color:var(--mu);
+  }
+  .chart-live-badge.is-paused .live-dot {
+    background:var(--dim);
+    box-shadow:none;
+    animation:none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chart-live-badge .live-dot { animation:none !important; }
+  }
   .chart-filters { display:flex; gap:4px; padding:4px; border-radius:10px; border:1px solid var(--ln); background:var(--s2); }
   .chart-filters button { border:0; background:transparent; color:var(--mu); border-radius:7px;
     padding:6px 12px; font-size:var(--fs-small); font-weight:600; cursor:pointer;
@@ -216,6 +248,28 @@
   body[data-t="light"] .chart-card .chart-filters button[aria-pressed="true"] {
     background:var(--tx); color:#fff;
     box-shadow:0 1px 6px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.15); }
+  body[data-t="light"] .chart-live-badge {
+    background:rgba(2,132,199,.08); border-color:rgba(2,132,199,.25);
+    color:#0284c7;
+  }
+  body[data-t="light"] .chart-live-badge .live-dot {
+    background:#0284c7;
+    box-shadow:0 0 6px rgba(2,132,199,.5);
+    animation-name:liveDotPulseLight;
+  }
+  @keyframes liveDotPulseLight {
+    0%, 100% { opacity:1; transform:scale(1); box-shadow:0 0 0 0 rgba(2,132,199,.6); }
+    50% { opacity:.5; transform:scale(.92); box-shadow:0 0 0 4px rgba(2,132,199,0); }
+  }
+  body[data-t="light"] .chart-live-badge.is-paused {
+    background:rgba(0,0,0,.04); border-color:var(--ln);
+    color:var(--mu);
+  }
+  body[data-t="light"] .chart-live-badge.is-paused .live-dot {
+    background:var(--dim);
+    box-shadow:none;
+    animation:none;
+  }
   body[data-t="light"] .chart-legend .sw-dl, body[data-t="light"] .chart-legend span:first-child .sw { background:#0284c7 !important; box-shadow:none; }
   body[data-t="light"] .chart-legend .sw-ul, body[data-t="light"] .chart-legend span:last-child .sw { background:#6366f1 !important; box-shadow:none; }
   .chart-card.is-down .chart-legend .sw-dl, .chart-card.is-down .chart-legend span:first-child .sw { background:var(--er) !important; box-shadow:none; }
@@ -521,10 +575,13 @@
           <div class="tunnel-card dash-span chart-card" id="chartCard">
             <div class="chart-head">
               <div><p class="chart-title">Total Traffic &amp; Activity</p><div class="chart-sub" id="chartHint">Throughput volume and packet metrics over time</div></div>
-              <div class="chart-filters" role="group" aria-label="Range">
-                <button data-range="24h" aria-pressed="true">24H</button>
-                <button data-range="7d" aria-pressed="false">7D</button>
-                <button data-range="30d" aria-pressed="false">30D</button>
+              <div class="chart-actions">
+                <div class="chart-live-badge" id="chartLiveBadge"><span class="live-dot"></span><span class="live-txt">LIVE</span></div>
+                <div class="chart-filters" role="group" aria-label="Range">
+                  <button data-range="1h" aria-pressed="false">1H</button>
+                  <button data-range="24h" aria-pressed="true">24H</button>
+                  <button data-range="7d" aria-pressed="false">7D</button>
+                </div>
               </div>
             </div>
             <div class="chart-down hidden" id="chartDown">🔴 Tunnel is down — no live traffic. History below is stale until the tunnel comes back up.</div>
@@ -925,6 +982,15 @@ function goTab(name) {
   if (name === 'update') loadVersion();
   if (name === 'logs') { refreshLogPeers(); loadLogs(); loadErrors(); armLogFollow(); }
   if (name === 'terminal') termOnShow();
+  if (name === 'dashboard') {
+    // tab was hidden: the rAF loop stopped itself; resume it without replaying
+    // the draw-in animation (refreshDash() also redraws within 5s anyway).
+    const c = $('trafficChart');
+    if (c && c._hist && !c._isDown && !c._animId) {
+      c._forceAnim = false;
+      drawChart(c._hist, c._isDown);
+    }
+  }
 }
 document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => goTab(b.dataset.tab); });
 // mobile drawer: clones the sidebar nav so phone users get a hamburger
@@ -1313,6 +1379,8 @@ let dashRange = '24h';
 document.querySelectorAll('[data-range]').forEach(b => b.onclick = () => {
   dashRange = b.dataset.range;
   document.querySelectorAll('[data-range]').forEach(x => x.setAttribute('aria-pressed', x === b));
+  const cv = $('trafficChart');
+  if (cv) cv._forceAnim = true;
   refreshDash();
 });
 // Throughput line chart (canvas, no deps): cumulative counters -> per-interval rate.
@@ -1349,7 +1417,7 @@ function drawChart(hist, isDown) {
   const pts = (hist || []).filter(p => p && p.t != null);
   if (pts.length < 2) {
     if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
-    cv._dataSig = null;
+    cv._peak = null; cv._peakRange = null;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = C_IDLE; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
@@ -1372,7 +1440,7 @@ function drawChart(hist, isDown) {
   const vals = series.filter(Boolean);
   if (!vals.length) {
     if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
-    cv._dataSig = null;
+    cv._peak = null; cv._peakRange = null;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = C_IDLE; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
@@ -1392,7 +1460,7 @@ function drawChart(hist, isDown) {
 
   // Build smoothed point sequences with Catmull-Rom & de-spiking
   const getSeq = key => {
-    const seq = series.map((p, i) => p ? { x: X(i), y: Y(p[key]), val: p[key], i } : null).filter(Boolean);
+    const seq = series.map((p, i) => p ? { x: X(i), y: Y(p[key]), val: p[key], i, t: p.t } : null).filter(Boolean);
     if (seq.length > 1) {
       // de-spike: clamp any single-sample jump to 1.6x of neighbours
       for (let i = 1; i < seq.length - 1; i++) {
@@ -1408,10 +1476,62 @@ function drawChart(hist, isDown) {
   const seqUl = getSeq('up');
   const seqDl = getSeq('down');
 
-  // Peak marker on visible download series
-  let peakPt = null;
+  // Sticky peak detection on visible download series
+  const isFirstShow = !cv._hasDrawn;
+  const rangeChanged = cv._drawnRange !== dashRange;
+  const forceAnim = !!cv._forceAnim;
+
+  let curMaxPt = null;
   for (const pt of seqDl) {
-    if (!peakPt || pt.val > peakPt.val) peakPt = pt;
+    if (!curMaxPt || pt.val > curMaxPt.val) curMaxPt = pt;
+  }
+
+  let peakPt = null;
+  if (rangeChanged || isFirstShow || forceAnim || !cv._peak || cv._peakRange !== dashRange) {
+    // Reset/re-seed peak from current visible max
+    if (curMaxPt && curMaxPt.val > 0) {
+      cv._peak = { val: curMaxPt.val, x: curMaxPt.x, t: curMaxPt.t };
+      peakPt = curMaxPt;
+    } else {
+      cv._peak = null;
+      peakPt = null;
+    }
+    cv._peakRange = dashRange;
+  } else {
+    // Moves only when a new point EXCEEDS stored val with hysteresis (new > stored*1.02)
+    if (curMaxPt && curMaxPt.val > cv._peak.val * 1.02) {
+      cv._peak = { val: curMaxPt.val, x: curMaxPt.x, t: curMaxPt.t };
+      peakPt = curMaxPt;
+    } else {
+      // Stored peak point still visible in series?
+      let match = null;
+      if (cv._peak.t != null) {
+        match = seqDl.find(p => p.t === cv._peak.t);
+        if (!match) {
+          // If downsample shifted timestamp slightly, find closest within 60s
+          let minDt = Infinity;
+          for (const p of seqDl) {
+            const dt = Math.abs(p.t - cv._peak.t);
+            if (dt < minDt && dt <= 60) { minDt = dt; match = p; }
+          }
+        }
+      }
+      if (match) {
+        cv._peak.x = match.x;
+        cv._peak.val = match.val;
+        cv._peak.t = match.t;
+        peakPt = match;
+      } else {
+        // Stored peak point scrolled out of view: re-seed from current visible max
+        if (curMaxPt && curMaxPt.val > 0) {
+          cv._peak = { val: curMaxPt.val, x: curMaxPt.x, t: curMaxPt.t };
+          peakPt = curMaxPt;
+        } else {
+          cv._peak = null;
+          peakPt = null;
+        }
+      }
+    }
   }
 
   // Curve tracer for Catmull-Rom cubic beziers
@@ -1473,7 +1593,7 @@ function drawChart(hist, isDown) {
   const fmtTick = t => {
     const d = new Date(t * 1000);
     const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
-    return dashRange === '24h'
+    return (dashRange === '1h' || dashRange === '24h')
       ? String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0')
       : M + ' ' + d.getDate();
   };
@@ -1645,10 +1765,11 @@ function drawChart(hist, isDown) {
 
   // Determine animation need
   const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const lastSample = pts[pts.length - 1];
-  const dataSig = pts.length + '_' + (lastSample ? lastSample.t + '_' + lastSample.down : '') + '_' + dashRange + '_' + isDown + '_' + light + '_' + Math.round(W);
-  const isNew = cv._dataSig !== dataSig;
-  cv._dataSig = dataSig;
+  const shouldAnimate = !prefersReduced && (isFirstShow || rangeChanged || forceAnim);
+  cv._hasDrawn = true;
+  cv._drawnRange = dashRange;
+  cv._forceAnim = false;
+  cv._dataSig = dashRange + '_' + (isDown ? '1' : '0') + '_' + (light ? '1' : '0') + '_' + Math.round(W);
 
   if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
 
@@ -1663,12 +1784,14 @@ function drawChart(hist, isDown) {
       renderFrame(1, pPhase);
       cv._animId = requestAnimationFrame(pulseStep);
     };
+    const pPhase = (Date.now() % 1600) / 1600;
+    renderFrame(1, pPhase);
     cv._animId = requestAnimationFrame(pulseStep);
   };
 
   if (prefersReduced) {
     renderFrame(1, 0);
-  } else if (isNew) {
+  } else if (shouldAnimate) {
     const animStart = performance.now();
     const DURATION = 550;
     const animStep = now => {
@@ -1685,8 +1808,12 @@ function drawChart(hist, isDown) {
     };
     cv._animId = requestAnimationFrame(animStep);
   } else {
-    if (!isDown) startPulseLoop();
-    else renderFrame(1, 0);
+    // Soft update: same-range data tick, no draw-in animation, no clip wipe
+    if (!isDown) {
+      startPulseLoop();
+    } else {
+      renderFrame(1, 0);
+    }
   }
 }
 async function refreshDash() {
@@ -1733,6 +1860,13 @@ async function refreshDash() {
     const cd = $('chartDown'), cc = $('chartCard');
     if (cd) cd.classList.toggle('hidden', on);
     if (cc) cc.classList.toggle('is-down', !on);
+    const badge = $('chartLiveBadge');
+    if (badge) {
+      const paused = !on || document.hidden;
+      badge.classList.toggle('is-paused', paused);
+      const txt = badge.querySelector('.live-txt');
+      if (txt) txt.textContent = paused ? 'PAUSED' : 'LIVE';
+    }
     // Chart hover tooltip (read-only; data source untouched).
     const cv = $('trafficChart');
     if (cv && !cv.dataset.tipBound) {
@@ -1758,7 +1892,7 @@ async function refreshDash() {
         const d = new Date(p.t * 1000);
         const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
         const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-        const when = dashRange === '24h' ? hhmm : M + ' ' + d.getDate() + ' ' + hhmm;
+        const when = (dashRange === '1h' || dashRange === '24h') ? hhmm : M + ' ' + d.getDate() + ' ' + hhmm;
         tip.innerHTML = '<span class="tip-time">' + esc(when) + '</span><span class="tip-sep">·</span>' +
           '<span class="tip-down"><i class="sw-dl"></i>↓ ' + esc(fmtRate(p.down)) + '</span><span class="tip-sep">·</span>' +
           '<span class="tip-up"><i class="sw-ul"></i>↑ ' + esc(fmtRate(p.up)) + '</span>';
@@ -2596,7 +2730,7 @@ $('termSearchInput').addEventListener('keydown', e => { if (e.key === 'Enter') t
 document.querySelectorAll('#termKeys button').forEach(b => b.onclick = () => { termSend({v:1, t:'in', d: b.dataset.k}); termState.term && termState.term.focus(); });
 window.addEventListener('resize', () => {
   if (!$('tab-terminal').hidden && termState.fit) { try { termState.fit.fit(); termSendResize(); } catch(_){} }
-  const c = $('trafficChart'); if (c && c._hist && !$('tab-dashboard').hidden) { c._dataSig = null; drawChart(c._hist, c._isDown); }
+  const c = $('trafficChart'); if (c && c._hist && !$('tab-dashboard').hidden) { drawChart(c._hist, c._isDown); }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('termWrap').classList.contains('full')) { $('termWrap').classList.remove('full'); try { termState.fit.fit(); termSendResize(); } catch(_){} } });
 // ---------- panel TLS (Settings: Let's Encrypt via certbot) ----------
@@ -2649,10 +2783,17 @@ setInterval(() => { if (document.hidden) return; if (!$('app').classList.contain
 armLogFollow();
 setInterval(() => { if (document.hidden) return; if (!$('app').classList.contains('hidden') && !$('tab-dashboard').hidden) refreshDash(); }, 5000);
 document.addEventListener('visibilitychange', () => {
+  const badge = $('chartLiveBadge');
+  const cv = $('trafficChart');
+  if (badge) {
+    const paused = document.hidden || (cv && !!cv._isDown);
+    badge.classList.toggle('is-paused', paused);
+    const txt = badge.querySelector('.live-txt');
+    if (txt) txt.textContent = paused ? 'PAUSED' : 'LIVE';
+  }
   if (document.hidden) {
-    const cv = $('trafficChart');
     if (cv) {
-      cv._hist = null; cv._dataSig = null;
+      cv._hist = null;
       if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
     }
   } else if (!$('app').classList.contains('hidden') && !$('tab-dashboard').hidden) refreshDash();
