@@ -27,7 +27,190 @@ IRAN_GRE_IP="10.10.10.2"
 FOREIGN_GRE_IP="10.10.10.1"
 TUNNEL_NAME="gre-tunnel"
 WATCHDOG_FILE="/etc/gre-panel/watchdog.json"
+PERF_FILE="/etc/gre-panel/perf.json"
 BACKUP_DIR="/var/backups/hashem"
+
+# ---- Performance / Obfuscation Configuration (/etc/gre-panel/perf.json) ----
+init_perf_json() {
+    mkdir -p /etc/gre-panel
+    if [[ ! -f "$PERF_FILE" ]]; then
+        cat << 'EOF' > "$PERF_FILE"
+{
+  "proxy_encryption": false,
+  "proxy_compression": false,
+  "force_tls": true,
+  "chaff_profile": "low",
+  "dpi_enabled": true,
+  "dpi_rate": "300/min",
+  "dpi_burst": 100
+}
+EOF
+        chmod 600 "$PERF_FILE" 2>/dev/null || true
+    fi
+}
+
+perf_get_enc() {
+    if [[ -n "${PERF_ENC:-}" ]]; then
+        [[ "$PERF_ENC" == "1" || "$PERF_ENC" == "true" ]] && echo 1 || echo 0
+        return 0
+    fi
+    if [[ -f "$PERF_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json
+try:
+    with open("'"$PERF_FILE"'") as f:
+        print(1 if json.load(f).get("proxy_encryption", False) else 0)
+except Exception:
+    print(0)
+' 2>/dev/null && return 0
+    elif [[ -f "$PERF_FILE" ]]; then
+        grep -q '"proxy_encryption"[[:space:]]*:[[:space:]]*true' "$PERF_FILE" && echo 1 || echo 0
+        return 0
+    fi
+    echo 0
+}
+
+perf_get_comp() {
+    if [[ -n "${PERF_COMP:-}" ]]; then
+        [[ "$PERF_COMP" == "1" || "$PERF_COMP" == "true" ]] && echo 1 || echo 0
+        return 0
+    fi
+    if [[ -f "$PERF_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json
+try:
+    with open("'"$PERF_FILE"'") as f:
+        print(1 if json.load(f).get("proxy_compression", False) else 0)
+except Exception:
+    print(0)
+' 2>/dev/null && return 0
+    elif [[ -f "$PERF_FILE" ]]; then
+        grep -q '"proxy_compression"[[:space:]]*:[[:space:]]*true' "$PERF_FILE" && echo 1 || echo 0
+        return 0
+    fi
+    echo 0
+}
+
+perf_get_tls() {
+    if [[ -n "${PERF_TLS:-}" ]]; then
+        [[ "$PERF_TLS" == "1" || "$PERF_TLS" == "true" ]] && echo 1 || echo 0
+        return 0
+    fi
+    if [[ -f "$PERF_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json
+try:
+    with open("'"$PERF_FILE"'") as f:
+        print(1 if json.load(f).get("force_tls", True) else 0)
+except Exception:
+    print(1)
+' 2>/dev/null && return 0
+    elif [[ -f "$PERF_FILE" ]]; then
+        grep -q '"force_tls"[[:space:]]*:[[:space:]]*false' "$PERF_FILE" && echo 0 || echo 1
+        return 0
+    fi
+    echo 1
+}
+
+perf_get_chaff() {
+    if [[ -n "${CHAFF_PROFILE:-}" ]]; then
+        echo "$CHAFF_PROFILE"
+        return 0
+    fi
+    if [[ -f "$PERF_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json
+try:
+    with open("'"$PERF_FILE"'") as f:
+        p = json.load(f).get("chaff_profile", "low")
+        print(p if p in ("off", "low", "mid") else "low")
+except Exception:
+    print("low")
+' 2>/dev/null && return 0
+    fi
+    echo "low"
+}
+
+perf_get_dpi_enabled() {
+    if [[ -f "$PERF_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json
+try:
+    with open("'"$PERF_FILE"'") as f:
+        print(1 if json.load(f).get("dpi_enabled", True) else 0)
+except Exception:
+    print(1)
+' 2>/dev/null && return 0
+    elif [[ -f "$PERF_FILE" ]]; then
+        grep -q '"dpi_enabled"[[:space:]]*:[[:space:]]*false' "$PERF_FILE" && echo 0 || echo 1
+        return 0
+    fi
+    echo 1
+}
+
+perf_get_dpi_rate() {
+    if [[ -f "$PERF_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json
+try:
+    with open("'"$PERF_FILE"'") as f:
+        r = json.load(f).get("dpi_rate", "300/min")
+        print(r if r else "300/min")
+except Exception:
+    print("300/min")
+' 2>/dev/null && return 0
+    fi
+    echo "300/min"
+}
+
+perf_get_dpi_burst() {
+    if [[ -f "$PERF_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json
+try:
+    with open("'"$PERF_FILE"'") as f:
+        b = json.load(f).get("dpi_burst", 100)
+        print(int(b) if int(b) > 0 else 100)
+except Exception:
+    print(100)
+' 2>/dev/null && return 0
+    fi
+    echo 100
+}
+
+perf_set_val() {
+    local key="$1" val="$2" is_raw="${3:-0}"
+    init_perf_json
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json
+path = "'"$PERF_FILE"'"
+key = "'"$key"'"
+raw = '"$is_raw"'
+val_str = """'"$val"'"""
+try:
+    with open(path, "r") as f:
+        d = json.load(f)
+except Exception:
+    d = {}
+if raw:
+    if val_str in ("true", "True", "1"):
+        d[key] = True
+    elif val_str in ("false", "False", "0"):
+        d[key] = False
+    else:
+        try:
+            d[key] = int(val_str)
+        except Exception:
+            d[key] = val_str
+else:
+    d[key] = val_str
+with open(path, "w") as f:
+    json.dump(d, f, indent=2)
+'
+        chmod 600 "$PERF_FILE" 2>/dev/null || true
+    fi
+}
 
 # ---- input validation (same rules as the web panel: IPv4, port 1-65535) ----
 is_valid_ip() {
@@ -367,7 +550,7 @@ EOF
 # setup_chaff: $1=ifname_suffix("" for legacy, "-N" for peers) $2=peer_gre_ip
 setup_chaff() {
     local SUF=$1 PEER_GRE=$2
-    local PROFILE="${CHAFF_PROFILE:-low}"
+    local PROFILE="${CHAFF_PROFILE:-$(perf_get_chaff)}"
     if [[ "$PROFILE" == "off" ]]; then
         return 0
     fi
@@ -713,8 +896,10 @@ dpi_shield_on() {
 
     # Add per-port hashlimit rules
     local port
+    local DPI_RATE=$(perf_get_dpi_rate)
+    local DPI_BURST=$(perf_get_dpi_burst)
     for port in "${REVERSE_PORTS[@]}"; do
-        iptables -A HASHEM-DPI -p tcp --dport "$port" -m limit --limit 30/min --limit-burst 20 -j ACCEPT
+        iptables -A HASHEM-DPI -p tcp --dport "$port" -m limit --limit "$DPI_RATE" --limit-burst "$DPI_BURST" -j ACCEPT
         iptables -A HASHEM-DPI -p tcp --dport "$port" -j DROP
     done
 
@@ -819,6 +1004,375 @@ menu_dpi_shield() {
     esac
 }
 
+# ---- Performance & Obfuscation Controls (CLI + Menu 22) ----
+
+perf_apply() {
+    init_perf_json
+    local EFF_ENC=$(perf_get_enc)
+    local EFF_COMP=$(perf_get_comp)
+    local EFF_TLS=$(perf_get_tls)
+
+    local IS_FOREIGN=0
+    local IS_IRAN=0
+    [[ -f "${CONFIG_DIR}/frpc.toml" ]] && IS_FOREIGN=1
+    [[ -f "${CONFIG_DIR}/frps.toml" ]] && IS_IRAN=1
+    for f in "${CONFIG_DIR}"/frps*.toml; do
+        [[ -f "$f" ]] && IS_IRAN=1
+    done
+
+    if [[ "$IS_FOREIGN" -eq 0 && "$IS_IRAN" -eq 0 ]]; then
+        echo -e "${YELLOW}[!] No frps.toml or frpc.toml found in ${CONFIG_DIR}.${NC}"
+        echo -e "${YELLOW}[*] Set up a tunnel first before applying performance settings.${NC}"
+        return 1
+    fi
+
+    echo -e "${CYAN}[*] Applying performance settings (enc=${EFF_ENC} comp=${EFF_COMP} tls=${EFF_TLS})...${NC}"
+
+    if [[ "$IS_FOREIGN" -eq 1 ]]; then
+        local TOML_FILE="${CONFIG_DIR}/frpc.toml"
+        if command -v python3 >/dev/null 2>&1; then
+            python3 -c '
+path = "'"$TOML_FILE"'"
+enc = bool('"$EFF_ENC"')
+comp = bool('"$EFF_COMP"')
+tls = bool('"$EFF_TLS"')
+
+with open(path, "r") as f:
+    lines = f.read().splitlines()
+
+sections = []
+current = []
+for line in lines:
+    if line.strip().startswith("[[proxies]]"):
+        if current:
+            sections.append(current)
+        current = [line]
+    else:
+        current.append(line)
+if current:
+    sections.append(current)
+
+out_sections = []
+for i, sec in enumerate(sections):
+    if i == 0 and not sec[0].strip().startswith("[[proxies]]"):
+        new_sec = []
+        has_tls_enable = False
+        for l in sec:
+            s = l.strip()
+            if s.startswith("transport.tls.disableCustomTLSFirstByte"):
+                continue
+            if s.startswith("transport.tls.enable"):
+                has_tls_enable = True
+            new_sec.append(l)
+        final_hdr = []
+        for l in new_sec:
+            final_hdr.append(l)
+            if l.strip().startswith("transport.tls.enable") and tls:
+                final_hdr.append("transport.tls.disableCustomTLSFirstByte = true")
+        if tls and not any("transport.tls.disableCustomTLSFirstByte" in x for x in final_hdr):
+            if not has_tls_enable:
+                final_hdr.append("transport.tls.enable = true")
+            final_hdr.append("transport.tls.disableCustomTLSFirstByte = true")
+        out_sections.append(final_hdr)
+    else:
+        new_sec = []
+        for l in sec:
+            s = l.strip()
+            if s.startswith("transport.useEncryption") or s.startswith("transport.useCompression"):
+                continue
+            new_sec.append(l)
+        while new_sec and new_sec[-1].strip() == "":
+            new_sec.pop()
+        if enc:
+            new_sec.append("transport.useEncryption = true")
+        if comp:
+            new_sec.append("transport.useCompression = true")
+        new_sec.append("")
+        out_sections.append(new_sec)
+
+result = "\n".join("\n".join(s) for s in out_sections).strip() + "\n"
+with open(path, "w") as f:
+    f.write(result)
+'
+        fi
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl restart frpc
+        echo -e "${GREEN}[✔️] frpc.toml updated & frpc service restarted.${NC}"
+    fi
+
+    if [[ "$IS_IRAN" -eq 1 ]]; then
+        for TOML_FILE in "${CONFIG_DIR}"/frps*.toml; do
+            [[ -f "$TOML_FILE" ]] || continue
+            if command -v python3 >/dev/null 2>&1; then
+                python3 -c '
+path = "'"$TOML_FILE"'"
+tls = bool('"$EFF_TLS"')
+
+with open(path, "r") as f:
+    lines = f.read().splitlines()
+
+new_lines = []
+for l in lines:
+    s = l.strip()
+    if s.startswith("transport.tls.force"):
+        continue
+    new_lines.append(l)
+
+final_lines = []
+has_tls = False
+for l in new_lines:
+    final_lines.append(l)
+    if l.strip().startswith("auth.token") and tls:
+        final_lines.append("transport.tls.force = true")
+        has_tls = True
+
+if tls and not has_tls:
+    final_lines.append("transport.tls.force = true")
+
+result = "\n".join(final_lines).strip() + "\n"
+with open(path, "w") as f:
+    f.write(result)
+'
+            fi
+        done
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl restart frps >/dev/null 2>&1 || true
+        for s in /etc/systemd/system/frps-*.service; do
+            [[ -f "$s" ]] || continue
+            local sname=$(basename "$s")
+            systemctl restart "$sname" >/dev/null 2>&1 || true
+        done
+        echo -e "${GREEN}[✔️] frps toml(s) updated & frps service(s) restarted.${NC}"
+    fi
+
+    # Also apply chaff profile
+    local CHAFF_PROF=$(perf_get_chaff)
+    if [[ "$CHAFF_PROF" == "off" ]]; then
+        cli_chaff off >/dev/null 2>&1 || true
+    else
+        CHAFF_PROFILE="$CHAFF_PROF" cli_chaff on >/dev/null 2>&1 || true
+    fi
+
+    # Also apply DPI shield setting
+    local DPI_EN=$(perf_get_dpi_enabled)
+    if [[ "$DPI_EN" == "1" ]]; then
+        dpi_shield_on >/dev/null 2>&1 || true
+    else
+        dpi_shield_off >/dev/null 2>&1 || true
+    fi
+
+    echo -e "${GREEN}[✔️] Performance settings successfully applied.${NC}"
+    return 0
+}
+
+cli_perf() {
+    local SUB="${1:-status}"
+    case "$SUB" in
+        status)
+            init_perf_json
+            local ENC=$(perf_get_enc)
+            local COMP=$(perf_get_comp)
+            local TLS=$(perf_get_tls)
+            local CHAFF=$(perf_get_chaff)
+            local DPI_EN=$(perf_get_dpi_enabled)
+            local DPI_R=$(perf_get_dpi_rate)
+            local DPI_B=$(perf_get_dpi_burst)
+
+            echo -e "\n${CYAN}==========================================================${NC}"
+            echo -e "${CYAN}            Performance & Obfuscation Status              ${NC}"
+            echo -e "${CYAN}==========================================================${NC}"
+            echo -e "Settings (/etc/gre-panel/perf.json):"
+            echo -e "  Proxy Encryption:  $([[ "$ENC" == "1" ]] && echo -e "${GREEN}on${NC}" || echo -e "${YELLOW}off${NC}")"
+            echo -e "  Proxy Compression: $([[ "$COMP" == "1" ]] && echo -e "${GREEN}on${NC}" || echo -e "${YELLOW}off${NC}")"
+            echo -e "  Forced TLS:        $([[ "$TLS" == "1" ]] && echo -e "${GREEN}on${NC}" || echo -e "${YELLOW}off${NC}")"
+            echo -e "  Chaff Profile:     ${CYAN}${CHAFF}${NC}"
+            echo -e "  DPI Shield:        $([[ "$DPI_EN" == "1" ]] && echo -e "${GREEN}enabled${NC} (${DPI_R}, burst ${DPI_B})" || echo -e "${YELLOW}disabled${NC}")"
+
+            if [[ -n "${PERF_ENC:-}" || -n "${PERF_COMP:-}" || -n "${PERF_TLS:-}" ]]; then
+                echo -e "${YELLOW}[!] Env overrides active: PERF_ENC=${PERF_ENC:-unset} PERF_COMP=${PERF_COMP:-unset} PERF_TLS=${PERF_TLS:-unset}${NC}"
+            fi
+
+            echo ""
+            echo -e "Live Tunnel Configuration:"
+            local MATCH=1
+
+            if [[ -f "${CONFIG_DIR}/frpc.toml" ]]; then
+                local LIVE_ENC=0 LIVE_COMP=0 LIVE_TLS=0
+                grep -E -q '^[[:space:]]*transport\.useEncryption[[:space:]]*=[[:space:]]*true' "${CONFIG_DIR}/frpc.toml" && LIVE_ENC=1
+                grep -E -q '^[[:space:]]*transport\.useCompression[[:space:]]*=[[:space:]]*true' "${CONFIG_DIR}/frpc.toml" && LIVE_COMP=1
+                grep -E -q '^[[:space:]]*transport\.tls\.disableCustomTLSFirstByte[[:space:]]*=[[:space:]]*true' "${CONFIG_DIR}/frpc.toml" && LIVE_TLS=1
+
+                echo -e "  Role: Foreign client (frpc)"
+                echo -e "  Live Proxy Encryption:  $([[ "$LIVE_ENC" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_ENC" == "$ENC" ]] && echo -e "${GREEN}[MATCH]${NC}" || { echo -e "${RED}[MISMATCH]${NC}"; MATCH=0; })"
+                echo -e "  Live Proxy Compression: $([[ "$LIVE_COMP" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_COMP" == "$COMP" ]] && echo -e "${GREEN}[MATCH]${NC}" || { echo -e "${RED}[MISMATCH]${NC}"; MATCH=0; })"
+                echo -e "  Live Forced TLS:        $([[ "$LIVE_TLS" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_TLS" == "$TLS" ]] && echo -e "${GREEN}[MATCH]${NC}" || { echo -e "${RED}[MISMATCH]${NC}"; MATCH=0; })"
+            elif [[ -f "${CONFIG_DIR}/frps.toml" ]] || ls "${CONFIG_DIR}"/frps*.toml >/dev/null 2>&1; then
+                local LIVE_TLS=0
+                local F
+                for F in "${CONFIG_DIR}"/frps*.toml; do
+                    [[ -f "$F" ]] || continue
+                    grep -E -q '^[[:space:]]*transport\.tls\.force[[:space:]]*=[[:space:]]*true' "$F" && LIVE_TLS=1
+                done
+                echo -e "  Role: Iran server (frps)"
+                echo -e "  Live Forced TLS:        $([[ "$LIVE_TLS" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_TLS" == "$TLS" ]] && echo -e "${GREEN}[MATCH]${NC}" || { echo -e "${RED}[MISMATCH]${NC}"; MATCH=0; })"
+                echo -e "  (Proxy encryption & compression are client-side settings on Foreign VPS)"
+            else
+                echo -e "  No live tunnel configs found."
+            fi
+
+            # DPI live
+            if iptables -L HASHEM-DPI -n >/dev/null 2>&1; then
+                echo -e "  DPI Shield (iptables):  ${GREEN}ACTIVE${NC}"
+            else
+                echo -e "  DPI Shield (iptables):  ${YELLOW}INACTIVE${NC}"
+            fi
+
+            # Chaff live
+            if systemctl is-active --quiet gre-chaff 2>/dev/null || systemctl list-units --type=service 2>/dev/null | grep -q 'gre-chaff.*running'; then
+                echo -e "  Chaff Service:          ${GREEN}RUNNING${NC}"
+            else
+                echo -e "  Chaff Service:          ${YELLOW}STOPPED${NC}"
+            fi
+
+            echo ""
+            if [[ "$MATCH" -eq 1 ]]; then
+                echo -e "${GREEN}[✔️] Live configuration matches effective settings.${NC}"
+            else
+                echo -e "${RED}[!] Live configuration does NOT match settings. Run 'hashem perf apply' to sync.${NC}"
+            fi
+            ;;
+        enc)
+            local VAL="${2:-}"
+            case "$VAL" in
+                on)  perf_set_val "proxy_encryption" "true" 1; echo -e "${GREEN}[✔️] Proxy encryption set to 'on'. Run 'hashem perf apply' to apply and restart tunnels.${NC}" ;;
+                off) perf_set_val "proxy_encryption" "false" 1; echo -e "${GREEN}[✔️] Proxy encryption set to 'off'. Run 'hashem perf apply' to apply and restart tunnels.${NC}" ;;
+                *)   echo -e "${RED}[!] Usage: hashem perf enc on|off${NC}"; return 1 ;;
+            esac
+            ;;
+        comp)
+            local VAL="${2:-}"
+            case "$VAL" in
+                on)  perf_set_val "proxy_compression" "true" 1; echo -e "${GREEN}[✔️] Proxy compression set to 'on'. Run 'hashem perf apply' to apply and restart tunnels.${NC}" ;;
+                off) perf_set_val "proxy_compression" "false" 1; echo -e "${GREEN}[✔️] Proxy compression set to 'off'. Run 'hashem perf apply' to apply and restart tunnels.${NC}" ;;
+                *)   echo -e "${RED}[!] Usage: hashem perf comp on|off${NC}"; return 1 ;;
+            esac
+            ;;
+        tls)
+            local VAL="${2:-}"
+            case "$VAL" in
+                on)  perf_set_val "force_tls" "true" 1; echo -e "${GREEN}[✔️] Forced TLS set to 'on'. Run 'hashem perf apply' to apply and restart tunnels.${NC}" ;;
+                off) perf_set_val "force_tls" "false" 1; echo -e "${GREEN}[✔️] Forced TLS set to 'off'. Run 'hashem perf apply' to apply and restart tunnels.${NC}" ;;
+                *)   echo -e "${RED}[!] Usage: hashem perf tls on|off${NC}"; return 1 ;;
+            esac
+            ;;
+        chaff)
+            local VAL="${2:-}"
+            case "$VAL" in
+                off)
+                    perf_set_val "chaff_profile" "off" 0
+                    cli_chaff off
+                    echo -e "${GREEN}[✔️] Chaff profile set to 'off' and services stopped.${NC}"
+                    ;;
+                low|mid)
+                    perf_set_val "chaff_profile" "$VAL" 0
+                    CHAFF_PROFILE="$VAL" cli_chaff on
+                    echo -e "${GREEN}[✔️] Chaff profile set to '$VAL' and services started.${NC}"
+                    ;;
+                *)
+                    echo -e "${RED}[!] Usage: hashem perf chaff off|low|mid${NC}"
+                    return 1
+                    ;;
+            esac
+            ;;
+        dpi)
+            local VAL="${2:-}"
+            case "$VAL" in
+                on)
+                    perf_set_val "dpi_enabled" "true" 1
+                    dpi_shield_on
+                    echo -e "${GREEN}[✔️] DPI shield enabled.${NC}"
+                    ;;
+                off)
+                    perf_set_val "dpi_enabled" "false" 1
+                    dpi_shield_off
+                    echo -e "${GREEN}[✔️] DPI shield disabled.${NC}"
+                    ;;
+                *)
+                    echo -e "${RED}[!] Usage: hashem perf dpi on|off${NC}"
+                    return 1
+                    ;;
+            esac
+            ;;
+        apply)
+            perf_apply
+            ;;
+        -h|--help|help)
+            echo "Usage: hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply"
+            ;;
+        *)
+            echo -e "${RED}[!] Unknown subcommand: $SUB${NC}"
+            echo "Usage: hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply"
+            return 1
+            ;;
+    esac
+}
+
+menu_perf() {
+    while true; do
+        cli_perf status
+        echo ""
+        echo "  1) Toggle Proxy Encryption (enc on/off)"
+        echo "  2) Toggle Proxy Compression (comp on/off)"
+        echo "  3) Toggle Forced TLS (tls on/off)"
+        echo "  4) Set Chaff Profile (off / low / mid)"
+        echo "  5) Toggle DPI Shield (on/off)"
+        echo "  6) Apply settings & restart tunnels"
+        echo "  0) Back to main menu"
+        echo ""
+        read -p "Select an option [0-6]: " P_OPT
+        case "$P_OPT" in
+            1)
+                local cur=$(perf_get_enc)
+                if [[ "$cur" == "1" ]]; then cli_perf enc off; else cli_perf enc on; fi
+                ;;
+            2)
+                local cur=$(perf_get_comp)
+                if [[ "$cur" == "1" ]]; then cli_perf comp off; else cli_perf comp on; fi
+                ;;
+            3)
+                local cur=$(perf_get_tls)
+                if [[ "$cur" == "1" ]]; then cli_perf tls off; else cli_perf tls on; fi
+                ;;
+            4)
+                echo "Select chaff profile:"
+                echo "  1) off"
+                echo "  2) low (default)"
+                echo "  3) mid"
+                read -p "Option [1-3]: " C_OPT
+                case "$C_OPT" in
+                    1) cli_perf chaff off ;;
+                    2) cli_perf chaff low ;;
+                    3) cli_perf chaff mid ;;
+                    *) echo "Invalid option." ;;
+                esac
+                ;;
+            5)
+                local cur=$(perf_get_dpi_enabled)
+                if [[ "$cur" == "1" ]]; then cli_perf dpi off; else cli_perf dpi on; fi
+                ;;
+            6)
+                cli_perf apply
+                ;;
+            0)
+                return 0
+                ;;
+            *)
+                echo -e "${RED}[!] Invalid option.${NC}"
+                ;;
+        esac
+    done
+}
+
 
 # ---- SINGLE SOURCE OF TRUTH for install logic ----
 # setup_iran_server_noninteractive / setup_foreign_server_noninteractive do the
@@ -832,13 +1386,16 @@ setup_iran_server_noninteractive() {
     local LOCAL_GRE=${5:-$IRAN_GRE_IP} PEER_GRE=${6:-$FOREIGN_GRE_IP}
     setup_gre_systemd "$IP_IRAN" "$IP_FOREIGN" "$LOCAL_GRE"
     install_frp_binaries
+    local EFF_TLS=$(perf_get_tls)
+    local TLS_LINE=""
+    [[ "$EFF_TLS" == "1" ]] && TLS_LINE="transport.tls.force = true"
     cat <<EOF > "${CONFIG_DIR}/frps.toml"
 bindAddr = "0.0.0.0"
 bindPort = ${BIND_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
-transport.tls.force = true
-transport.tcpMux = true
+${TLS_LINE:+$TLS_LINE
+}transport.tcpMux = true
 transport.maxPoolCount = 200
 EOF
     cat <<EOF > /etc/systemd/system/frps.service
@@ -867,6 +1424,10 @@ EOF
     echo -e "${GREEN}[✔️] IRAN setup done: GRE ${IP_IRAN} <-> ${IP_FOREIGN} (${LOCAL_GRE} peer ${PEER_GRE}), frps :${BIND_PORT}${NC}"
     echo -e "${YELLOW}Token: ${TOKEN} (copy to the FOREIGN side)${NC}"
     echo -e "BUNDLE:$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN")"
+    local DPI_EN=$(perf_get_dpi_enabled)
+    if [[ "$DPI_EN" != "0" ]]; then
+        dpi_shield_on >/dev/null 2>&1 || true
+    fi
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
         echo -e "${CYAN}[*] Skipping panel install (called from panel).${NC}"
     else
@@ -906,17 +1467,26 @@ _setup_foreign_full() {
         echo -e "${YELLOW}[!] Warning: Ping to ${PEER_GRE} did not respond yet.${NC}"
     fi
     install_frp_binaries
+    local EFF_TLS=$(perf_get_tls)
+    local EFF_ENC=$(perf_get_enc)
+    local EFF_COMP=$(perf_get_comp)
+    local TLS_CUSTOM=""
+    [[ "$EFF_TLS" == "1" ]] && TLS_CUSTOM="transport.tls.disableCustomTLSFirstByte = true"
     cat <<EOF > "${CONFIG_DIR}/frpc.toml"
 serverAddr = "${PEER_GRE}"
 serverPort = ${SERVER_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
 transport.tls.enable = true
-transport.tls.disableCustomTLSFirstByte = true
-transport.poolCount = 25
+${TLS_CUSTOM:+$TLS_CUSTOM
+}transport.poolCount = 25
 
 EOF
     local PORT
+    local ENC_LINE=""
+    [[ "$EFF_ENC" == "1" ]] && ENC_LINE="transport.useEncryption = true"
+    local COMP_LINE=""
+    [[ "$EFF_COMP" == "1" ]] && COMP_LINE="transport.useCompression = true"
     for PORT in $PORTS_CLEANED; do
         cat <<EOF >> "${CONFIG_DIR}/frpc.toml"
 [[proxies]]
@@ -925,18 +1495,18 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = ${PORT}
 remotePort = ${PORT}
-transport.useEncryption = true
-transport.useCompression = true
-
+${ENC_LINE:+$ENC_LINE
+}${COMP_LINE:+$COMP_LINE
+}
 [[proxies]]
 name = "udp_${PORT}"
 type = "udp"
 localIP = "127.0.0.1"
 localPort = ${PORT}
 remotePort = ${PORT}
-transport.useEncryption = true
-transport.useCompression = true
-
+${ENC_LINE:+$ENC_LINE
+}${COMP_LINE:+$COMP_LINE
+}
 EOF
     done
     cat <<EOF > /etc/systemd/system/frpc.service
@@ -961,6 +1531,10 @@ EOF
     setup_chaff "" "$PEER_GRE"
     echo -e "${GREEN}[✔️] FOREIGN setup done: GRE ${IP_FOREIGN} <-> ${IP_IRAN} (${LOCAL_GRE} peer ${PEER_GRE}), frpc → ${PEER_GRE}:${SERVER_PORT}${NC}"
     echo -e "${GREEN}Reverse ports: ${PORTS_CLEANED} (TCP & UDP, TLS)${NC}"
+    local DPI_EN=$(perf_get_dpi_enabled)
+    if [[ "$DPI_EN" != "0" ]]; then
+        dpi_shield_on >/dev/null 2>&1 || true
+    fi
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
         echo -e "${CYAN}[*] Skipping panel install (called from panel).${NC}"
     else
@@ -1044,13 +1618,16 @@ peer_token() {
 # write one frps instance: $1=suffix("" for legacy, "-N" for peers) $2=bind_port $3=token
 peer_write_frps() {
     local SUF=$1 BIND_PORT=$2 TOKEN=$3
+    local EFF_TLS=$(perf_get_tls)
+    local TLS_LINE=""
+    [[ "$EFF_TLS" == "1" ]] && TLS_LINE="transport.tls.force = true"
     cat <<EOF > "${CONFIG_DIR}/frps${SUF}.toml"
 bindAddr = "0.0.0.0"
 bindPort = ${BIND_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
-transport.tls.force = true
-transport.tcpMux = true
+${TLS_LINE:+$TLS_LINE
+}transport.tcpMux = true
 transport.maxPoolCount = 200
 EOF
     local SVC="frps${SUF}"
@@ -1100,7 +1677,8 @@ cli_add_peer() {
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
         esac
     done
-    case "${CHAFF_PROFILE:-low}" in
+    CHAFF_PROFILE="${CHAFF_PROFILE:-$(perf_get_chaff)}"
+    case "$CHAFF_PROFILE" in
         low|mid|off) ;;
         *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to low.${NC}"; CHAFF_PROFILE="low" ;;
     esac
@@ -2227,6 +2805,7 @@ backup_now() {
     local FILES=()
     local f
     for f in /etc/frp/*.toml /etc/gre-panel/panel.json /etc/gre-panel/peers.json /etc/gre-panel/watchdog.json \
+             /etc/gre-panel/perf.json \
              /etc/systemd/system/gre-*.service /etc/systemd/system/frps*.service \
              /etc/systemd/system/frpc*.service /etc/systemd/system/gre-chaff*.service; do
         [[ -f "$f" ]] && FILES+=("$f")
@@ -2989,6 +3568,7 @@ main_menu() {
     echo " 19) Traffic Chaff / Obfuscation (idle-gap filler: on/off/status)"
     echo " 20) Watchdog & Backup (Telegram alerts, route direct/tunnel, encrypted backup)"
     echo " 21) DPI Shield (rate-limit reverse ports against flood: on/off/status)"
+    echo " 22) Performance & Obfuscation Toggles (proxy crypto/comp, forced TLS, DPI rate)"
     echo ""
     echo -e "${YELLOW}── Panel & System ──${NC}"
     echo " 13) Show Panel URL + Username + Password"
@@ -2999,7 +3579,7 @@ main_menu() {
     echo " 18) Uninstall Everything (tunnel + panel + 'hashem' command)"
     echo "  0) Exit"
     echo ""
-    read -p "Select an option [0-21]: " OPTION
+    read -p "Select an option [0-22]: " OPTION
 
     case "$OPTION" in
         1)
@@ -3065,6 +3645,9 @@ main_menu() {
         21)
             menu_dpi_shield
             ;;
+        22)
+            menu_perf
+            ;;
         0)
             echo "Exiting..."
             exit 0
@@ -3082,7 +3665,7 @@ check_root
 usage_cli() {
     cat <<EOF
 Usage:
-  hashem                                    # interactive menu (options 0-21)
+  hashem                                    # interactive menu (options 0-22)
   hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--chaff low|mid|off] [--force]
   hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--chaff low|mid|off] [--force]
                        # ... or: hashem setup-foreign --bundle hsh1_...  (fills everything; explicit flags win)
@@ -3092,6 +3675,7 @@ Usage:
   hashem remove-peer --id N [--force] | peer-list | peer-token --id N
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
+  hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply
   hashem chaff on|off|status                   # traffic obfuscation (idle-gap filler)
   hashem dpi-shield on|off|status              # rate-limit reverse ports against DPI flood
   hashem watchdog on|off|status|test|tick      # tunnel watchdog monitoring & alerts
@@ -3124,7 +3708,8 @@ cli_setup_iran() {
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; usage_cli; return 1 ;;
         esac
     done
-    case "${CHAFF_PROFILE:-low}" in
+    CHAFF_PROFILE="${CHAFF_PROFILE:-$(perf_get_chaff)}"
+    case "$CHAFF_PROFILE" in
         low|mid|off) ;;
         *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to low.${NC}"; CHAFF_PROFILE="low" ;;
     esac
@@ -3163,7 +3748,8 @@ cli_setup_foreign() {
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; usage_cli; return 1 ;;
         esac
     done
-    case "${CHAFF_PROFILE:-low}" in
+    CHAFF_PROFILE="${CHAFF_PROFILE:-$(perf_get_chaff)}"
+    case "$CHAFF_PROFILE" in
         low|mid|off) ;;
         *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to low.${NC}"; CHAFF_PROFILE="low" ;;
     esac
@@ -3212,6 +3798,7 @@ if [[ $# -gt 0 ]]; then
         peer-list) peer_list ;;
         logs) show_logs ;;
         restart) restart_all ;;
+        perf) shift; cli_perf "$@" ;;
         chaff) shift; cli_chaff "$@" ;;
         dpi-shield|dpi_shield|dpishield) shift; cli_dpi_shield "$@" ;;
         watchdog) shift; cli_watchdog "$@" ;;

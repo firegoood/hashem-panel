@@ -108,6 +108,11 @@ var errCatalog = map[string]errInfo{
 	"E-WD-03": {500, "backup creation failed", "Check disk space and write permissions in /var/backups/hashem."},
 	"E-WD-04": {500, "backup restore failed", "Decryption failed or backup archive is corrupted."},
 	"E-WD-05": {502, "telegram route unreachable", "Ensure tunnel is up or switch route to direct."},
+	// performance & obfuscation
+	"E-PERF-00": {0, "Performance settings applied", "Informational: settings saved and tunnels updated."},
+	"E-PERF-01": {400, "bad performance request", "Check request parameters and try again."},
+	"E-PERF-02": {500, "cannot save performance settings", "Disk write failed — check /etc/gre-panel permissions."},
+	"E-PERF-03": {500, "cannot apply performance settings", "Check FRP services and configuration."},
 }
 
 type errEvent struct {

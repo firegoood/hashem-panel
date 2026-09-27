@@ -24,8 +24,8 @@ _Iran's IP stays behind the tunnel — foreign-server ports become reachable thr
 ## ✨ Features
 
 - 🚀 **One-line install** — prebuilt panel binary from GitHub releases, no Go needed on servers
-- 🖥️ **Premium web panel** — 8 tabs: Dashboard · Tunnel · Setup · Logs · Watchdog · Update · Settings · Terminal
-- ⌨️ **`hashem` CLI** — one command in SSH opens the full tunnel menu (options 0–21)
+- 🖥️ **Premium web panel** — 9 tabs: Dashboard · Tunnel · Setup · Logs · Performance · Watchdog · Update · Settings · Terminal
+- ⌨️ **`hashem` CLI** — one command in SSH opens the full tunnel menu (options 0–22)
 - 🌐 **Multi-peer** — up to 5 foreign servers on one Iran, each with its own token + card in the Tunnel tab
 - 📦 **Setup bundle** — one `hsh1_...` string carries IP + control port + GRE pair + token + ports; paste it on Foreign and everything auto-fills (legacy 32-char tokens still work)
 - 🐕 **Watchdog & Telegram alerts** — checks GRE ping and FRP status every 1 min, alerts after 2 consecutive fails with auto-restart attempt, route direct or via tunnel (SOCKS5), recovery notifications with downtime duration
@@ -74,8 +74,24 @@ Lightweight camouflage around the existing GRE+FRP architecture:
 
 - **Random FRP Port**: New setups choose a random control port (`20000–60000`) instead of `7000`. Existing setups keep their port on update.
 - **Forced TLS & TLS Mimic**: Server enforces TLS (`transport.tls.force = true`), and client sets `transport.tls.disableCustomTLSFirstByte = true` to mimic standard TLS handshakes.
-- **Proxy Encryption & Compression**: Every TCP and UDP proxy enables `transport.useEncryption = true` and `transport.useCompression = true`.
+- **Proxy Encryption & Compression**: User-toggleable per proxy (`transport.useEncryption` & `transport.useCompression`). Default is off for speed.
 - **Idle-Gap Chaff Service (`hashem-chaff`)**: Runs low-overhead pseudo-random ICMP pings (random interval, size, and 16 hex pad bytes) across the GRE tunnel. Fills idle gaps to break mechanical timing analysis; does not hide volume under heavy load (~few KB/s overhead).
+
+### ⚡ Performance & Obfuscation Toggles
+
+On 1-vCPU VPS boxes, multi-layered crypto plus compressing incompressible (already-encrypted, e.g. VLESS or Trojan) traffic can severely degrade CPU performance and throughput. Hashem Panel provides persistent, user-controllable toggles stored in `/etc/gre-panel/perf.json` (mode `0600`) with **speed-first defaults**:
+
+| Setting | Default | Description | Impact & Speed-First Recommendation |
+|---|---|---|---|
+| `proxy_encryption` | `false` (Off) | FRP layer-2 proxy encryption (`transport.useEncryption = true`) | Keep **Off** when routing encrypted protocols (VLESS, Trojan, VMess) to prevent redundant crypto cycles. |
+| `proxy_compression` | `false` (Off) | Snappy proxy compression (`transport.useCompression = true`) | Keep **Off** on incompressible streams; compressing encrypted data wastes CPU without reducing bandwidth. |
+| `force_tls` | `true` (On) | Forced TLS on frps + `disableCustomTLSFirstByte = true` on frpc | Enforces TLS handshake and mimics standard web TLS handshakes. |
+| `chaff_profile` | `low` | Idle-gap chaff generator profile (`off`, `low`, `mid`) | `low` adds negligible ping overhead (~few KB/s) to mask idle timing gaps; choose `off` to disable. |
+| `dpi_enabled` | `true` | iptables hashlimit flood shield on reverse ports | Protects reverse ports against high-frequency scanner probing. Auto-enabled on new setups. |
+| `dpi_rate` | `300/min` | Rate limit threshold for reverse proxy ports | Raised from 30/min to 300/min to prevent throttling legitimate client handshakes. |
+| `dpi_burst` | `100` | Burst allowance for reverse proxy ports | Allows sudden bursts of connections during page loads without packet drops. |
+
+> **Speed-First Note:** For typical VPN/proxy setups on small VPS instances, leaving `proxy_encryption` and `proxy_compression` **OFF** delivers maximum throughput and lowest latency. Configure them via the web panel's **Performance** tab or with the CLI (`hashem perf enc on|off`, `hashem perf comp on|off`, `hashem perf apply`).
 
 ---
 
@@ -195,6 +211,7 @@ After login you can re-run the whole tunnel setup from the browser — same logi
 | 19 | Tune | Traffic chaff / obfuscation (idle-gap filler: on / off / status) |
 | 20 | Tune | Watchdog & Backup (Telegram alerts, route direct/tunnel, encrypted scheduled backups) |
 | 21 | Tune | DPI shield (rate-limit reverse ports against flood: on / off / status) |
+| 22 | Tune | Performance & Obfuscation Toggles (proxy crypto/comp, forced TLS, DPI rate) |
 | 13 | Panel & System | Show panel URL + username + password |
 | 14 | Panel & System | Panel HTTPS (Let's Encrypt certificate) |
 | 15 | Panel & System | Update all (latest script + latest prebuilt panel) |

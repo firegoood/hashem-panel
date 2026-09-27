@@ -565,6 +565,7 @@
       <button class="nav-item" data-tab="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span>Setup</span></button>
       <button class="nav-item" data-tab="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Logs</span></button>
       <div class="nav-sec">System</div>
+      <button class="nav-item" data-tab="perf" id="perfNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Performance</span></button>
       <button class="nav-item" data-tab="watchdog" id="watchdogNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span>Watchdog</span></button>
       <button class="nav-item" data-tab="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg><span>Update</span><span class="badge info hidden" id="updBadge" style="margin-left:auto">new</span></button>
       <button class="nav-item" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg><span>Settings</span></button>
@@ -829,6 +830,109 @@
           </div>
           <div class="qs-hint">Every failed panel action is recorded here with its code — newest last.</div>
           <div id="errList" style="display:grid;gap:6px;margin-top:8px"><div class="qs-hint">—</div></div>
+        </div>
+      </section>
+      <section id="tab-perf" hidden>
+        <!-- Status hero card -->
+        <div class="tunnel-card wd-hero-card">
+          <div class="tc-header">
+            <p class="tc-title">Performance &amp; Obfuscation</p>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span class="status-indicator" id="perfSyncInd"><span class="dot"></span><span id="perfSyncTxt">—</span></span>
+              <button class="hashem-btn hashem-btn-primary" id="perfApplyTopBtn">Apply &amp; Restart</button>
+            </div>
+          </div>
+          <div class="qs-hint">Speed-first toggles for 1-vCPU VPS. Toggle proxy crypto/compression and forced TLS to reduce crypto bottlenecks. Changes to FRP configs require Apply &amp; restart.</div>
+          <div class="wd-hero-grid">
+            <div class="wd-stat-box">
+              <span class="wd-stat-label">FRP Crypto &amp; TLS</span>
+              <div class="wd-stat-val" id="perfCryptoVal">—</div>
+              <span class="wd-stat-sub" id="perfCryptoSub">Enc: Off · Comp: Off</span>
+            </div>
+            <div class="wd-stat-box">
+              <span class="wd-stat-label">Chaff Obfuscation</span>
+              <div class="wd-stat-val" id="perfChaffVal">—</div>
+              <span class="wd-stat-sub" id="perfChaffSub">Idle-gap filler</span>
+            </div>
+            <div class="wd-stat-box">
+              <span class="wd-stat-label">DPI Shield</span>
+              <div class="wd-stat-val" id="perfDpiVal">—</div>
+              <span class="wd-stat-sub" id="perfDpiRateSub">300/min (burst 100)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- FRP Crypto & Compression Toggles -->
+        <div class="tunnel-card">
+          <div class="tc-header">
+            <p class="tc-title">FRP Tunnel Crypto &amp; Compression</p>
+            <span class="badge" id="perfRoleBadge">—</span>
+          </div>
+          <div class="qs-hint">Configures layer-2 crypto and snappy compression on FRP reverse tunnels. Speed-first defaults keep encryption and compression OFF so already-encrypted protocols (VLESS, Trojan) run at wire speed.</div>
+          
+          <div style="display:flex;flex-direction:column;gap:14px;margin-top:12px">
+            <label class="wd-radio-opt" style="align-items:flex-start">
+              <input type="checkbox" id="perfEncCheck" style="margin-top:3px;accent-color:var(--ac);width:16px;height:16px">
+              <div>
+                <b style="color:var(--tx)">Proxy Encryption (transport.useEncryption)</b>
+                <div class="qs-hint" style="margin-top:2px">Encrypts data between frpc and frps with AES-128. Keep disabled for already-encrypted streams (e.g. VLESS) to eliminate double-crypto overhead on low-power VPS.</div>
+              </div>
+            </label>
+
+            <label class="wd-radio-opt" style="align-items:flex-start">
+              <input type="checkbox" id="perfCompCheck" style="margin-top:3px;accent-color:var(--ac);width:16px;height:16px">
+              <div>
+                <b style="color:var(--tx)">Proxy Compression (transport.useCompression)</b>
+                <div class="qs-hint" style="margin-top:2px">Snappy compression per proxy. Keep disabled when streaming incompressible encrypted data (VLESS, TLS) to avoid wasting CPU cycles.</div>
+              </div>
+            </label>
+
+            <label class="wd-radio-opt" style="align-items:flex-start">
+              <input type="checkbox" id="perfTlsCheck" style="margin-top:3px;accent-color:var(--ac);width:16px;height:16px">
+              <div>
+                <b style="color:var(--tx)">Forced TLS (transport.tls.force &amp; disableCustomTLSFirstByte)</b>
+                <div class="qs-hint" style="margin-top:2px">Server forces TLS handshake; client strips custom FRP TLS header to mimic standard web TLS handshakes. Default is ON.</div>
+              </div>
+            </label>
+          </div>
+
+          <div class="qs-actions" style="margin-top:16px">
+            <button class="hashem-btn hashem-btn-primary" id="perfApplyBtn">Apply &amp; restart tunnels</button>
+            <button class="hashem-btn hashem-btn-secondary" id="perfSaveOnlyBtn">Save Settings</button>
+          </div>
+          <div class="qs-hint" id="perfApplyMsg"></div>
+        </div>
+
+        <!-- Traffic Chaff & DPI Shield Card -->
+        <div class="tunnel-card">
+          <div class="tc-header">
+            <p class="tc-title">Traffic Chaff &amp; DPI Shield</p>
+          </div>
+          <div class="qs-hint">Anti-censorship and flood defense. Chaff fills idle timing gaps with randomized ping packets. DPI shield protects reverse ports from active scanner floods.</div>
+
+          <div class="fg" style="margin-top:12px">
+            <label for="perfChaffSelect">Chaff Profile</label>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <select class="hashem-input" id="perfChaffSelect" style="max-width:200px">
+                <option value="off">Off (disabled)</option>
+                <option value="low">Low (0.4-2.8s intervals)</option>
+                <option value="mid">Mid (0.15-1.2s intervals)</option>
+              </select>
+              <button class="hashem-btn hashem-btn-secondary" id="perfSaveChaffBtn">Update Chaff</button>
+              <span class="status-indicator" id="perfChaffLiveInd"><span class="dot"></span><span id="perfChaffLiveTxt">—</span></span>
+            </div>
+            <div class="ent-help">Idle-gap filler creates random dummy pings across the GRE tunnel. Low profile uses negligible bandwidth (~few KB/s).</div>
+          </div>
+
+          <div class="fg" style="margin-top:16px">
+            <label>DPI Flood Shield</label>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <span class="status-indicator" id="perfDpiLiveInd"><span class="dot"></span><span id="perfDpiLiveTxt">—</span></span>
+              <button class="hashem-btn hashem-btn-secondary" id="perfDpiToggleBtn">Toggle DPI Shield</button>
+              <span class="badge" id="perfDpiRateBadge">300/min (burst 100)</span>
+            </div>
+            <div class="ent-help" id="perfDpiHelp">Uses iptables hashlimit to protect reverse ports against high-rate active probing while allowing normal user traffic.</div>
+          </div>
         </div>
       </section>
       <section id="tab-watchdog" hidden>
@@ -1152,10 +1256,11 @@ function goTab(name) {
   if (name === 'terminal' && !$('termNav').classList.contains('hidden') && $('tab-terminal').hidden && !termState.ready) { /* allowed: overlay shows connect */ }
   if (name === 'terminal' && $('termNav').classList.contains('hidden')) return; // flag off: tab doesn't exist
   if (name === 'add-peer') { goTab('setup'); const c = $('setupAddPeerStep'); if (c && c.scrollIntoView) c.scrollIntoView({behavior: 'smooth', block: 'start'}); return; }
-  ['dashboard','tunnel','setup','logs','watchdog','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
+  ['dashboard','tunnel','setup','logs','perf','watchdog','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
   document.querySelectorAll('.sidebar-nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   const dr = $('drawerNav');
   if (dr) dr.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  if (name === 'perf') loadPerf();
   if (name === 'watchdog') loadWatchdog();
   if (name === 'update') loadVersion();
   if (name === 'logs') { refreshLogPeers(); loadLogs(); loadErrors(); armLogFollow(); }
@@ -2948,7 +3053,159 @@ window.addEventListener('resize', () => {
   if (!$('tab-terminal').hidden && termState.fit) { try { termState.fit.fit(); termSendResize(); } catch(_){} }
   const c = $('trafficChart'); if (c && c._hist && !$('tab-dashboard').hidden) { drawChart(c._hist, c._isDown); }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('termWrap').classList.contains('full')) { $('termWrap').classList.remove('full'); try { termState.fit.fit(); termSendResize(); } catch(_){} } });
+// ---------- Performance & Obfuscation (tab-perf) ----------
+let perfState = { proxy_encryption: false, proxy_compression: false, force_tls: true, chaff_profile: 'low', dpi_enabled: true };
+
+async function loadPerf() {
+  try {
+    const s = await api('/api/perf');
+    perfState = s;
+
+    // Status hero card
+    const ind = $('perfSyncInd');
+    if (ind) {
+      ind.className = 'status-indicator ' + (s.in_sync ? 'active' : 'offline');
+      $('perfSyncTxt').textContent = s.in_sync ? 'In Sync' : 'Needs Apply';
+    }
+    const cVal = $('perfCryptoVal');
+    if (cVal) cVal.textContent = s.force_tls ? 'TLS: On' : 'TLS: Off';
+    const cSub = $('perfCryptoSub');
+    if (cSub) cSub.textContent = `Enc: ${s.proxy_encryption ? 'On' : 'Off'} · Comp: ${s.proxy_compression ? 'On' : 'Off'}`;
+
+    const chVal = $('perfChaffVal');
+    if (chVal) chVal.textContent = s.chaff_profile ? s.chaff_profile.toUpperCase() : 'LOW';
+    const chSub = $('perfChaffSub');
+    if (chSub) chSub.textContent = s.chaff_active ? '● Running' : '○ Inactive';
+
+    const dVal = $('perfDpiVal');
+    if (dVal) dVal.textContent = s.dpi_active ? 'Active' : (s.dpi_enabled ? 'Enabled' : 'Disabled');
+    const dSub = $('perfDpiRateSub');
+    if (dSub) dSub.textContent = `${s.dpi_rate || '300/min'} (burst ${s.dpi_burst || 100})`;
+
+    // Checkboxes
+    if ($('perfEncCheck')) $('perfEncCheck').checked = !!s.proxy_encryption;
+    if ($('perfCompCheck')) $('perfCompCheck').checked = !!s.proxy_compression;
+    if ($('perfTlsCheck')) $('perfTlsCheck').checked = s.force_tls !== false;
+
+    // Role badge
+    if ($('perfRoleBadge')) {
+      const rName = s.role === 'iran' ? 'Iran (Server)' : (s.role === 'foreign' ? 'Foreign (Client)' : 'No Tunnel');
+      $('perfRoleBadge').textContent = rName;
+      $('perfRoleBadge').className = 'badge ' + (s.role === 'iran' ? 'ok' : 'info');
+    }
+
+    // Chaff selector & live status
+    if ($('perfChaffSelect')) $('perfChaffSelect').value = s.chaff_profile || 'low';
+    const chInd = $('perfChaffLiveInd');
+    if (chInd) {
+      chInd.className = 'status-indicator ' + (s.chaff_active ? 'active' : 'offline');
+      $('perfChaffLiveTxt').textContent = s.chaff_active ? 'Active' : 'Stopped';
+    }
+
+    // DPI live status & rate badge
+    const dpiInd = $('perfDpiLiveInd');
+    if (dpiInd) {
+      dpiInd.className = 'status-indicator ' + (s.dpi_active ? 'active' : 'offline');
+      $('perfDpiLiveTxt').textContent = s.dpi_active ? 'Active' : 'Inactive';
+    }
+    const dpiTog = $('perfDpiToggleBtn');
+    if (dpiTog) {
+      dpiTog.textContent = s.dpi_enabled ? 'Disable Shield' : 'Enable Shield';
+      dpiTog.className = 'hashem-btn ' + (s.dpi_enabled ? 'hashem-btn-ghost' : 'hashem-btn-secondary');
+    }
+    if ($('perfDpiRateBadge')) {
+      $('perfDpiRateBadge').textContent = `Rate: ${s.dpi_rate || '300/min'} · Burst: ${s.dpi_burst || 100}`;
+    }
+  } catch (e) {
+    toastErr('performance error', e.message);
+  }
+}
+
+async function doPerfApply(btnEl) {
+  const orig = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Applying…'; }
+  const msgEl = $('perfApplyMsg');
+  if (msgEl) msgEl.textContent = 'Regenerating configs and restarting services…';
+  try {
+    const enc = $('perfEncCheck') ? $('perfEncCheck').checked : perfState.proxy_encryption;
+    const comp = $('perfCompCheck') ? $('perfCompCheck').checked : perfState.proxy_compression;
+    const tls = $('perfTlsCheck') ? $('perfTlsCheck').checked : perfState.force_tls;
+    const res = await api('/api/perf', {
+      action: 'apply',
+      proxy_encryption: enc,
+      proxy_compression: comp,
+      force_tls: tls
+    });
+    toastOk('Settings applied', res.detail || 'Live tunnels updated and restarted.');
+    if (msgEl) msgEl.textContent = 'Applied successfully.';
+    await loadPerf();
+  } catch (e) {
+    toastErr('apply failed', e.message);
+    if (msgEl) msgEl.textContent = 'Error: ' + e.message;
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = orig; }
+  }
+}
+
+async function doPerfSaveOnly() {
+  const enc = $('perfEncCheck') ? $('perfEncCheck').checked : perfState.proxy_encryption;
+  const comp = $('perfCompCheck') ? $('perfCompCheck').checked : perfState.proxy_compression;
+  const tls = $('perfTlsCheck') ? $('perfTlsCheck').checked : perfState.force_tls;
+  try {
+    await api('/api/perf', {
+      action: 'update',
+      proxy_encryption: enc,
+      proxy_compression: comp,
+      force_tls: tls
+    });
+    toastOk('Settings saved', 'Remember to Apply & restart tunnels to make them active.');
+    await loadPerf();
+  } catch (e) {
+    toastErr('save failed', e.message);
+  }
+}
+
+const perfApplyBtn = $('perfApplyBtn');
+if (perfApplyBtn) perfApplyBtn.onclick = () => doPerfApply(perfApplyBtn);
+const perfApplyTopBtn = $('perfApplyTopBtn');
+if (perfApplyTopBtn) perfApplyTopBtn.onclick = () => doPerfApply(perfApplyTopBtn);
+const perfSaveOnlyBtn = $('perfSaveOnlyBtn');
+if (perfSaveOnlyBtn) perfSaveOnlyBtn.onclick = () => doPerfSaveOnly();
+
+const perfSaveChaffBtn = $('perfSaveChaffBtn');
+if (perfSaveChaffBtn) {
+  perfSaveChaffBtn.onclick = async () => {
+    const prof = $('perfChaffSelect') ? $('perfChaffSelect').value : 'low';
+    perfSaveChaffBtn.disabled = true;
+    try {
+      const res = await api('/api/perf', { action: 'set-chaff', chaff_profile: prof });
+      toastOk('Chaff profile updated', res.detail || 'Profile set to ' + prof);
+      await loadPerf();
+    } catch (e) {
+      toastErr('chaff error', e.message);
+    } finally {
+      perfSaveChaffBtn.disabled = false;
+    }
+  };
+}
+
+const perfDpiToggleBtn = $('perfDpiToggleBtn');
+if (perfDpiToggleBtn) {
+  perfDpiToggleBtn.onclick = async () => {
+    perfDpiToggleBtn.disabled = true;
+    try {
+      const next = !perfState.dpi_enabled;
+      const res = await api('/api/perf', { action: 'set-dpi', dpi_enabled: next });
+      toastOk('DPI shield updated', res.detail || (next ? 'Shield enabled' : 'Shield disabled'));
+      await loadPerf();
+    } catch (e) {
+      toastErr('DPI shield error', e.message);
+    } finally {
+      perfDpiToggleBtn.disabled = false;
+    }
+  };
+}
+
 // ---------- Watchdog & Backup (tab-watchdog) ----------
 let wdState = { enabled: false, tg_bot_token_masked: '', ports: [] };
 
