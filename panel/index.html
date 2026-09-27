@@ -250,6 +250,11 @@
   .det-card:hover { border-color:var(--ln2); }
   .det-head { display:flex; align-items:center; gap:8px; font-size:11.5px; font-weight:700;
     letter-spacing:.07em; text-transform:uppercase; color:var(--mu); }
+  /* peer cards reuse the same header look (class alias, same rules) */
+  .det-card-head { display:flex; align-items:center; gap:8px; font-size:11.5px; font-weight:700;
+    letter-spacing:.07em; text-transform:uppercase; color:var(--mu); }
+  .det-card-head svg { width:26px; height:26px; padding:6px; border-radius:8px; flex:none;
+    background:var(--ac-soft); border:1px solid color-mix(in srgb, var(--ac) 22%, transparent); color:var(--ac); }
   .det-ico { width:26px; height:26px; border-radius:8px; display:grid; place-items:center; flex:none;
     background:var(--ac-soft); border:1px solid color-mix(in srgb, var(--ac) 22%, transparent); color:var(--ac); }
   .det-ico svg { width:14px; height:14px; }
@@ -933,6 +938,11 @@ $('themeBtn').onclick = () => setTheme(document.body.dataset.t === 'dark' ? 'lig
 try { setTheme(localStorage.getItem('gre_theme') || document.body.dataset.t || 'dark'); } catch(e) {}
 
 function dot(ok) { return `<span class="dot ${ok ? 'up' : 'down'}"></span>`; }
+// Shared detail-card icons + builder (Dashboard AND peer cards use these;
+// keep global so renderPeers works even when refreshDash never ran).
+const ICO_SRV = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><circle cx="7" cy="7.5" r="1" fill="currentColor"/><circle cx="7" cy="16.5" r="1" fill="currentColor"/></svg>';
+const ICO_GRE = '<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
+const ICO_FRP = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
 function peerAct(action, peerId) {
   return (async () => {
     try {
@@ -1469,9 +1479,6 @@ async function refreshDash() {
     const detCard = (icon, title, rows) =>
       `<div class="det-card"><div class="det-head"><span class="det-ico">${icon}</span>${esc(title)}</div><div class="det-rows">${rows}</div></div>`;
     const detRow = (k, cell) => `<div class="det-row"><span class="det-k">${esc(k)}</span>${cell}</div>`;
-    const ICO_SRV = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><circle cx="7" cy="7.5" r="1" fill="currentColor"/><circle cx="7" cy="16.5" r="1" fill="currentColor"/></svg>';
-    const ICO_GRE = '<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
-    const ICO_FRP = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
     const frpBadge = f.up ? dbadge(f.svc || 'running', 'ok') : dbadge('down', 'err');
     const roleBadge = d.role === 'iran' ? dbadge('🇮🇷 Iran', 'ok') : d.role === 'foreign' ? dbadge('🌍 Foreign', '') : dval(d.role);
     const bindPort = (f.port && f.port !== NA) ? String(f.port) : '';
