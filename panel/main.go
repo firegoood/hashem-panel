@@ -5,6 +5,8 @@ package main
 // setup in setup.go, dashboard metrics in dashboard.go.
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/rand"
 	"crypto/sha256"
 	"embed"
@@ -18,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 //go:embed index.html fonts.css tokens.css base.css enterprise.css favicon.png xterm.js xterm-fit.js xterm-search.js xterm.css fonts/vazirmatn.woff2
@@ -251,15 +254,51 @@ func main() {
 }
 
 func serveAsset(name, ctype string) http.HandlerFunc {
+	// Pre-compress text assets once at first request: on lossy Iran links,
+	// xterm.js (283KB) stalled mid-transfer while small files passed through.
+	// gzip shrinks it to ~70KB so the panel loads instantly.
+	type blob struct {
+		raw []byte
+		gz  []byte
+	}
+	var mu sync.Mutex
+	cache := map[string]*blob{}
+	gzOK := func(ct string) bool {
+		return strings.HasPrefix(ct, "text/") || strings.Contains(ct, "javascript") || strings.HasSuffix(ct, ".woff2") || ct == "font/woff2"
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		data, err := panelFS.ReadFile(name)
-		if err != nil {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
+		mu.Lock()
+		b, ok := cache[name]
+		if !ok {
+			data, err := panelFS.ReadFile(name)
+			mu.Unlock()
+			if err != nil {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			b = &blob{raw: data}
+			if gzOK(ctype) {
+				var buf bytes.Buffer
+				gw := gzip.NewWriter(&buf)
+				_, _ = gw.Write(data)
+				_ = gw.Close()
+				b.gz = buf.Bytes()
+			}
+			mu.Lock()
+			cache[name] = b
+			mu.Unlock()
+		} else {
+			mu.Unlock()
 		}
 		w.Header().Set("Content-Type", ctype)
 		w.Header().Set("Cache-Control", "public, max-age=86400")
-		_, _ = w.Write(data)
+		if len(b.gz) > 0 && strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Set("Vary", "Accept-Encoding")
+			_, _ = w.Write(b.gz)
+			return
+		}
+		_, _ = w.Write(b.raw)
 	}
 }
 
@@ -270,8 +309,19 @@ func serveIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := strings.ReplaceAll(string(data), "__BASE_PATH__", "/"+cfg.BasePath)
+	body := []byte(page)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(page))
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && len(body) > 1024 {
+		var buf bytes.Buffer
+		gw := gzip.NewWriter(&buf)
+		_, _ = gw.Write(body)
+		_ = gw.Close()
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Vary", "Accept-Encoding")
+		_, _ = w.Write(buf.Bytes())
+		return
+	}
+	_, _ = w.Write(body)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
