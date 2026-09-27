@@ -309,15 +309,17 @@ EOF
     else
         install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 7.${NC}"
     fi
-    echo ""
-    echo -e "${CYAN}--- Panel HTTPS (optional but recommended) ---${NC}"
-    echo -e "The panel currently runs on plain HTTP. If this server has a domain"
-    echo -e "pointing to it, you can get a free Let's Encrypt certificate now:"
-    read -p "Get HTTPS certificate for the panel now? [y/N]: " TLS_WANT
-    if [[ "$TLS_WANT" =~ ^[Yy]$ ]]; then
-        panel_tls_issue || echo -e "${YELLOW}[!] TLS skipped — panel still works on HTTP; retry from menu option 16.${NC}"
-    else
-        echo -e "${CYAN}[*] Skipped — enable later from menu option 16 or web Settings → HTTPS certificate.${NC}"
+    if [[ "${GRE_SKIP_PANEL:-0}" != "1" && -t 0 ]]; then
+        echo ""
+        echo -e "${CYAN}--- Panel HTTPS (optional but recommended) ---${NC}"
+        echo -e "The panel currently runs on plain HTTP. If this server has a domain"
+        echo -e "pointing to it, you can get a free Let's Encrypt certificate now:"
+        read -p "Get HTTPS certificate for the panel now? [y/N]: " TLS_WANT
+        if [[ "$TLS_WANT" =~ ^[Yy]$ ]]; then
+            panel_tls_issue || echo -e "${YELLOW}[!] TLS skipped — panel still works on HTTP; retry from menu option 16.${NC}"
+        else
+            echo -e "${CYAN}[*] Skipped — enable later from menu option 16 or web Settings → HTTPS certificate.${NC}"
+        fi
     fi
 }
 
@@ -395,15 +397,17 @@ EOF
     else
         install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 7.${NC}"
     fi
-    echo ""
-    echo -e "${CYAN}--- Panel HTTPS (optional but recommended) ---${NC}"
-    echo -e "The panel currently runs on plain HTTP. If this server has a domain"
-    echo -e "pointing to it, you can get a free Let's Encrypt certificate now:"
-    read -p "Get HTTPS certificate for the panel now? [y/N]: " TLS_WANT_F
-    if [[ "$TLS_WANT_F" =~ ^[Yy]$ ]]; then
-        panel_tls_issue || echo -e "${YELLOW}[!] TLS skipped — panel still works on HTTP; retry from menu option 16.${NC}"
-    else
-        echo -e "${CYAN}[*] Skipped — enable later from menu option 16 or web Settings → HTTPS certificate.${NC}"
+    if [[ "${GRE_SKIP_PANEL:-0}" != "1" && -t 0 ]]; then
+        echo ""
+        echo -e "${CYAN}--- Panel HTTPS (optional but recommended) ---${NC}"
+        echo -e "The panel currently runs on plain HTTP. If this server has a domain"
+        echo -e "pointing to it, you can get a free Let's Encrypt certificate now:"
+        read -p "Get HTTPS certificate for the panel now? [y/N]: " TLS_WANT_F
+        if [[ "$TLS_WANT_F" =~ ^[Yy]$ ]]; then
+            panel_tls_issue || echo -e "${YELLOW}[!] TLS skipped — panel still works on HTTP; retry from menu option 16.${NC}"
+        else
+            echo -e "${CYAN}[*] Skipped — enable later from menu option 16 or web Settings → HTTPS certificate.${NC}"
+        fi
     fi
 }
 

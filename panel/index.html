@@ -514,11 +514,10 @@
           <div id="tunChips" aria-label="Per-tunnel health"></div>
           <div class="ent-sec-label" style="margin-top:6px">Peer tunnels</div>
           <div id="peerCards" class="det-grid"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px" id="tunnelActs">
             <button class="hashem-btn hashem-btn-secondary" data-act="ping">Ping peer</button>
             <button class="hashem-btn hashem-btn-secondary" data-act="restart-gre">Restart GRE</button>
-            <button class="hashem-btn hashem-btn-secondary" data-act="restart-frps">Restart frps</button>
-            <button class="hashem-btn hashem-btn-secondary" data-act="restart-frpc">Restart frpc</button>
+            <button class="hashem-btn hashem-btn-secondary" data-act="restart-frps" id="frpRestartBtn">Restart frps</button>
             <button class="hashem-btn hashem-btn-primary" id="optimizeBtn">⚡ Optimize tunnel</button>
             <button class="hashem-btn hashem-btn-secondary hidden" id="restoreBtn">Restore pre-optimize</button>
             <button class="hashem-btn hashem-btn-danger" id="removeTunnelBtn">Remove tunnel</button>
@@ -572,7 +571,20 @@
             <input type="hidden" id="sRole" value="iran">
             <div class="qs-hint">Pick one. Iran always listens; Foreign always dials.</div>
           </div></div>
-          <div class="qs-step"><span class="qs-num">2</span><div class="qs-body">
+          <div class="qs-step" id="foreignJoinStep" hidden><span class="qs-num">🔗</span><div class="qs-body">
+            <label class="qs-label">Connect this server to Iran</label>
+            <div style="display:grid;gap:10px">
+              <div class="fg"><label for="jToken">Token (from Iran side — 32 chars)</label><input class="hashem-input" id="jToken" autocomplete="off" placeholder="paste the token from Iran"></div>
+              <div class="fg"><label for="jPorts">Reverse ports (comma-separated)</label><input class="hashem-input" id="jPorts" placeholder="443, 2083, 8080"></div>
+              <div class="qs-hint">Leave all fields below empty to auto-join — the panel discovers Iran's settings. Only fill them if auto-join fails.</div>
+              <div id="joinWarn" class="warnbox hidden"></div>
+              <div class="qs-actions">
+                <button class="hashem-btn hashem-btn-primary" id="joinBtn">Connect to Iran</button>
+              </div>
+              <pre id="joinOut" class="logs hidden"></pre>
+            </div>
+          </div></div>
+          <div class="qs-step" id="setupNormalStep"><span class="qs-num">2</span><div class="qs-body">
             <label class="qs-label">The two ends</label>
             <div class="qs-row">
               <div class="fg"><label for="sLocalPub">Local public IP (auto-detected, editable)</label><input class="hashem-input" id="sLocalPub" inputmode="decimal"></div>
@@ -582,7 +594,7 @@
               <div class="fg"><label for="sFrpPort">Control port</label><input class="hashem-input" id="sFrpPort" inputmode="numeric"></div>
             </div>
           </div></div>
-          <div class="qs-step"><span class="qs-num">3</span><div class="qs-body">
+          <div class="qs-step" id="setupStep3"><span class="qs-num">3</span><div class="qs-body">
             <label class="qs-label">Token &amp; ports</label>
             <div id="iranBox"><div class="qs-hint">Token is auto-generated. After setup, copy it to the Foreign side.</div></div>
             <div id="foreignBox" class="hidden" style="display:grid;gap:10px">
@@ -983,6 +995,9 @@ function renderTunnel(st) {
     <div class="trow"><span class="k">FRP port</span><span class="v mono">${esc(st.frp_port || st.bind_port || '?')}</span></div>
     <div class="trow"><span class="k">Proxies</span><span class="v mono">${esc((st.proxies || []).join(', ') || '—')}</span></div>`;
   window._lastLocal = st;
+  // role-specific button label: foreign runs frpc, so show the right name.
+  const rb = $('frpRestartBtn');
+  if (rb) rb.textContent = (st.frp_svc === 'frpc' || /foreign/i.test(st.role || '')) ? 'Restart frpc' : 'Restart frps';
   renderTunChips(st);
 }
 // shared cache: refresh() fills it from /api/status before renderTunChips runs
@@ -1413,6 +1428,13 @@ function setRole(role) {
   $('foreignBox').classList.toggle('hidden', iran);
   $('roleIran').setAttribute('aria-pressed', iran);
   $('roleForeign').setAttribute('aria-pressed', !iran);
+  // role-specific Setup view: foreign JOIN card vs classic 3-step form.
+  // Iran: full classic form, join card hidden. Foreign (fresh): classic form
+  // with foreign fields visible, join card hidden. Foreign (live tunnel):
+  // join card visible, classic form steps hidden (keeps old tunnel safe).
+  const joinVisible = !iran && !$('foreignJoinStep').hidden;
+  $('setupNormalStep').hidden = joinVisible;
+  $('setupStep3') && ($('setupStep3').hidden = joinVisible);
   if (iran) { $('sLocalGre').value = '10.10.10.2'; $('sPeerGre').value = '10.10.10.1'; }
   else { $('sLocalGre').value = '10.10.10.1'; $('sPeerGre').value = '10.10.10.2'; }
 }
@@ -1426,7 +1448,21 @@ async function loadSetupDefaults() {
     if (d.iran_gre) $('sLocalGre').value = d.iran_gre;
     if (d.foreign_gre) $('sPeerGre').value = d.foreign_gre;
     $('sFrpPort').value = d.frp_port || 7000;
-    if (d.role_guess && /foreign|frpc/.test(d.role_guess)) setRole('foreign');
+    const isForeignHost = d.role_guess && /foreign|frpc/.test(d.role_guess);
+    if (isForeignHost) setRole('foreign');
+    // Foreign hosts with an existing tunnel: hide the classic form entirely and
+    // show the join-by-token card instead (role-specific UI, not a silent actOut).
+    // Classic form would re-run setup-foreign (overwrite guard + stdin TLS prompt);
+    // the join card POSTs role=foreign directly with only token+ports required.
+    if (isForeignHost && d.exists) {
+      $('foreignJoinStep').hidden = false;
+      $('setupNormalStep').hidden = true;
+      const s3 = $('setupStep3'); if (s3) s3.hidden = true;
+    } else {
+      $('foreignJoinStep').hidden = true;
+      $('setupNormalStep').hidden = false;
+      const s3 = $('setupStep3'); if (s3) s3.hidden = false;
+    }
     // Beginner guard: when a tunnel exists, explain the two paths BEFORE the
     // user can break the live one — fresh setup (rewrites token, kills peers)
     // vs adding another foreign server (keeps everything, new tunnel).
@@ -1504,6 +1540,62 @@ async function doSetup(force) {
 }
 $('setupBtn').onclick = () => doSetup(false);
 $('setupForceBtn').onclick = () => doSetup(true);
+// Foreign join-by-token card: connects this foreign server to Iran with only
+// token + ports. GRE IPs / public IPs / control port are discovered from the
+// live tunnel when present, so the dead overwrite path is never touched.
+$('joinBtn').onclick = async () => {
+  const b = $('joinBtn');
+  b.disabled = true;
+  const oldTxt = b.textContent;
+  b.innerHTML = '<span class="ent-spinner"></span> Connecting…';
+  $('joinWarn').classList.add('hidden');
+  try {
+    const st = await api('/api/status').then(s => s.local || {}).catch(() => ({}));
+    const d = await api('/api/setup').catch(() => ({}));
+    const token = $('jToken').value.trim();
+    const ports = $('jPorts').value.trim() || ((st.proxy_ports || []).join(', ') || (st.proxies || []).join(', '));
+    if (!token) {
+      const w = $('joinWarn');
+      w.innerHTML = '⚠️ Token is required — copy it from the Iran side (peer card → Token).';
+      w.classList.remove('hidden');
+      b.disabled = false; b.textContent = oldTxt; return;
+    }
+    // discover from live config; fall back to classic form values if present
+    const m = (st.gre || {});
+    const body = {
+      role: 'foreign',
+      local_public: m.local || d.local_public || '',
+      remote_public: m.peer_ip || $('sRemotePub').value.trim(),
+      local_gre: (m.inner || '').split('/')[0] || $('sLocalGre').value.trim(),
+      peer_gre: peerInnerHint(st) || $('sPeerGre').value.trim(),
+      frp_port: st.frp_port || parseInt($('sFrpPort').value, 10) || 7000,
+      token, ports, force: true,
+    };
+    if (!body.ports) {
+      const w = $('joinWarn');
+      w.innerHTML = '⚠️ Reverse ports are required (e.g. 443, 2083).';
+      w.classList.remove('hidden');
+      b.disabled = false; b.textContent = oldTxt; return;
+    }
+    const r = await api('/api/setup', body);
+    const out = $('joinOut');
+    out.classList.remove('hidden');
+    out.textContent = (r.steps || []).join('\n');
+    toastOk('connected to Iran');
+    refresh(); loadSetupDefaults();
+  } catch(e) {
+    const w = $('joinWarn');
+    w.innerHTML = '⚠️ ' + esc(e.message);
+    w.classList.remove('hidden');
+  }
+  b.disabled = false;
+  b.textContent = oldTxt;
+};
+// best-effort Iran-side inner IP hint: known default, else peer GRE +/-1 guess
+function peerInnerHint(st) {
+  if (st && st.gre_peer) return st.gre_peer;
+  return '';
+}
 
 function doLogin() {
   return (async () => {

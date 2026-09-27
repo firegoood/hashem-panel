@@ -99,6 +99,10 @@ func handleAction(w http.ResponseWriter, r *http.Request) {
 func runAction(action string, peerID int) (string, error) {
 	switch action {
 	case "restart-frps":
+		if localStatus().FrpSvc == "frpc" {
+			out, err := exec.Command("systemctl", "restart", "frpc").CombinedOutput()
+			return string(out), err
+		}
 		svc := peerFrpsSvc(peerID)
 		out, err := exec.Command("systemctl", "restart", svc).CombinedOutput()
 		return string(out), err
