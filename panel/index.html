@@ -1398,10 +1398,18 @@ async function refreshDash() {
     const ICO_FRP = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
     const frpBadge = f.up ? dbadge(f.svc || 'running', 'ok') : dbadge('down', 'err');
     const roleBadge = d.role === 'iran' ? dbadge('🇮🇷 Iran', 'ok') : d.role === 'foreign' ? dbadge('🌍 Foreign', '') : dval(d.role);
+    const bindPort = (f.port && f.port !== NA) ? String(f.port) : '';
+    const proxyPorts = (f.proxy_ports || []).filter(p => p && String(p) !== bindPort);
+    const isFrpc = (f.svc === 'frpc') || /foreign/i.test(d.role || '');
+    const portLabel = isFrpc ? 'Server Port' : 'Bind Port';
+    const portCell = bindPort ? dmono(bindPort) : dval('—');
+    const proxyList = (f.proxy_ports && f.proxy_ports.length) ? f.proxy_ports.join(', ') : ((f.proxies || []).join(', ') || '—');
     setHTML('dashDetails',
-      detCard(ICO_SRV, 'Server', detRow('Public IP', dmono(d.local_pub)) + detRow('Role', roleBadge) + detRow('Proxies', dval((f.proxies || []).join(', ') || '—')))
+      detCard(ICO_SRV, 'Server', detRow('Public IP', dmono(d.local_pub)) + detRow('Role', roleBadge) + detRow('Forwarded', dval(proxyList)))
       + detCard(ICO_GRE, 'GRE Tunnel', detRow('Local', dmono(g.local)) + detRow('Peer', dmono(g.peer)) + detRow('Inner', dmono(g.inner)))
-      + detCard(ICO_FRP, 'FRP Service', detRow('Status', frpBadge) + detRow('Port', (f.port && f.port !== NA) ? dmono(String(f.port)) : dval('—')) + (u.frp_since ? detRow('Since', dval(u.frp_since)) : '')));
+      + detCard(ICO_FRP, 'FRP Service', detRow('Status', frpBadge) + detRow(portLabel, portCell)
+        + (proxyPorts.length ? detRow('Tunnel Ports', `<span class="det-v">${proxyPorts.map(p => `<span class="det-v mono" style="margin-right:4px">${esc(String(p))}</span>`).join('')}</span>`) : '')
+        + (u.frp_since ? detRow('Since', dval(u.frp_since)) : '')));
     // one-click copy for IP/port pills
     document.querySelectorAll('#dashDetails [data-copy]').forEach(b => { if (!b.dataset.cpBound) { b.dataset.cpBound = '1';
       b.onclick = () => { const v = b.dataset.copy; (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject())

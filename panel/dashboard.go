@@ -69,6 +69,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 			"svc":     nilIfEmpty(st.FrpSvc),
 			"port":    nilIfZero(st.FrpPort),
 			"proxies": st.Proxies,
+			"proxy_ports": st.ProxyPorts,
 		},
 		"traffic": traffic,
 		"history": trafficHistory(r.URL.Query().Get("range")),

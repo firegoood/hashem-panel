@@ -376,6 +376,7 @@ type tunnelStatus struct {
 	FrpSvc   string   `json:"frp_svc"`
 	FrpPort  int      `json:"frp_port"`
 	Proxies  []string `json:"proxies"`
+	ProxyPorts []int  `json:"proxy_ports"`
 	BindPort int      `json:"bind_port"`
 }
 
@@ -438,20 +439,51 @@ func localStatus() tunnelStatus {
 		tomlPath = "/etc/frp/frpc.toml"
 	}
 	if data, err := os.ReadFile(tomlPath); err == nil {
+		inProxy := false
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "bindPort") || strings.HasPrefix(line, "serverPort") {
-				var v int
-				fmt.Sscanf(line, "%*s = %d", &v)
-				st.BindPort = v
-				st.FrpPort = v
+				// "bindPort = 7000" / "serverPort = 7000" — split on '='
+				// (fmt.Sscanf with %*s is not supported by Go and left this 0).
+				if parts := strings.SplitN(line, "=", 2); len(parts) == 2 {
+					if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && v > 0 {
+						st.BindPort = v
+						st.FrpPort = v
+					}
+				}
+				continue
+			}
+			// TOML table headers: [[proxies]] opens a proxy block, and any
+			// other [section] closes it. remotePort/localPort lines are only
+			// meaningful inside a proxies block.
+			if strings.HasPrefix(line, "[[proxies]]") {
+				// open a new proxy block (name filled by the next name = line)
+				inProxy = true
+				continue
+			}
+			if strings.HasPrefix(line, "[") {
+				inProxy = false // any other section closes the proxy block
+				continue
 			}
 			if strings.HasPrefix(line, "name = ") {
 				name := strings.Trim(strings.TrimPrefix(line, "name = "), `"`)
-				st.Proxies = append(st.Proxies, name)
+				if inProxy {
+					st.Proxies = append(st.Proxies, name)
+				}
+				continue
+			}
+			// per-proxy ports: shown in the FRP card next to the bind port.
+			if inProxy && (strings.HasPrefix(line, "remotePort") || strings.HasPrefix(line, "localPort")) {
+				if parts := strings.SplitN(line, "=", 2); len(parts) == 2 {
+					if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && v > 0 {
+						st.ProxyPorts = append(st.ProxyPorts, v)
+					}
+				}
 			}
 		}
 	}
+	// de-duplicate proxy ports (each proxy has local+remote for the same port)
+	st.ProxyPorts = uniqInts(st.ProxyPorts)
 	// quick ping to GRE peer inner ip
 	if st.Gre.Inner != "" {
 		target := grePeerInner(st.Gre.Inner)
@@ -464,6 +496,19 @@ func localStatus() tunnelStatus {
 		}
 	}
 	return st
+}
+
+// uniqInts keeps first occurrence order.
+func uniqInts(in []int) []int {
+	seen := map[int]bool{}
+	out := []int{}
+	for _, v := range in {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // grePeerInner flips the last bit of a /30 inner address.
