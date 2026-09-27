@@ -198,7 +198,7 @@
   .topbar h1 { letter-spacing:-.02em; }
   .sidebar-brand .brand-name { letter-spacing:.04em; }
   .chart-filters button { min-height:32px; }
-  .nav-item, .mobnav button { min-height:40px; }
+  .nav-item, .drawer-nav .nav-item { min-height:40px; }
   .sysbar { height:8px; border-radius:99px; background:var(--sunk); overflow:hidden;
     box-shadow:inset 0 1px 2px rgba(0,0,0,.18); }
   .sysbar > i { display:block; height:100%; border-radius:99px;
@@ -214,13 +214,26 @@
     padding:10px 16px; border-radius:10px; box-shadow:var(--lift); }
   @media (max-width:760px) {
     .sidebar { display:none; }
-    .mobnav { display:flex !important; }
+    .menu-btn { display:inline-flex !important; }
   }
-  .mobnav { display:none; gap:4px; padding:8px 12px; border-bottom:1px solid var(--ln);
-    background:var(--s1); position:sticky; top:57px; z-index:15; }
-  .mobnav button { flex:1; border:0; background:transparent; color:var(--mu); border-radius:8px;
-    padding:9px 6px; font-size:13px; font-weight:600; cursor:pointer; }
-  .mobnav button.on { background:var(--s3); color:var(--tx); }
+  .menu-btn { display:none; align-items:center; justify-content:center; width:40px; height:40px;
+    border:1px solid var(--ln2); background:var(--s1); color:var(--tx); border-radius:10px;
+    font-size:19px; cursor:pointer; flex:none; }
+  .drawer-ov { position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.55);
+    opacity:0; pointer-events:none; transition:opacity .22s ease; }
+  .drawer-ov.open { opacity:1; pointer-events:auto; }
+  .drawer { position:fixed; top:0; bottom:0; left:0; z-index:61; width:min(84vw,300px);
+    background:var(--s1); border-right:1px solid var(--ln2); box-shadow:var(--lift);
+    display:flex; flex-direction:column; transform:translateX(-102%); transition:transform .25s var(--spring); }
+  .drawer.open { transform:none; }
+  .drawer-head { display:flex; align-items:center; gap:10px; padding:16px; border-bottom:1px solid var(--ln); }
+  .drawer-head .brand-name { font-weight:700; letter-spacing:.05em; color:var(--tx); }
+  .drawer-x { margin-left:auto; border:0; background:transparent; color:var(--mu); font-size:22px; cursor:pointer; padding:4px 8px; }
+  .drawer-nav { padding:12px; display:flex; flex-direction:column; gap:4px; flex:1; overflow-y:auto; }
+  .drawer-nav .nav-sec { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--mu); padding:10px 12px 4px; }
+  .drawer-nav .nav-item { width:100%; }
+  .drawer-foot { padding:12px; border-top:1px solid var(--ln); display:flex; gap:8px; }
   #login { position:fixed; inset:0; z-index:50; display:grid; place-items:center;
     background:#09090b; color:#f4f4f5; min-height:100dvh; overflow:hidden;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
@@ -347,18 +360,19 @@
   </aside>
   <div class="main">
     <header class="topbar">
+      <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
       <div><h1>Hashem</h1><div class="sub" id="roleLine">—</div></div>
       <div class="acts"><button class="hashem-btn hashem-btn-secondary" id="refreshBtn">Refresh</button></div>
     </header>
-    <div class="mobnav" id="mobNav">
-      <button data-tab="dashboard" class="on">Dashboard</button>
-      <button data-tab="tunnel">Tunnel</button>
-      <button data-tab="setup">Setup</button>
-      <button data-tab="logs">Logs</button>
-      <button data-tab="update">Update</button>
-      <button data-tab="settings">Settings</button>
-      <button data-tab="terminal" id="termMobNav" class="hidden">Terminal</button>
+  <div class="drawer-ov" id="drawerOv"></div>
+  <aside class="drawer" id="drawer" aria-label="Menu">
+    <div class="drawer-head"><span class="brand-name">Hashem</span><button class="drawer-x" id="drawerX" aria-label="Close">×</button></div>
+    <nav class="drawer-nav" id="drawerNav"></nav>
+    <div class="drawer-foot">
+      <button class="hashem-btn hashem-btn-secondary" id="themeBtnM" style="flex:1">Theme</button>
+      <button class="hashem-btn hashem-btn-ghost" id="logoutBtnM">Logout</button>
     </div>
+  </aside>
     <main class="page">
       <section id="tab-dashboard">
         <div class="dash-grid ent-dense" id="dashGrid">
@@ -731,22 +745,54 @@ function skel(n) {
   for (let i = 0; i < (n || 3); i++) s += '<div class="ent-skel" style="height:14px"></div>';
   return '<div style="display:grid;gap:8px">' + s + '</div>';
 }
-// tabs (sidebar + mobile nav)
+// tabs (sidebar + mobile drawer)
 function goTab(name) {
   if (name === 'terminal' && !$('termNav').classList.contains('hidden') && $('tab-terminal').hidden && !termState.ready) { /* allowed: overlay shows connect */ }
   if (name === 'terminal' && $('termNav').classList.contains('hidden')) return; // flag off: tab doesn't exist
   ['dashboard','tunnel','setup','logs','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
-  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  document.querySelectorAll('.sidebar-nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  const dr = $('drawerNav');
+  if (dr) dr.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   if (name === 'update') loadVersion();
   if (name === 'logs') { refreshLogPeers(); loadLogs(); loadErrors(); armLogFollow(); }
   if (name === 'terminal') termOnShow();
 }
 document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => goTab(b.dataset.tab));
+// mobile drawer: clones the sidebar nav so phone users get a hamburger
+// menu instead of the cramped tab strip. Synced with the sidebar on
+// terminal-flag and update-badge changes (see termFlagRefresh/loadVersion).
+function drawerSync() {
+  const nav = $('drawerNav'); if (!nav) return;
+  nav.innerHTML = $('sideNav') ? $('sideNav').innerHTML : '';
+  nav.querySelectorAll('[data-tab]').forEach(b => {
+    b.onclick = () => { goTab(b.dataset.tab); drawerClose(); };
+    if (b.id === 'termNav') b.id = '';
+    if (b.querySelector('#updBadge')) b.querySelector('#updBadge').id = 'updBadgeM';
+  });
+  // hide the terminal entry in the drawer while the flag is off
+  const t = nav.querySelector('[data-tab="terminal"]');
+  if (t && $('termNav') && $('termNav').classList.contains('hidden')) t.classList.add('hidden');
+  const bd = nav.querySelector('#updBadgeM');
+  const src = $('updBadge');
+  if (bd && src) bd.classList.toggle('hidden', src.classList.contains('hidden'));
+  const cur = document.querySelector('.sidebar-nav [data-tab].on');
+  nav.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', !!cur && b.dataset.tab === cur.dataset.tab));
+}
+function drawerOpen() { drawerSync(); $('drawer').classList.add('open'); $('drawerOv').classList.add('open'); }
+function drawerClose() { $('drawer').classList.remove('open'); $('drawerOv').classList.remove('open'); }
+$('menuBtn').onclick = drawerOpen;
+$('drawerX').onclick = drawerClose;
+$('drawerOv').onclick = drawerClose;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') drawerClose(); });
+$('themeBtnM').onclick = () => setTheme(document.body.dataset.t === 'dark' ? 'light' : 'dark');
+$('logoutBtnM').onclick = async () => { try { await api('/api/logout', {}); } catch(e){} showLogin(); };
+drawerSync();
 // theme (hashem-style: localStorage + data-t on html and body)
 function setTheme(t) {
   document.documentElement.dataset.t = t; document.body.dataset.t = t;
   try { localStorage.setItem('gre_theme', t); } catch(e) {}
   const b = $('themeBtn'); if (b) b.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
+  const bm = $('themeBtnM'); if (bm) bm.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
 }
 $('themeBtn').onclick = () => setTheme(document.body.dataset.t === 'dark' ? 'light' : 'dark');
 try { setTheme(localStorage.getItem('gre_theme') || document.body.dataset.t || 'dark'); } catch(e) {}
@@ -1489,6 +1535,7 @@ async function loadVersion() {
     if (rows) rows.innerHTML = '<div class="ver-row"><span class="k">Latest release</span><span>' + esc(v.latest || 'unknown') + '</span></div>'
       + '<div class="ver-row"><span class="k">Status</span><span>' + (v.update_available ? '<span class="badge info"><span class="dot"></span>update available</span>' : '<span class="badge ok"><span class="dot"></span>up to date</span>') + '</span></div>';
     const badge = $('updBadge'); if (badge) badge.classList.toggle('hidden', !v.update_available);
+    if (typeof drawerSync === 'function') drawerSync();
     const dot = $('updDot');
     if (dot) { dot.className = 'status-indicator ' + (v.update_available ? 'offline' : 'active'); $('updDotTxt').textContent = v.update_available ? 'update available' : 'up to date'; }
     const btn = $('updateBtn');
@@ -1560,9 +1607,9 @@ async function termFlagRefresh() {
   try {
     const s = await api('/api/term/status');
     termState.enabled = !!s.enabled;
-    const nav = $('termNav'), mob = $('termMobNav');
+    const nav = $('termNav');
     if (nav) nav.classList.toggle('hidden', !s.enabled);
-    if (mob) mob.classList.toggle('hidden', !s.enabled);
+    if (typeof drawerSync === 'function') drawerSync();
     const dot = $('termFlagDot');
     if (dot) { dot.className = 'status-indicator ' + (s.enabled ? 'active' : ''); $('termFlagTxt').textContent = s.enabled ? 'enabled' : 'disabled'; }
     const tb = $('termToggleBtn'); if (tb) tb.textContent = s.enabled ? 'Disable terminal' : 'Enable terminal';
