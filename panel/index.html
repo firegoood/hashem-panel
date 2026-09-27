@@ -1545,13 +1545,14 @@ function dashPeersCard(peers) {
   const rows = peers.map(p => {
     const up = !!(p.gre_up || p.frp_up);
     const nm = p.name || ('peer-' + p.id);
-    const ping = p.ping_ok ? (p.ping_ms || 'ok') : 'down';
+    const pingTxt = p.ping_ok ? (p.ping_ms || 'ok') : 'down';
+    const pingCls = p.ping_ok ? 'ok' : 'err';
     return `<div class="dash-peer-row" data-goto-peer="${p.id}" title="Open full card in Tunnel tab">`
       + `<span class="ent-st ${up ? 'on' : 'off'}"><i></i></span>`
       + `<b style="color:var(--tx)">${esc(nm)}</b><span class="qs-hint mono">#${p.id}</span>`
-      + `<span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${up ? 'active' : 'down'}</span>`
+      + `<span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${up ? 'tunnel up' : 'down'}</span>`
       + `<span class="det-v mono">${esc(p.remote_pub || '—')}</span>`
-      + `<span class="qs-hint">${esc((p.ports || []).join(', ') || '—')} · ${esc(ping)}</span>`
+      + `<span class="qs-hint">${esc((p.ports || []).join(', ') || '—')} · </span><span class="badge ${pingCls}"><span class="dot"></span>${esc(pingTxt)}</span>`
       + `</div>`;
   }).join('');
   return `<div class="det-card" style="grid-column:1/-1"><div class="det-head"><span class="det-ico">${ICO_SRV}</span>Peer Tunnels (${peers.length})</div><div>${rows}</div></div>`;
