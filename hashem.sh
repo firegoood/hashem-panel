@@ -2347,6 +2347,12 @@ install_panel() {
         fi
     fi
 
+    # stop the running panel BEFORE overwriting its binary: cp over a live
+    # executable fails with ETXTBSY ("Text file busy") and leaves the old
+    # version in place. The restart at the end of this function brings it back.
+    if systemctl is-active --quiet gre-panel 2>/dev/null; then
+        systemctl stop gre-panel 2>/dev/null || true
+    fi
     cp "$TMP_PANEL/gre-panel" "$PANEL_BIN"
     chmod +x "$PANEL_BIN"
     rm -rf "$TMP_PANEL"
