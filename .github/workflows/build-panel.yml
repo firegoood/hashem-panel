@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - "panel/**"
-      - "gre.sh"
+      - "hashem.sh"
       - ".github/workflows/build-panel.yml"
 
 permissions:
@@ -30,12 +30,11 @@ jobs:
           ./gre-panel-linux-amd64 --version
           ls -la gre-panel-linux-*
 
-      - name: Sync gre.sh + grepanel + hashem into release
+      - name: Sync hashem.sh + grepanel into release
         run: |
           mkdir -p panel/dist
-          cp gre.sh panel/dist/gre.sh
+          cp hashem.sh panel/dist/hashem.sh
           cp panel/grepanel panel/dist/grepanel
-          cp panel/hashem panel/dist/hashem
           ls -la panel/dist/
 
       - name: Create release
@@ -47,6 +46,5 @@ jobs:
           files: |
             panel/gre-panel-linux-amd64
             panel/gre-panel-linux-arm64
-            panel/dist/gre.sh
+            panel/dist/hashem.sh
             panel/dist/grepanel
-            panel/dist/hashem

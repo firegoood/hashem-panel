@@ -1,7 +1,7 @@
 package main
 
 // Tunnel inspection + actions: read GRE/FRP state via ip/systemd (never
-// writes), restart/ping/remove via systemctl/ping or the shared gre.sh
+// writes), restart/ping/remove via systemctl/ping or the shared hashem.sh
 // installer (single source of truth, same as the CLI/menu path).
 
 import (
@@ -124,7 +124,7 @@ func runAction(action string, peerID int) (string, error) {
 		if peerID > 0 {
 			return removePeerViaInstaller(peerID)
 		}
-		// mirror of gre.sh remove_tunnel_force(): GRE + FRP gone, panel untouched.
+		// mirror of hashem.sh remove_tunnel_force(): GRE + FRP gone, panel untouched.
 		// Implemented via the installer itself (single source of truth) so the
 		// shell-out path and the menu path can never drift apart.
 		out, err := removeViaInstaller()
@@ -136,7 +136,7 @@ func runAction(action string, peerID int) (string, error) {
 	return "", fmt.Errorf("unknown action")
 }
 
-// tuneViaInstaller runs `gre.sh optimize|restore|tune-status` and returns its
+// tuneViaInstaller runs `hashem.sh optimize|restore|tune-status` and returns its
 // output as the action result (single source of truth, same as menu/CLI).
 func tuneViaInstaller(action string) (string, error) {
 	script, err := greScriptPath()
@@ -159,7 +159,7 @@ func tuneViaInstaller(action string) (string, error) {
 	return o, nil
 }
 
-// removeViaInstaller runs `gre.sh remove-tunnel --force` and returns its
+// removeViaInstaller runs `hashem.sh remove-tunnel --force` and returns its
 // output as the action result. GRE_SKIP_PANEL is irrelevant here (removal
 // never touches the panel), but kept for symmetry with runInstaller.
 func removeViaInstaller() (string, error) {
@@ -181,7 +181,7 @@ func removeViaInstaller() (string, error) {
 }
 
 // ---- multi-peer: registry + per-tunnel inspection ----
-// peers.json (written by gre.sh add-peer) is the source of truth for how
+// peers.json (written by hashem.sh add-peer) is the source of truth for how
 // many foreign servers hang off this Iran. Legacy single installs without
 // a registry fall back to the old single-tunnel view.
 

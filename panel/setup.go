@@ -1,10 +1,10 @@
 package main
 
-// Setup API: validate the web form, then run the SAME gre.sh install
+// Setup API: validate the web form, then run the SAME hashem.sh install
 // functions the CLI/menu use (single source of truth). The request fields
 // map 1:1 to the setup-iran / setup-foreign CLI flags at the bottom of
-// gre.sh, and the installer script path is resolved next to the binary so it
-// works both in dev (./panel/gre.sh) and on servers (/usr/local/bin/).
+// hashem.sh, and the installer script path is resolved next to the binary so it
+// works both in dev (./hashem.sh) and on servers (/usr/local/bin/).
 //
 // Iran side: GRE + frps (token auto-generated, shown for copy to Foreign).
 // Foreign side: GRE + frpc (token entered manually, ports like "443, 2083").
@@ -38,13 +38,21 @@ const (
 	bundlePrefix = "hsh1_"
 )
 
-// ---- gre.sh location ----
+// ---- hashem.sh location ----
 
-// greScriptPath finds the installer: GRE_SCRIPT env wins, else <bindir>/gre.sh
-// (servers: alongside /usr/local/bin/gre-panel), else ./gre.sh (panel/ dev).
-// The legacy /usr/local/bin/gre.sh copy is also accepted — update_all()
-// syncs both locations, so an old install layout must not break add-peer.
+// scriptPath finds the installer: HASHEM_SCRIPT env wins, legacy
+// GRE_SCRIPT still accepted, else <bindir>/hashem.sh (servers: alongside
+// /usr/local/bin/gre-panel), else legacy <bindir>/gre.sh or
+// /usr/local/bin/gre.sh, else ./hashem.sh (repo dev).
+// update_all() migrates servers to the new name; old paths are read-only
+// fallbacks so already-installed servers never break.
 func greScriptPath() (string, error) {
+	if p := os.Getenv("HASHEM_SCRIPT"); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+		return "", fmt.Errorf("HASHEM_SCRIPT=%s not found", p)
+	}
 	if p := os.Getenv("GRE_SCRIPT"); p != "" {
 		if _, err := os.Stat(p); err == nil {
 			return p, nil
@@ -52,12 +60,30 @@ func greScriptPath() (string, error) {
 		return "", fmt.Errorf("GRE_SCRIPT=%s not found", p)
 	}
 	if exe, err := os.Executable(); err == nil {
+		if p := filepath.Join(filepath.Dir(exe), "hashem.sh"); fileExists(p) {
+			return p, nil
+		}
 		if p := filepath.Join(filepath.Dir(exe), "gre.sh"); fileExists(p) {
 			return p, nil
 		}
 	}
+	if fileExists("/usr/local/bin/hashem.sh") {
+		return "/usr/local/bin/hashem.sh", nil
+	}
 	if fileExists("/usr/local/bin/gre.sh") {
 		return "/usr/local/bin/gre.sh", nil
+	}
+	if fileExists("/usr/local/bin/hashem") {
+		if abs, err := filepath.Abs("/usr/local/bin/hashem"); err == nil {
+			return abs, nil
+		}
+		return "/usr/local/bin/hashem", nil
+	}
+	if fileExists("hashem.sh") {
+		if abs, err := filepath.Abs("hashem.sh"); err == nil {
+			return abs, nil
+		}
+		return "hashem.sh", nil
 	}
 	if fileExists("gre.sh") {
 		if abs, err := filepath.Abs("gre.sh"); err == nil {
@@ -65,7 +91,7 @@ func greScriptPath() (string, error) {
 		}
 		return "gre.sh", nil
 	}
-	return "", fmt.Errorf("gre.sh not found (set GRE_SCRIPT=/path/to/gre.sh)")
+	return "", fmt.Errorf("hashem.sh not found (set HASHEM_SCRIPT=/path/to/hashem.sh)")
 }
 
 func fileExists(p string) bool {
@@ -74,9 +100,12 @@ func fileExists(p string) bool {
 }
 
 // greScriptTarget is where syncPanelScript writes the fresh script:
-// same place greScriptPath() reads from (GRE_SCRIPT wins, else next to
-// the running binary, else ./gre.sh for panel/ dev).
+// same place greScriptPath() reads from (HASHEM_SCRIPT wins, else next to
+// the running binary, else ./hashem.sh for panel/ dev).
 func greScriptTarget() string {
+	if p := os.Getenv("HASHEM_SCRIPT"); p != "" {
+		return p
+	}
 	if p := os.Getenv("GRE_SCRIPT"); p != "" {
 		return p
 	}
@@ -88,7 +117,7 @@ func greScriptTarget() string {
 
 // ensureAddPeerScript checks the script on disk supports the add-peer
 // CLI verb; if not (stale Sep-26 copy on older hosts), it pulls the
-// latest gre.sh from main (bash -n verified) and replaces it — so an
+// latest hashem.sh from main (bash -n verified) and replaces it — so an
 // add-peer request self-heals instead of failing with E-INSTALL-02.
 func ensureAddPeerScript(script string) {
 	data, err := os.ReadFile(script)
@@ -198,7 +227,7 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		applyBundle(&body, b)
 	}
 
-	// validation (mirrors gre.sh prompt_* / validate_setup_common rules)
+	// validation (mirrors hashem.sh prompt_* / validate_setup_common rules)
 	if body.Role != "iran" && body.Role != "foreign" && body.Role != "add-peer" {
 		writeAPIError(w, r, "E-SETUP-02", "")
 		return
@@ -287,7 +316,7 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-// runInstaller shells out to gre.sh setup-iran|setup-foreign with the same
+// runInstaller shells out to hashem.sh setup-iran|setup-foreign with the same
 // flags the CLI uses, so menu / CLI / panel execute identical steps.
 // Returns the Iran-side token + foreign-setup bundle (bundle holds the
 // token plus all addresses/ports, so one paste configures foreign).
@@ -297,7 +326,7 @@ func runInstaller(b setupRequest, ports []int) (string, string, []string, error)
 	if err != nil {
 		return "", "", nil, err
 	}
-	// Self-healing: if add-peer is invoked on a host whose gre.sh is
+	// Self-healing: if add-peer is invoked on a host whose hashem.sh is
 	// an old version (lacking the "add-peer" CLI verb), auto-sync the
 	// script before shelling out so the user does not hit E-INSTALL-02.
 	if b.Role == "add-peer" {
@@ -369,9 +398,9 @@ func runInstaller(b setupRequest, ports []int) (string, string, []string, error)
 			}
 		}
 		if b.Role == "add-peer" && strings.Contains(strings.Join(steps, "\n"), "Unknown command") {
-			errText += " — panel gre.sh is an old version: run Update to latest, or re-run install.sh on this host"
+			errText += " — panel hashem.sh is an old version: run Update to latest, or re-run install.sh on this host"
 		}
-		return "", "", steps, fmt.Errorf("gre.sh %s failed: %s", args[0], errText)
+		return "", "", steps, fmt.Errorf("hashem.sh %s failed: %s", args[0], errText)
 	}
 	if b.Role == "iran" || b.Role == "add-peer" {
 		return token, MakeBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, token, ports), steps, nil
@@ -409,7 +438,7 @@ func handlePeersGet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if _, ok := resp["bundle"]; !ok {
-			// old gre.sh prints token only: rebuild the bundle from the
+			// old hashem.sh prints token only: rebuild the bundle from the
 			// registry record (live Iran pub + port fill the rest).
 			if p := findPeer(id); p != nil {
 				resp["bundle"] = MakeBundle(p.LocalPub, p.FrpPort, p.LocalGre, p.PeerGre, resp["token"], p.Ports)
@@ -427,7 +456,7 @@ func handlePeersGet(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/peers just proxies validation errors from /api/setup role=add-peer.
 // The real creation path is /api/setup (role add-peer) so only one code path
-// shells out to gre.sh. This endpoint exists for future per-peer edits.
+// shells out to hashem.sh. This endpoint exists for future per-peer edits.
 func handlePeersPost(w http.ResponseWriter, r *http.Request) {
 	writeAPIError(w, r, "E-PEER-06", "")
 }

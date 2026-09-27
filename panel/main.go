@@ -89,7 +89,7 @@ func pickFreePort(start int) int {
 	return start
 }
 
-// envPanelPort reads GRE_PANEL_PORT (set by gre.sh or the admin).
+// envPanelPort reads GRE_PANEL_PORT (set by hashem.sh or the admin).
 // Returns 0 when unset/invalid.
 func envPanelPort() int {
 	v := strings.TrimSpace(os.Getenv("GRE_PANEL_PORT"))

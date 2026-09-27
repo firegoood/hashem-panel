@@ -56,11 +56,11 @@ for p in sorted(json.load(open(os.environ["PEERS_F"])).get("peers",[]), key=lamb
     echo "gre-panel removed (config kept in /etc/gre-panel)"
     ;;
   optimize|restore|tune-status|peer-list)
-    # delegate to the installed gre.sh (single source of truth for tuning)
-    for p in /usr/local/bin/gre.sh /root/gre.sh ./gre.sh; do
+    # delegate to the installed hashem.sh (single source of truth for tuning)
+    for p in /usr/local/bin/hashem.sh /usr/local/bin/hashem /usr/local/bin/gre.sh /root/hashem.sh ./hashem.sh; do
       if [[ -f "$p" ]]; then SCRIPT="$p"; break; fi
     done
-    if [[ -z "${SCRIPT:-}" ]]; then echo "gre.sh not found (expected /usr/local/bin/gre.sh)"; exit 1; fi
+    if [[ -z "${SCRIPT:-}" ]]; then echo "hashem.sh not found (expected /usr/local/bin/hashem.sh)"; exit 1; fi
     exec bash "$SCRIPT" "$cmd"
     ;;
   *)

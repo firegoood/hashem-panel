@@ -1123,7 +1123,7 @@ $('addPeerBtn').onclick = async () => {
       r = await api('/api/setup', body);
     } catch(e) {
       // 409 = port already served by another tunnel — show it inline,
-      // same for a stale gre.sh on this host (E-INSTALL-02 "Unknown command"):
+      // same for a stale hashem.sh on this host (E-INSTALL-02 "Unknown command"):
       // tell the user to update instead of a bare failure.
       if (/already served|already used|peer table full/i.test(e.message)) {
         const w = $('peerWarn');

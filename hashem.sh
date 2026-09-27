@@ -1,10 +1,16 @@
 #!/bin/bash
 
 # ==============================================================================
-#   GRE + FRP Reverse Tunnel Automated Setup Script
+#   Hashem — GRE + FRP Reverse Tunnel Automated Setup Script (hashem.sh)
 #   Architecture: GRE Layer 3 Tunnel + FRP Reverse TLS Tunnel
 #   Features: Auto Arch Detect, Systemd Auto-start on boot, MTU Clamping, TCP/UDP
+#   One file: interactive menu (`bash hashem.sh`) + non-interactive CLI
+#   (`hashem setup-iran ...`) — the old gre.sh name still works as symlink.
 # ==============================================================================
+# ---- installed names (single source of truth for this script) ----
+HASHEM_BIN="/usr/local/bin/hashem"       # this script, after install
+HASHEM_SCRIPT="/usr/local/bin/hashem.sh" # versioned copy (gre.sh = legacy alias)
+HASHEM_URL_BASE="https://raw.githubusercontent.com/pdnczone/hashem-panel/main"
 
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
@@ -570,7 +576,7 @@ cli_add_peer() {
             --ports) PORTS="$2"; shift 2 ;;
             --bundle) BUNDLE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
-            -h|--help) echo 'Usage: gre.sh add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...] [--force]'; return 0 ;;
+            -h|--help) echo 'Usage: hashem.sh add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...] [--force]'; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
         esac
     done
@@ -661,7 +667,7 @@ cli_remove_peer() {
     local ID="" FORCE=0
     while [[ $# -gt 0 ]]; do
         case "$1" in --id) ID="$2"; shift 2 ;; --force) FORCE=1; shift ;;
-            -h|--help) echo 'Usage: gre.sh remove-peer --id N [--force]'; return 0 ;;
+            -h|--help) echo 'Usage: hashem.sh remove-peer --id N [--force]'; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;; esac
     done
     [[ "$ID" =~ ^[0-9]+$ ]] || { echo -e "${RED}[!] --id N is required.${NC}"; return 1; }
@@ -912,7 +918,8 @@ uninstall_all() {
 
 # Non-interactive core: full wipe. Called by uninstall_all() after confirm
 # and by `hashem uninstall --force`. Must also delete the menu entrypoints
-# (/usr/local/bin/hashem + /usr/local/bin/gre.sh) so `hashem` stops working.
+# (/usr/local/bin/hashem + /usr/local/bin/hashem.sh + legacy gre.sh) so
+# `hashem` stops working.
 uninstall_all_force() {
         # Stop & disable services (legacy + all peers + panel)
         systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-panel >/dev/null 2>&1
@@ -941,7 +948,7 @@ uninstall_all_force() {
 
         # Remove the menu entrypoints LAST so `hashem` stops opening a menu.
         # (Deleting a running script's own file is safe on Linux — the open fd stays valid.)
-        rm -f /usr/local/bin/hashem /usr/local/bin/gre.sh
+        rm -f /usr/local/bin/hashem /usr/local/bin/hashem.sh /usr/local/bin/gre.sh
 
         echo -e "${GREEN}[✔️] Everything uninstalled: tunnel + panel + 'hashem' command removed.${NC}"
 }
@@ -1181,9 +1188,19 @@ install_panel() {
         if [[ -n "$GREPANEL_URL" ]]; then
             curl -fsSL --max-time 30 "$GREPANEL_URL" -o /usr/local/bin/grepanel 2>/dev/null && chmod +x /usr/local/bin/grepanel || true
         fi
-        GRESH_URL=$(echo "$LATEST_JSON" | grep -o "\"browser_download_url\": *\"[^\"]*gre\\.sh\"" | head -1 | cut -d'"' -f4)
-        if [[ -n "$GRESH_URL" ]]; then
-            curl -fsSL --max-time 30 "$GRESH_URL" -o /usr/local/bin/gre.sh 2>/dev/null && chmod +x /usr/local/bin/gre.sh || true
+        HASHEMSH_URL=$(echo "$LATEST_JSON" | grep -o "\"browser_download_url\": *\"[^\"]*hashem\\.sh\"" | head -1 | cut -d'"' -f4)
+        if [[ -n "$HASHEMSH_URL" ]]; then
+            curl -fsSL --max-time 30 "$HASHEMSH_URL" -o "$HASHEM_SCRIPT" 2>/dev/null && chmod +x "$HASHEM_SCRIPT" || true
+            cp "$HASHEM_SCRIPT" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN" || true
+            ln -sf "$HASHEM_SCRIPT" /usr/local/bin/gre.sh 2>/dev/null || true
+        else
+            # transitional: releases before the hashem.sh rename ship gre.sh
+            GRESH_URL=$(echo "$LATEST_JSON" | grep -o "\"browser_download_url\": *\"[^\"]*gre\\.sh\"" | head -1 | cut -d'"' -f4)
+            if [[ -n "$GRESH_URL" ]]; then
+                curl -fsSL --max-time 30 "$GRESH_URL" -o "$HASHEM_SCRIPT" 2>/dev/null && chmod +x "$HASHEM_SCRIPT" || true
+                cp "$HASHEM_SCRIPT" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN" || true
+                ln -sf "$HASHEM_SCRIPT" /usr/local/bin/gre.sh 2>/dev/null || true
+            fi
         fi
         HASHEM_URL=$(echo "$LATEST_JSON" | grep -o "\"browser_download_url\": *\"[^\"]*/hashem\"" | head -1 | cut -d'"' -f4)
         if [[ -n "$HASHEM_URL" ]]; then
@@ -1221,14 +1238,11 @@ install_panel() {
     cp "$TMP_PANEL/gre-panel" "$PANEL_BIN"
     chmod +x "$PANEL_BIN"
     rm -rf "$TMP_PANEL"
-    # hashem shortcut -> /usr/local/bin/hashem (same menu, same flags as gre.sh)
-    if [[ -f panel/hashem ]]; then
-        cp panel/hashem /usr/local/bin/hashem
-        chmod +x /usr/local/bin/hashem
-    elif [[ -f "$SRC/hashem" ]]; then
-        cp "$SRC/hashem" /usr/local/bin/hashem
-        chmod +x /usr/local/bin/hashem
-    fi
+    # /usr/local/bin/hashem IS this script now (no shortcut file anymore):
+    # install a copy plus a legacy gre.sh symlink so old muscle memory works.
+    cp "$0" "$HASHEM_BIN" 2>/dev/null || cp ./hashem.sh "$HASHEM_BIN" 2>/dev/null || cp "$SRC/hashem.sh" "$HASHEM_BIN" 2>/dev/null || true
+    chmod +x "$HASHEM_BIN" 2>/dev/null || true
+    ln -sf "$HASHEM_SCRIPT" /usr/local/bin/gre.sh 2>/dev/null || true
 
     cat > /etc/systemd/system/gre-panel.service <<EOF
 [Unit]
@@ -1330,15 +1344,15 @@ update_all() {
     TMP_U="$(mktemp -d)"
     trap 'rm -rf "$TMP_U"' RETURN
     # 1. fresh script from main
-    if ! curl -fsSL --max-time 30 "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/gre.sh" -o "$TMP_U/gre.sh"; then
-        echo -e "${RED}[!] Failed to download latest gre.sh — nothing changed.${NC}"
+    if ! curl -fsSL --max-time 30 "${HASHEM_URL_BASE}/hashem.sh" -o "$TMP_U/hashem.sh"; then
+        echo -e "${RED}[!] Failed to download latest hashem.sh — nothing changed.${NC}"
         return 1
     fi
-    bash -n "$TMP_U/gre.sh" || { echo -e "${RED}[!] Downloaded script failed syntax check — nothing changed.${NC}"; return 1; }
-    if cmp -s "$TMP_U/gre.sh" "$0" 2>/dev/null || cmp -s "$TMP_U/gre.sh" ./gre.sh 2>/dev/null; then
-        echo -e "${GREEN}[✔️] gre.sh is already the latest version.${NC}"
+    bash -n "$TMP_U/hashem.sh" || { echo -e "${RED}[!] Downloaded script failed syntax check — nothing changed.${NC}"; return 1; }
+    if cmp -s "$TMP_U/hashem.sh" "$0" 2>/dev/null || cmp -s "$TMP_U/hashem.sh" ./hashem.sh 2>/dev/null; then
+        echo -e "${GREEN}[✔️] hashem.sh is already the latest version.${NC}"
     else
-        echo -e "${GREEN}[✔️] New gre.sh downloaded and syntax-checked.${NC}"
+        echo -e "${GREEN}[✔️] New hashem.sh downloaded and syntax-checked.${NC}"
     fi
     # 2. reinstall panel binary from latest release (downloads prebuilt, restarts service)
     echo -e "${CYAN}[*] Updating panel binary...${NC}"
@@ -1356,11 +1370,14 @@ update_all() {
     fi
     [[ -n "$PANEL_BAK" ]] && rm -rf "$PANEL_BAK"
     # 3. replace running script only after everything succeeded
-    cp "$TMP_U/gre.sh" "$0" 2>/dev/null || cp "$TMP_U/gre.sh" ./gre.sh
+    cp "$TMP_U/hashem.sh" "$0" 2>/dev/null || cp "$TMP_U/hashem.sh" ./hashem.sh
     chmod +x "$0" 2>/dev/null || true
-    # 4. sync a copy next to the panel binary so the web panel + grepanel
-    # always shell out to the latest tune/setup logic (single source of truth)
-    cp "$TMP_U/gre.sh" /usr/local/bin/gre.sh 2>/dev/null && chmod +x /usr/local/bin/gre.sh || true
+    # 4. sync copies next to the panel binary + the hashem command + legacy
+    # gre.sh symlink, so the web panel + grepanel always shell out to the
+    # latest tune/setup logic (single source of truth)
+    cp "$TMP_U/hashem.sh" "$HASHEM_SCRIPT" 2>/dev/null && chmod +x "$HASHEM_SCRIPT" || true
+    cp "$TMP_U/hashem.sh" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN" || true
+    ln -sf "$HASHEM_SCRIPT" /usr/local/bin/gre.sh 2>/dev/null || true
     PANEL_VER=$("$PANEL_BIN" --version 2>/dev/null || echo "unknown")
     echo -e "${GREEN}[✔️] Update complete — script + panel are latest (panel: ${PANEL_VER}). Re-run the script to use the new menu.${NC}"
 }
@@ -1461,7 +1478,7 @@ main_menu() {
 }
 
 check_root
-# Non-interactive CLI: gre.sh setup-iran|setup-foreign with flags.
+# Non-interactive CLI: hashem.sh setup-iran|setup-foreign with flags.
 # The setup_*_noninteractive + _setup_foreign_full functions above are the
 # SINGLE source of truth — menu, CLI, and web panel all run the same steps.
 usage_cli() {
@@ -1475,7 +1492,7 @@ Usage:
   hashem uninstall [--force]                   # full wipe: tunnel + panel + 'hashem' itself
   hashem add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...]
   hashem remove-peer --id N [--force] | peer-list | peer-token --id N
-  hashem logs | restart | panel-tls [domain] [email]   # (also: bash gre.sh ...)
+  hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
   hashem free-ram                            # cap journald + drop cache + 1GB swap
 

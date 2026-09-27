@@ -71,7 +71,7 @@ Manual:
 ```bash
 git clone https://github.com/pdnczone/hashem-panel.git
 cd hashem-panel
-sudo bash gre.sh
+sudo bash hashem.sh
 ```
 
 ### Setup flow
@@ -93,7 +93,7 @@ After install, just type in SSH:
 hashem            # full interactive menu (options 0-17)
 ```
 
-Non-interactive (same flags as `gre.sh`):
+Non-interactive (same flags as `hashem.sh`):
 
 ```bash
 hashem status | logs | restart | update | show-panel-url
@@ -193,8 +193,8 @@ Requirements: Linux + `systemd`, `root`, GRE (protocol 47) open between servers.
 ## 📁 Repo layout
 
 ```
-gre.sh                  # everything: setup iran/foreign, peers, status, logs, update, panel, TLS
-install.sh              # one-liner entry → gre.sh
+hashem.sh               # everything: setup iran/foreign, peers, status, logs, update, panel, TLS (`hashem` = same file, installed)
+install.sh              # one-liner entry → hashem.sh
 panel/                  # Go single-binary web panel
   main.go               # routes, HTTP+HTTPS listeners, feature flags
   terminal.go           # xterm.js + WebSocket + PTY interactive shell
@@ -202,7 +202,7 @@ panel/                  # Go single-binary web panel
   setup.go / tunnel.go  # setup + peers API, status, logs
   dashboard.go / errors.go  # metrics, E-XXXX catalog
   index.html            # all 7 tabs (vanilla JS + enterprise DS)
-  hashem / grepanel     # server-side CLI shortcuts
+  grepanel              # server-side panel service control (delegates tune/peer cmds to hashem.sh)
   README.md             # panel walkthrough
 .github/workflows/     # build-panel.yml → prebuilt panel-rN releases
 spoof_test.py           # spoof test helper (direct vs tunneled)

@@ -83,7 +83,7 @@ func tlsCertExpiry() (time.Time, string, error) {
 	return time.Time{}, "", fmt.Errorf("no certificate found")
 }
 
-// tlsStatusJSON is shared by the API + the gre.sh CLI banner.
+// tlsStatusJSON is shared by the API + the hashem.sh CLI banner.
 func tlsStatusJSON() map[string]any {
 	out := map[string]any{
 		"http_port":  cfg.Port,

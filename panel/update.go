@@ -1,7 +1,7 @@
 package main
 
 // Update API: check for a newer prebuilt panel release and install it.
-// Same safety rules as gre.sh update_all(): verify download, keep local
+// Same safety rules as hashem.sh update_all(): verify download, keep local
 // config (panel.json / panel.pass) untouched, restart the service, and
 // never leave the system in a broken state on failure.
 
@@ -53,12 +53,13 @@ func latestReleaseTag() (string, error) {
 }
 
 // handleUpdate downloads the latest prebuilt binary for this arch,
-// verifies it (non-empty ELF), swaps it in, syncs the latest gre.sh
-// next to the panel binary (the panel shells out to gre.sh for all
-// setup Peer/tunnel work — a stale gre.sh would break add-peer with
+// verifies it (non-empty ELF), swaps it in, syncs the latest hashem.sh
+// next to the panel binary (the panel shells out to hashem.sh for all
+// setup Peer/tunnel work — a stale hashem.sh would break add-peer with
 // E-INSTALL-02 "Unknown command"), and restarts the service.
 // panel.json / panel.pass are never touched, so local credentials survive.
-const panelScriptName = "gre.sh"
+const panelScriptName = "hashem.sh"
+
 func handleUpdate(w http.ResponseWriter, r *http.Request) {
 	arch, asset, err := panelAsset()
 	if err != nil {
@@ -109,8 +110,8 @@ func handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = os.Chmod(exe, 0755)
-	// Keep gre.sh in sync with the binary: find it next to the running
-	// binary (servers: /usr/local/bin/gre.sh) or via GRE_SCRIPT, download
+	// Keep hashem.sh in sync with the binary: find it next to the running
+	// binary (servers: /usr/local/bin/hashem.sh) or via HASHEM_SCRIPT, download
 	// the latest from main, syntax-check it, then replace. Best effort —
 	// a failed script sync never blocks the binary update.
 	syncPanelScript()
@@ -201,9 +202,9 @@ func restartSelf() {
 // sessionFile returns the path of the server-side session store.
 func sessionFile() string { return filepath.Join(configDir, "sessions.json") }
 
-// ---- gre.sh sync (keeps server script in step with the binary) ----
+// ---- hashem.sh sync (keeps server script in step with the binary) ----
 
-// syncPanelScript downloads the latest gre.sh from main, syntax-checks
+// syncPanelScript downloads the latest hashem.sh from main, syntax-checks
 // it with `bash -n`, and installs it where greScriptPath() reads from
 // (next to the running binary on servers). Best effort: any failure is
 // recorded in the error log and ignored — a stale-but-working script
@@ -221,7 +222,7 @@ func syncPanelScript() {
 			return
 		}
 	}
-	tmp, err := os.CreateTemp("", "gresh-*.sh")
+	tmp, err := os.CreateTemp("", "hashem-*.sh")
 	if err != nil {
 		recordError("E-UPDATE-06", "script-sync", "tmpfile: "+err.Error())
 		return
@@ -229,7 +230,7 @@ func syncPanelScript() {
 	tmpPath := tmp.Name()
 	_ = tmp.Close()
 	defer func() { _ = os.Remove(tmpPath) }()
-	if err := downloadFile(greScriptURL, mustOpen(tmpPath)); err != nil {
+	if err := downloadFile(scriptURL, mustOpen(tmpPath)); err != nil {
 		recordError("E-UPDATE-06", "script-sync", "download: "+err.Error())
 		return
 	}
@@ -243,16 +244,26 @@ func syncPanelScript() {
 		return
 	}
 	_ = os.Chmod(target, 0755)
-	// Keep the legacy /usr/local/bin/gre.sh copy in step too, so any
-	// lookup path greScriptPath() accepts runs the same commands.
-	if target != "/usr/local/bin/gre.sh" {
-		if err := copyFile(tmpPath, "/usr/local/bin/gre.sh"); err == nil {
-			_ = os.Chmod("/usr/local/bin/gre.sh", 0755)
+	// Migrate servers to the new name: refresh the hashem copies + legacy
+	// gre.sh symlink, and drop a stale standalone gre.sh file (symlink wins
+	// so old lookup paths keep working).
+	for _, p := range []string{"/usr/local/bin/hashem.sh", "/usr/local/bin/hashem"} {
+		if p == target {
+			continue
+		}
+		if err := copyFile(tmpPath, p); err == nil {
+			_ = os.Chmod(p, 0755)
 		}
 	}
+	_ = os.Remove("/usr/local/bin/gre.sh")
+	_ = os.Symlink("/usr/local/bin/hashem.sh", "/usr/local/bin/gre.sh")
 }
 
-const greScriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/gre.sh"
+const scriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem.sh"
+
+// greScriptURL stays as an alias: releases before the rename shipped gre.sh,
+// and external tools may import the name.
+const greScriptURL = scriptURL
 
 func mustOpen(path string) *os.File {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
@@ -354,4 +365,3 @@ func sessionCount() int {
 	}
 	return n
 }
-
