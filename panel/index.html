@@ -233,6 +233,20 @@
   .drawer-nav .nav-sec { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
     color:var(--mu); padding:10px 12px 4px; }
   .drawer-nav .nav-item { width:100%; }
+  .nav-caret { margin-left:auto; font-size:10px; color:var(--mu); transition:transform .2s; }
+  .nav-group.open .nav-caret { transform:rotate(180deg); }
+  .nav-sub { display:none; flex-direction:column; gap:2px; padding:2px 0 2px 34px; }
+  .nav-group.open .nav-sub { display:flex; }
+  .nav-sub button { border:0; background:transparent; color:var(--mu); font-size:13px; font-weight:500;
+    cursor:pointer; text-align:left; padding:7px 10px; border-radius:8px; }
+  .nav-sub button:hover { background:var(--sunk); color:var(--tx); }
+  /* per-tunnel health chips shown under the Status card */
+  .tun-chip { display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:10px;
+    border:1px solid var(--ln); background:var(--sunk); font-size:13px; font-weight:600;
+    cursor:pointer; text-align:left; width:100%; color:var(--tx2); }
+  .tun-chip:hover { border-color:var(--ac); color:var(--tx); }
+  .tun-chip .qs-hint { margin-left:auto; }
+  #tunChips { display:grid; gap:6px; margin-top:10px; }
   .drawer-foot { padding:12px; border-top:1px solid var(--ln); display:flex; gap:8px; }
   #login { position:fixed; inset:0; z-index:50; display:grid; place-items:center;
     background:#09090b; color:#f4f4f5; min-height:100dvh; overflow:hidden;
@@ -345,7 +359,14 @@
       <div class="nav-sec">Overview</div>
       <button class="nav-item on" data-tab="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Dashboard</span></button>
       <div class="nav-sec">Tunnel</div>
-      <button class="nav-item" data-tab="tunnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span>Tunnel</span></button>
+      <div class="nav-group" id="tunnelGroup">
+      <button class="nav-item" data-tab="tunnel" id="tunnelNavBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span>Tunnel</span><span class="nav-caret">▾</span></button>
+      <div class="nav-sub">
+        <button data-goto="tunnelStatusCard">Status</button>
+        <button data-goto="peerCards">Peers</button>
+        <button data-goto="addPeerCard">Add new</button>
+      </div>
+      </div>
       <button class="nav-item" data-tab="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span>Setup</span></button>
       <button class="nav-item" data-tab="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Logs</span></button>
       <div class="nav-sec">System</div>
@@ -437,9 +458,10 @@
         </div>
       </section>
       <section id="tab-tunnel" hidden>
-        <div class="tunnel-card">
+        <div class="tunnel-card" id="tunnelStatusCard">
           <div class="tc-header"><p class="tc-title">Tunnel status</p><span class="status-indicator" id="tunnelDot"><span class="dot"></span><span id="tunnelDotTxt">—</span></span></div>
           <div id="tunnel"></div>
+          <div id="tunChips" aria-label="Per-tunnel health"></div>
           <div class="ent-sec-label" style="margin-top:6px">Peer tunnels</div>
           <div id="peerCards" style="display:grid;gap:10px"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
@@ -759,17 +781,29 @@ function goTab(name) {
   if (name === 'logs') { refreshLogPeers(); loadLogs(); loadErrors(); armLogFollow(); }
   if (name === 'terminal') termOnShow();
 }
-document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => goTab(b.dataset.tab));
+document.querySelectorAll('[data-tab]').forEach(b => { if (b.id !== 'tunnelNavBtn') b.onclick = () => goTab(b.dataset.tab); });
 // mobile drawer: clones the sidebar nav so phone users get a hamburger
-// menu instead of the cramped tab strip. Synced with the sidebar on
-// terminal-flag and update-badge changes (see termFlagRefresh/loadVersion).
+// menu instead of the cramped tab strip. The Tunnel entry expands inline:
+// Status / Peers / Add new scroll inside the Tunnel tab. Synced with the
+// sidebar on terminal-flag and update-badge changes.
 function drawerSync() {
   const nav = $('drawerNav'); if (!nav) return;
   nav.innerHTML = $('sideNav') ? $('sideNav').innerHTML : '';
+  // strip duplicated ids from the clone (single source of truth stays in sidebar)
+  nav.querySelectorAll('#tunnelNavBtn').forEach(b => b.removeAttribute('id'));
+  nav.querySelectorAll('#tunnelGroup').forEach(g => g.removeAttribute('id'));
   nav.querySelectorAll('[data-tab]').forEach(b => {
-    b.onclick = () => { goTab(b.dataset.tab); drawerClose(); };
+    if (b.dataset.tab === 'tunnel') {
+      b.onclick = () => { goTab('tunnel'); toggleTunnelGroup(true); };
+    } else {
+      b.onclick = () => { goTab(b.dataset.tab); drawerClose(); };
+    }
     if (b.id === 'termNav') b.id = '';
     if (b.querySelector('#updBadge')) b.querySelector('#updBadge').id = 'updBadgeM';
+  });
+  // drawer copy of the tunnel sub-nav
+  nav.querySelectorAll('[data-goto]').forEach(b => {
+    b.onclick = () => { goTab('tunnel'); drawerClose(); scrollToTun(b.dataset.goto); };
   });
   // hide the terminal entry in the drawer while the flag is off
   const t = nav.querySelector('[data-tab="terminal"]');
@@ -782,6 +816,42 @@ function drawerSync() {
 }
 function drawerOpen() { drawerSync(); $('drawer').classList.add('open'); $('drawerOv').classList.add('open'); }
 function drawerClose() { $('drawer').classList.remove('open'); $('drawerOv').classList.remove('open'); }
+// sidebar + drawer: expand/collapse the Tunnel sub-nav (Status/Peers/Add new)
+function toggleTunnelGroup(force) {
+  ['tunnelGroup'].forEach(id => {
+    const g = document.getElementById(id);
+    if (!g) return;
+    const want = force === true ? true : force === false ? false : !g.classList.contains('open');
+    g.classList.toggle('open', want);
+  });
+  const nav = $('drawerNav');
+  if (nav) nav.querySelectorAll('.nav-group').forEach(g => {
+    const want = force === true ? true : force === false ? false : !g.classList.contains('open');
+    g.classList.toggle('open', want);
+  });
+}
+// scroll inside the Tunnel tab: 'tunnelStatusCard' | 'peerCards' | 'addPeerCard'
+function scrollToTun(id) {
+  setTimeout(() => {
+    let el = document.getElementById(id);
+    if (id === 'peerCards' && el) {
+      const first = el.querySelector('tbody tr') || el;
+      el = first;
+    }
+    if (el && el.scrollIntoView) el.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }, 60);
+}
+document.querySelectorAll('#sideNav [data-goto]').forEach(b => b.onclick = () => { goTab('tunnel'); scrollToTun(b.dataset.goto); });
+$('tunnelNavBtn').onclick = e => {
+  // first click opens the tab, second toggles the sub-nav
+  if ($('tab-tunnel').hidden || !document.getElementById('tunnelGroup').classList.contains('open')) {
+    goTab('tunnel');
+    toggleTunnelGroup(true);
+    e.stopPropagation();
+  } else {
+    toggleTunnelGroup();
+  }
+};
 $('menuBtn').onclick = drawerOpen;
 $('drawerX').onclick = drawerClose;
 $('drawerOv').onclick = drawerClose;
@@ -830,6 +900,8 @@ async function showPeerToken(peerId, name) {
 function renderPeers(peers) {
   const box = $('peerCards');
   if (!box) return;
+  tunPeerCache = peers || null;
+  try { renderTunChips(window._lastLocal || null); } catch(_){}
   if (!peers || !peers.length) {
     box.innerHTML = '<div class="ent-empty"><span class="ent-empty-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span><b>No peer tunnels yet</b>Add one below — each foreign server gets its own card here.</div>';
     return;
@@ -879,10 +951,57 @@ function renderTunnel(st) {
     <div class="trow"><span class="k">FRP service</span><span class="v">${svcBadge}</span></div>
     <div class="trow"><span class="k">FRP port</span><span class="v mono">${esc(st.frp_port || st.bind_port || '?')}</span></div>
     <div class="trow"><span class="k">Proxies</span><span class="v mono">${esc((st.proxies || []).join(', ') || '—')}</span></div>`;
+  window._lastLocal = st;
+  renderTunChips(st);
+}
+// shared cache: refresh() fills it from /api/status before renderTunChips runs
+let tunPeerCache = null;
+// One-line health chips per tunnel (compact status at a glance):
+// legacy/base tunnel first, then every peer. Each chip shows live/dot,
+// name, ping and traffic; clicking jumps to the peer row in the table.
+// Compact by design: the Tunnel tab stays scannable with 5 peers.
+function renderTunChips(st) {
+  const box = $('tunChips');
+  if (!box) return;
+  const chips = [];
+  if (st && (st.gre.exists || st.frp_up || (st.proxies || []).length)) {
+    chips.push({
+      key: 'base',
+      name: 'main',
+      up: !!(st.gre.exists || st.frp_up),
+      ping: st.ping_ok ? (st.ping_ms || 'ok') : 'down',
+      sub: esc(st.frp_svc || 'frp') + ' :' + esc(st.frp_port || st.bind_port || '?'),
+    });
+  }
+  (tunPeerCache || []).forEach((p, i) => {
+    const up = !!(p.gre_up || p.frp_up);
+    const traffic = (p.rx != null && p.tx != null)
+      ? ('↓ ' + fmtBytes(p.rx) + ' · ↑ ' + fmtBytes(p.tx)) : null;
+    chips.push({
+      key: 'peer-' + (p.id ?? i),
+      name: p.name || ('peer-' + (p.id ?? (i + 1))),
+      up,
+      ping: p.ping_ok ? (p.ping_ms || 'ok') : 'down',
+      sub: traffic || ((p.ports || []).join(', ') || '—'),
+    });
+  });
+  if (!chips.length) { box.innerHTML = ''; return; }
+  box.innerHTML = chips.map(c =>
+    `<button class="tun-chip" data-chip="${esc(c.key)}"><span class="ent-st ${c.up ? 'on' : 'off'}"><i></i></span><span>${esc(c.name)}</span><span class="qs-hint">${esc(c.ping)} · ${esc(c.sub)}</span></button>`
+  ).join('');
+  box.querySelectorAll('[data-chip]').forEach(b => b.onclick = () => {
+    const key = b.dataset.chip;
+    const rows = document.querySelectorAll('#peerCards tbody tr');
+    const idx = key === 'base' ? -1 : chips.findIndex(c => c.key === key) - (chips.length - (tunPeerCache || []).length);
+    const target = key === 'base' ? $('tunnelStatusCard') : (rows[idx] || $('peerCards'));
+    if (target && target.scrollIntoView) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+  });
 }
 async function refresh() {
   try {
     const s = await api('/api/status');
+    // peers first: renderTunChips (called inside renderTunnel) reads the cache
+    tunPeerCache = s.peers || null;
     renderTunnel(s.local);
     renderPeers(s.peers);
     updatePeerHints(s);
