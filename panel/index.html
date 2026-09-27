@@ -168,6 +168,17 @@
     background:var(--er-soft); box-shadow:0 0 0 1px color-mix(in srgb, var(--er) 20%, transparent); }
   .chart-card.is-down { border-color:color-mix(in srgb, var(--er) 45%, transparent);
     box-shadow:0 0 24px color-mix(in srgb, var(--er) 12%, transparent), var(--lift-sm); }
+  /* Light theme: chart lives on a white card — dark pills, dark active tab,
+   * dark legend swatches so everything stays visible. */
+  body[data-t="light"] .chart-card .chart-filters { background:rgba(0,0,0,.05);
+    border-color:var(--ln); box-shadow:inset 0 1px 2px rgba(0,0,0,.06); }
+  body[data-t="light"] .chart-card .chart-filters button { color:var(--mu); }
+  body[data-t="light"] .chart-card .chart-filters button:hover { color:var(--tx); }
+  body[data-t="light"] .chart-card .chart-filters button[aria-pressed="true"] {
+    background:var(--tx); color:#fff;
+    box-shadow:0 1px 6px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.15); }
+  body[data-t="light"] .chart-legend span:first-child .sw { background:#18181b !important; }
+  body[data-t="light"] .chart-legend span:last-child .sw { background:rgba(24,24,27,.35) !important; }
   /* Update tab */
   .ver-big { font-size:28px; font-weight:700; color:var(--tx); letter-spacing:-.02em;
     font-variant-numeric:tabular-nums; }
@@ -865,6 +876,7 @@ function setTheme(t) {
   try { localStorage.setItem('gre_theme', t); } catch(e) {}
   const b = $('themeBtn'); if (b) b.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
   const bm = $('themeBtnM'); if (bm) bm.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
+  try { if (typeof refreshDash === 'function') refreshDash(); } catch(e) {}
 }
 $('themeBtn').onclick = () => setTheme(document.body.dataset.t === 'dark' ? 'light' : 'dark');
 try { setTheme(localStorage.getItem('gre_theme') || document.body.dataset.t || 'dark'); } catch(e) {}
@@ -1106,8 +1118,14 @@ function drawChart(hist, isDown) {
   const cv = $('trafficChart');
   if (!cv) return;
   // Red state: tint the chart red and keep history visible underneath.
-  const C_DOWN = '#f87171', C_UP = 'rgba(248,113,113,.4)';
-  const C_DL = '#f4f4f5', C_UL = 'rgba(244,244,245,.38)';
+  // Light theme: near-black lines so they stay visible on white cards.
+  const light = (document.body && document.body.dataset.t === 'light') ||
+    (document.documentElement && document.documentElement.dataset.t === 'light');
+  const C_DOWN = light ? '#dc2626' : '#f87171', C_UP = light ? 'rgba(220,38,38,.4)' : 'rgba(248,113,113,.4)';
+  const C_DL = light ? '#18181b' : '#f4f4f5', C_UL = light ? 'rgba(24,24,27,.42)' : 'rgba(244,244,245,.38)';
+  const C_GRID = light ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.06)';
+  const C_AXIS = light ? 'rgba(24,24,27,.55)' : 'rgba(255,255,255,.42)';
+  const C_IDLE = light ? 'rgba(24,24,27,.55)' : 'rgba(255,255,255,.45)';
   const lineA = isDown ? C_DOWN : C_DL, lineB = isDown ? C_UP : C_UL;
   const dpr = window.devicePixelRatio || 1;
   const W = cv.clientWidth || cv.parentElement.clientWidth || 600, H = 260;
@@ -1118,7 +1136,7 @@ function drawChart(hist, isDown) {
   const iw = W - padL - padR, ih = H - padT - padB;
   const pts = (hist || []).filter(p => p.t != null);
   if (pts.length < 2) {
-    ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = C_IDLE; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(pts.length === 0 ? 'No history yet — collecting every 5s while the panel runs' : 'Collecting… need at least 2 samples', W/2, H/2);
     return;
   }
@@ -1134,7 +1152,7 @@ function drawChart(hist, isDown) {
   }
   const vals = series.filter(Boolean);
   if (!vals.length) {
-    ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = C_IDLE; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('Waiting for traffic…', W/2, H/2);
     return;
   }
@@ -1147,8 +1165,8 @@ function drawChart(hist, isDown) {
   const X = i => padL + (i / (series.length - 1 || 1)) * iw;
   const Y = v => padT + ih - (v / max) * ih;
   // gridlines (4) + y labels
-  ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.lineWidth = 1;
-  ctx.fillStyle = 'rgba(255,255,255,.42)'; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'left';
+  ctx.strokeStyle = C_GRID; ctx.lineWidth = 1;
+  ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'left';
   for (let g = 0; g <= 4; g++) {
     const y = Math.round(padT + ih * g / 4) + .5, val = max * (1 - g / 4);
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
@@ -1161,7 +1179,7 @@ function drawChart(hist, isDown) {
       ? String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0')
       : M + ' ' + d.getDate(); };
   const approxLabel = 64, nTicks = Math.max(2, Math.min(6, Math.floor(iw / approxLabel)));
-  ctx.fillStyle = 'rgba(255,255,255,.42)'; ctx.font = '10.5px -apple-system, system-ui, sans-serif';
+  ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif';
   ctx.textAlign = 'center';
   for (let k = 0; k < nTicks; k++) {
     const x = padL + iw * k / (nTicks - 1);
@@ -1170,20 +1188,27 @@ function drawChart(hist, isDown) {
   }
   const line = (key, color, glow, fill) => {
     ctx.beginPath();
-    let started = false, lastX = 0, lastY = 0;
+    // midpoint quadratic smoothing: curve passes near (not through spikes),
+    // so sharp V-shaped joints become soft rounded bends.
+    let started = false, lastX = 0, lastY = 0, si = -1;
     series.forEach((p, i) => {
       if (!p) { started = false; return; }
       const x = X(i), y = Y(p[key]);
-      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
-      lastX = x; lastY = y;
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else {
+        const mx = (lastX + x) / 2, my = (lastY + y) / 2;
+        ctx.quadraticCurveTo(lastX, lastY, mx, my);
+      }
+      lastX = x; lastY = y; si = i;
     });
+    if (si >= 0) ctx.lineTo(lastX, lastY);
     ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 8; }
     ctx.stroke(); ctx.shadowBlur = 0;
     if (fill) {
       ctx.lineTo(lastX || X(series.length - 1), padT + ih); ctx.lineTo(X(0), padT + ih); ctx.closePath();
       const gr = ctx.createLinearGradient(0, padT, 0, padT + ih);
-      gr.addColorStop(0, color.replace(/[\d.]+\)$/, '0.14)').replace('#f4f4f5', 'rgba(244,244,245,0.14)').replace('#f87171', 'rgba(248,113,113,0.14)'));
+      gr.addColorStop(0, color.replace(/[\d.]+\)$/, '0.14)').replace('#f4f4f5', 'rgba(244,244,245,0.14)').replace('#f87171', 'rgba(248,113,113,0.14)').replace('#18181b', 'rgba(24,24,27,0.10)').replace('#dc2626', 'rgba(220,38,38,0.12)'));
       gr.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = gr; ctx.fill();
     } else {
