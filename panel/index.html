@@ -456,6 +456,7 @@
         </div>
         <div class="tunnel-card" id="addPeerCard">
           <div class="tc-header"><p class="tc-title">➕ Connect another foreign server</p><span class="qs-hint" id="peerCountHint"></span></div>
+          <div class="qs-hint" style="border-left:3px solid var(--ac);padding-left:10px">✅ <b>This is the safe way to add a server.</b> It creates a <b>separate</b> tunnel with its own token — existing tunnels keep running untouched. (Re-running <b>Setup</b> instead would replace this server's tunnel and disconnect old Foreign sides.)</div>
           <div class="qs-body" style="display:grid;gap:10px">
             <div class="fg"><label for="pName">Name (label for this tunnel)</label><input class="hashem-input" id="pName" placeholder="e.g. germany-1" maxlength="32"></div>
             <div class="qs-row">
@@ -514,6 +515,7 @@
               <div class="fg"><label for="sToken">Token (from Iran side)</label><input class="hashem-input" id="sToken" autocomplete="off"></div>
               <div class="fg"><label for="sPorts">Reverse ports (comma-separated)</label><input class="hashem-input" id="sPorts" placeholder="443, 2083, 8080"></div>
             </div>
+            <div id="setupHaveBox" class="hidden" style="display:grid;gap:8px;margin-top:10px"></div>
             <div id="setupWarn" class="warnbox hidden"></div>
             <div id="setupToken" class="tokenbox hidden"></div>
             <div class="qs-actions">
@@ -1201,15 +1203,40 @@ async function loadSetupDefaults() {
     if (d.foreign_gre) $('sPeerGre').value = d.foreign_gre;
     $('sFrpPort').value = d.frp_port || 7000;
     if (d.role_guess && /foreign|frpc/.test(d.role_guess)) setRole('foreign');
+    // Beginner guard: when a tunnel exists, explain the two paths BEFORE the
+    // user can break the live one — fresh setup (rewrites token, kills peers)
+    // vs adding another foreign server (keeps everything, new tunnel).
+    // This is the exact mistake that kills existing tunnels: re-running Iran
+    // setup regenerates the token, so old foreign sides stop matching.
+    const hb = $('setupHaveBox');
     if (d.exists) {
       const w = $('setupWarn');
-      w.innerHTML = '⚠️ A tunnel <b>already exists</b> on this server (GRE interface or FRP config found). Applying setup will overwrite it. Press <b>Overwrite anyway</b> to confirm.';
+      w.innerHTML = '⛔ A tunnel <b>already exists</b> on this server. Pressing <b>Apply setup</b> below will <b>replace it</b> (new token — old Foreign sides disconnect).';
       w.classList.remove('hidden');
       $('setupForceBtn').classList.remove('hidden');
+      hb.classList.remove('hidden');
+      hb.innerHTML = '<div class="tokenbox" style="border-style:solid">✅ <b>Want to keep this tunnel and add another Foreign server?</b><br>Don\'t use this form — go to the <b>Tunnel tab → ➕ Connect another foreign server</b>. It creates a separate tunnel with its own token; this one keeps running untouched.</div>';
+    } else {
+      hb.classList.add('hidden');
+      hb.innerHTML = '';
     }
   } catch(e) {}
 }
 async function doSetup(force) {
+  // Last-chance guard: re-running setup on a live tunnel kills it (new token).
+  // Make the user explicitly confirm they want a REPLACE, and point beginners
+  // at the Tunnel tab when they actually want to ADD a server.
+  if (!force) {
+    try {
+      const d = await api('/api/setup');
+      if (d.exists) {
+        const ok = await entConfirm('Replace the existing tunnel?',
+          'This generates a NEW token and restarts FRP — the current tunnel and all connected Foreign servers disconnect until reconfigured with the new token.\n\nTo KEEP this tunnel and add another server instead, cancel and use Tunnel tab → ➕ Connect another foreign server.',
+          'Replace it');
+        if (!ok) return;
+      }
+    } catch(e) { /* status check failed: fall through to normal flow */ }
+  }
   const btn = force ? $('setupForceBtn') : $('setupBtn');
   btn.disabled = true;
   const oldTxt = btn.textContent;
