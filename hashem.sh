@@ -358,7 +358,7 @@ EOF
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
         echo -e "${CYAN}[*] Skipping panel install (called from panel).${NC}"
     else
-        install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 7.${NC}"
+        install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 15 (Update All).${NC}"
     fi
     if [[ "${GRE_SKIP_PANEL:-0}" != "1" && -t 0 ]]; then
         echo ""
@@ -446,7 +446,7 @@ EOF
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
         echo -e "${CYAN}[*] Skipping panel install (called from panel).${NC}"
     else
-        install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 7.${NC}"
+        install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 15 (Update All).${NC}"
     fi
     if [[ "${GRE_SKIP_PANEL:-0}" != "1" && -t 0 ]]; then
         echo ""
@@ -759,7 +759,7 @@ setup_iran_server() {
     echo -e "${GREEN}=================================================================${NC}\n"
 
     # panel is already running here (menu path) — install it fresh
-    install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 7.${NC}"
+    install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 15 (Update All).${NC}"
 }
 
 # interactive wrapper for cli_add_peer: prompts for one more foreign server.
@@ -847,7 +847,7 @@ setup_foreign_server() {
     echo -e "${GREEN}=================================================================${NC}\n"
 
     # panel is already running here (menu path) — install it fresh
-    install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 7.${NC}"
+    install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 15 (Update All).${NC}"
 }
 
 check_status() {
@@ -1391,25 +1391,34 @@ main_menu() {
     echo "     Layer 3 GRE Tunnel + Encrypted TLS FRP Reverse Relay"
     echo "=========================================================="
     echo -e "${NC}"
-    echo "1) Setup IRAN Server    (GRE + FRP Server / frps)"
-    echo "2) Setup FOREIGN Server (GRE + FRP Client / frpc Reverse)"
-    echo "3) Check Connection Status & GRE Ping Test"
-    echo "4) View FRP Live Logs"
-    echo "5) Restart Tunnel Services"
-    echo "6) Uninstall Everything (tunnel + panel + 'hashem' command)"
-    echo "7) Update All (latest script + latest panel binary)"
-    echo "8) Show Panel URL + Username + Password"
-    echo "9) Remove Tunnel (GRE + FRP, panel stays)"
-    echo "10) Optimize Tunnel (BBR + buffers + MTU/MSS, with backup)"
-    echo "11) Restore Pre-Optimize Settings"
-    echo "12) Optimization Status"
-    echo "13) Add Peer Tunnel (Iran: connect another foreign server)"
-    echo "14) List Peer Tunnels"
-    echo "15) Remove Peer Tunnel"
-    echo "16) Panel HTTPS (Let's Encrypt certificate)"
-    echo "17) hashem CLI help (non-interactive commands)"
-    echo "18) Free RAM (journald cap 16M + drop cache + 1GB swap)"
-    echo "0) Exit"
+    echo -e "${YELLOW}── Setup ──${NC}"
+    echo "  1) Setup IRAN Server    (GRE + FRP Server / frps)"
+    echo "  2) Setup FOREIGN Server (GRE + FRP Client / frpc Reverse)"
+    echo ""
+    echo -e "${YELLOW}── Peer Tunnels (Iran: more foreign servers) ──${NC}"
+    echo "  3) Add Peer Tunnel"
+    echo "  4) List Peer Tunnels"
+    echo "  5) Remove Peer Tunnel"
+    echo ""
+    echo -e "${YELLOW}── Monitor & Control ──${NC}"
+    echo "  6) Check Connection Status & GRE Ping Test"
+    echo "  7) View FRP Live Logs"
+    echo "  8) Restart Tunnel Services"
+    echo "  9) Remove Tunnel (GRE + FRP, panel stays)"
+    echo ""
+    echo -e "${YELLOW}── Tune ──${NC}"
+    echo " 10) Optimize Tunnel (BBR + buffers + MTU/MSS, with backup)"
+    echo " 11) Restore Pre-Optimize Settings"
+    echo " 12) Optimization Status"
+    echo ""
+    echo -e "${YELLOW}── Panel & System ──${NC}"
+    echo " 13) Show Panel URL + Username + Password"
+    echo " 14) Panel HTTPS (Let's Encrypt certificate)"
+    echo " 15) Update All (latest script + latest panel binary)"
+    echo " 16) Free RAM (journald cap 16M + drop cache + 1GB swap)"
+    echo " 17) hashem CLI help (non-interactive commands)"
+    echo " 18) Uninstall Everything (tunnel + panel + 'hashem' command)"
+    echo "  0) Exit"
     echo ""
     read -p "Select an option [0-18]: " OPTION
 
@@ -1421,22 +1430,22 @@ main_menu() {
             setup_foreign_server
             ;;
         3)
-            check_status
+            menu_add_peer
             ;;
         4)
-            show_logs
+            peer_list_pretty
             ;;
         5)
-            restart_all
+            menu_remove_peer
             ;;
         6)
-            uninstall_all
+            check_status
             ;;
         7)
-            update_all
+            show_logs
             ;;
         8)
-            show_panel_url
+            restart_all
             ;;
         9)
             remove_tunnel
@@ -1451,22 +1460,22 @@ main_menu() {
             tune_status
             ;;
         13)
-            menu_add_peer
+            show_panel_url
             ;;
         14)
-            peer_list_pretty
+            panel_tls_issue
             ;;
         15)
-            menu_remove_peer
+            update_all
             ;;
         16)
-            panel_tls_issue
+            free_ram
             ;;
         17)
             usage_cli
             ;;
         18)
-            free_ram
+            uninstall_all
             ;;
         0)
             echo "Exiting..."
@@ -1485,7 +1494,7 @@ check_root
 usage_cli() {
     cat <<EOF
 Usage:
-  hashem                                    # interactive menu (same 0-17 options)
+  hashem                                    # interactive menu (same 0-18 options)
   hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--force]
   hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--force]
                        # ... or: hashem setup-foreign --bundle hsh1_...  (fills everything; explicit flags win)

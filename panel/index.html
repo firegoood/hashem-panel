@@ -283,6 +283,8 @@
     border:1px solid var(--ln); border-radius:10px; margin-top:8px; cursor:pointer;
     background:var(--sunk); transition:border-color .15s; }
   .dash-peer-row:hover { border-color:var(--ln2); }
+  /* main tunnel card: gold left accent so it stands apart from peer cards */
+  .main-card { border-left:3px solid var(--wr); }
   .det-copy { border:1px solid var(--ln); background:var(--s2); color:var(--mu); border-radius:7px;
     font-size:11px; font-weight:700; padding:3px 8px; cursor:pointer; transition:all .15s ease; }
   .det-copy:hover { color:var(--tx); border-color:var(--ac); }
@@ -418,7 +420,7 @@
       <button type="submit" id="loginBtn">Sign in</button>
     </form>
     <p id="loginErr"></p>
-    <div class="foot"><b>Hashem Tunnel</b> · Infrastructure</div>
+    <div class="foot"><b>Hashem Tunnel</b> · Infrastructure<br><span style="letter-spacing:.14em;font-size:10px;opacity:.75">DNC MADE THIS</span></div>
   </div>
 </div>
 
@@ -1078,13 +1080,43 @@ function renderTunnel(st) {
   const svcBadge = st.frp_up
     ? `<span class="badge ok"><span class="dot"></span>${esc(st.frp_svc || 'frp')}</span>`
     : `<span class="badge dim"><span class="dot"></span>stopped</span>`;
-  $('tunnel').innerHTML = `
-    <div class="trow"><span class="k">GRE interface</span><span class="v">${esc(st.gre.name || 'gre-tunnel')} ${esc(st.gre.inner || '')} ${badge(st.gre.exists, st.gre.exists ? 'up' : 'down')}</span></div>
-    <div class="trow"><span class="k">GRE path</span><span class="v mono">${esc(st.gre.local || '?')} → ${esc(st.gre.peer_ip || st.gre_peer || '?')}</span></div>
-    <div class="trow"><span class="k">GRE ping</span><span class="v">${badge(st.ping_ok, st.ping_ms || 'no answer')}</span></div>
-    <div class="trow"><span class="k">FRP service</span><span class="v">${svcBadge}</span></div>
-    <div class="trow"><span class="k">FRP port</span><span class="v mono">${esc(st.frp_port || st.bind_port || '?')}</span></div>
-    <div class="trow"><span class="k">Proxies</span><span class="v mono">${esc((st.proxies || []).join(', ') || '—')}</span></div>`;
+  // Main tunnel full card (dashboard-style, distinct gold accent): same
+  // detail rows as a peer card so the base tunnel isn't a plain text list.
+  const hasMain = !!(st.gre.exists || st.frp_up || (st.proxies || []).length);
+  const mainCard = !hasMain ? '' : `
+    <div class="tunnel-card peer-card main-card" id="peer-card-main" style="grid-column:1/-1;padding:16px;display:flex;flex-direction:column;gap:12px">
+      <div class="tc-header" style="flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="status-indicator ${up ? 'active' : 'offline'}"><span class="dot"></span></span>
+          <b style="font-size:16px;color:var(--tx)">Main tunnel</b>
+          <span class="badge" style="border-color:color-mix(in srgb, var(--wr) 45%, transparent);color:var(--wr)"><span class="dot"></span>main</span>
+          <span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${up ? 'active' : 'down'}</span>
+        </div>
+      </div>
+      <div class="det-grid">
+        <div class="det-card">
+          <div class="det-card-head">${ICO_SRV} <span>Server</span></div>
+          <div class="det-row"><span class="det-k">GRE Path</span><span class="det-v mono">${esc(st.gre.local || '?')} → ${esc(st.gre.peer_ip || st.gre_peer || '?')}</span></div>
+          <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc((st.proxies || []).join(', ') || '—')}</span></div>
+        </div>
+        <div class="det-card">
+          <div class="det-card-head">${ICO_GRE} <span>GRE Tunnel</span></div>
+          <div class="det-row"><span class="det-k">Interface</span><span class="det-v">${badge(st.gre.exists, (st.gre.name || 'gre-tunnel') + ' ' + (st.gre.inner || ''))}</span></div>
+          <div class="det-row"><span class="det-k">Ping / Latency</span><span class="det-v">${badge(st.ping_ok, st.ping_ms || 'no answer')}</span></div>
+        </div>
+        <div class="det-card">
+          <div class="det-card-head">${ICO_FRP} <span>FRP Service</span></div>
+          <div class="det-row"><span class="det-k">Service</span><span class="det-v">${svcBadge}</span></div>
+          <div class="det-row"><span class="det-k">Port</span><span class="det-v mono">${esc(String(st.frp_port || st.bind_port || '?'))}</span></div>
+        </div>
+      </div>
+      <div class="peer-acts" style="display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--ln);padding-top:12px">
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('ping', 0)">Ping</button>
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('restart-gre', 0)">Restart GRE</button>
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('restart-frps', 0)">Restart FRP</button>
+      </div>
+    </div>`;
+  $('tunnel').innerHTML = mainCard;
   window._lastLocal = st;
   // role-specific button label: foreign runs frpc, so show the right name.
   const rb = $('frpRestartBtn');
