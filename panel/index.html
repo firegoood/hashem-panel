@@ -1380,7 +1380,7 @@ document.querySelectorAll('[data-range]').forEach(b => b.onclick = () => {
   dashRange = b.dataset.range;
   document.querySelectorAll('[data-range]').forEach(x => x.setAttribute('aria-pressed', x === b));
   const cv = $('trafficChart');
-  if (cv) cv._forceAnim = true;
+  if (cv) { cv._forceAnim = true; cv._ymax = null; }
   refreshDash();
 });
 // Throughput line chart (canvas, no deps): cumulative counters -> per-interval rate.
@@ -1418,6 +1418,7 @@ function drawChart(hist, isDown) {
   if (pts.length < 2) {
     if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
     cv._peak = null; cv._peakRange = null;
+    cv._ymax = null;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = C_IDLE; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
@@ -1441,6 +1442,7 @@ function drawChart(hist, isDown) {
   if (!vals.length) {
     if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
     cv._peak = null; cv._peakRange = null;
+    cv._ymax = null;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = C_IDLE; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
@@ -1448,25 +1450,57 @@ function drawChart(hist, isDown) {
     return;
   }
 
-  let max = 0;
-  vals.forEach(p => { max = Math.max(max, p.down, p.up); });
-  max = max * 1.2 || 1;
-  // nice ceiling (1/2/5 × 10^n)
-  { const p = Math.pow(10, Math.floor(Math.log10(max))); const n = max / p;
-    max = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; }
+  // nice ceiling (1/2/5 × 10^n rule)
+  const niceCeil = val => {
+    const v = val || 1;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    const n = v / p;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
+  };
 
-  const X = i => padL + (i / (series.length - 1 || 1)) * iw;
+  let rawMax = 0;
+  vals.forEach(p => { rawMax = Math.max(rawMax, p.down, p.up); });
+  const candidate = niceCeil(rawMax * 1.2);
+
+  const isFirstShow = !cv._hasDrawn;
+  const rangeChanged = cv._drawnRange !== dashRange;
+  const forceAnim = !!cv._forceAnim;
+
+  if (rangeChanged) cv._ymax = null;
+
+  let max;
+  const stored = (cv._ymax && cv._ymax.range === dashRange) ? cv._ymax.nice : null;
+  if (stored == null) {
+    max = candidate;
+  } else if (candidate > stored) {
+    max = candidate;
+  } else if (candidate < stored * 0.6) {
+    // one nice-rung down per draw: next lower 1/2/5 step below stored
+    const rung = v => { const p = Math.pow(10, Math.floor(Math.log10(v || 1))); const n = v / p;
+      return (n > 5 ? 5 : n > 2 ? 2 : n > 1 ? 1 : 0.5) * p; };
+    max = Math.max(candidate, rung(stored));
+  } else {
+    max = stored;
+  }
+  cv._ymax = { range: dashRange, nice: max };
+
+  const t0 = pts[0].t;
+  const t1 = pts[pts.length - 1].t;
+  const dtRange = (t1 - t0) || 1;
+  const X = t => padL + ((t - t0) / dtRange) * iw;
   const Y = v => padT + ih - (v / max) * ih;
+  cv._t0 = t0;
+  cv._t1 = t1;
 
   // Build smoothed point sequences with Catmull-Rom & de-spiking
   const getSeq = key => {
-    const seq = series.map((p, i) => p ? { x: X(i), y: Y(p[key]), val: p[key], i, t: p.t } : null).filter(Boolean);
+    const seq = series.map((p, i) => p ? { x: X(p.t), y: Y(p[key]), val: p[key], i, t: p.t } : null).filter(Boolean);
     if (seq.length > 1) {
-      // de-spike: clamp any single-sample jump to 1.6x of neighbours
+      // de-spike: clamp any single-sample jump to neighbours
       for (let i = 1; i < seq.length - 1; i++) {
         const prev = seq[i-1].y, cur = seq[i].y, next = seq[i+1].y;
         const base = (prev + next) / 2, span = Math.abs(next - prev);
-        const dev = Math.abs(cur - base), lim = Math.max(ih * 0.05, span * 1.5 + ih * 0.01);
+        const dev = Math.abs(cur - base), lim = Math.max(ih * 0.03, span * 1.0 + ih * 0.005);
         if (dev > lim) seq[i].y = base + (cur > base ? lim : -lim);
       }
     }
@@ -1477,10 +1511,6 @@ function drawChart(hist, isDown) {
   const seqDl = getSeq('down');
 
   // Sticky peak detection on visible download series
-  const isFirstShow = !cv._hasDrawn;
-  const rangeChanged = cv._drawnRange !== dashRange;
-  const forceAnim = !!cv._forceAnim;
-
   let curMaxPt = null;
   for (const pt of seqDl) {
     if (!curMaxPt || pt.val > curMaxPt.val) curMaxPt = pt;
@@ -1604,7 +1634,7 @@ function drawChart(hist, isDown) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    // 1. Gridlines (4) + Y labels
+    // 1. Gridlines (4 horizontal + vertical ticks) + Y labels
     ctx.strokeStyle = C_GRID; ctx.lineWidth = 1;
     ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'left';
     for (let g = 0; g <= 4; g++) {
@@ -1613,12 +1643,14 @@ function drawChart(hist, isDown) {
       ctx.fillText(fmtRate(val), 4, y + 3);
     }
 
-    // 2. X labels: evenly spaced date ticks (never overlap)
+    // 2. Vertical gridlines + X labels: time-based ticks
     ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
     for (let k = 0; k < nTicks; k++) {
-      const x = padL + iw * k / (nTicks - 1);
-      const idx = Math.round((pts.length - 1) * k / (nTicks - 1));
-      ctx.fillText(fmtTick(pts[idx].t), Math.min(Math.max(x, padL + 20), W - padR - 20), H - 7);
+      const tickTime = t0 + ((t1 - t0) * k) / (nTicks - 1);
+      const x = X(tickTime);
+      const gx = Math.round(x) + 0.5;
+      ctx.beginPath(); ctx.moveTo(gx, padT); ctx.lineTo(gx, padT + ih); ctx.stroke();
+      ctx.fillText(fmtTick(tickTime), Math.min(Math.max(x, padL + 20), W - padR - 20), H - 7);
     }
 
     // 3. Clipped series drawing according to draw-in progress
@@ -1884,10 +1916,23 @@ async function refreshDash() {
         const my = e.clientY - r.top;
         const padL = cv._padL || 46;
         const iw = cv._iw || Math.max(1, r.width - padL - 10);
-        const fx = (mx - padL) / iw;
+        const fx = (mx - padL) / (cv._iw || iw);
         if (fx < -0.05 || fx > 1.05) { tip.style.display = 'none'; return; }
-        const idx = Math.max(0, Math.min(s.length - 1, Math.round(fx * (s.length - 1))));
-        const p = s[idx];
+        const t0 = cv._t0, t1 = cv._t1;
+        let p = null;
+        if (t0 != null && t1 != null) {
+          const mt = t0 + fx * (t1 - t0);
+          let minDt = Infinity;
+          for (let i = 0; i < s.length; i++) {
+            const item = s[i];
+            if (!item || item.t == null) continue;
+            const dt = Math.abs(item.t - mt);
+            if (dt < minDt) { minDt = dt; p = item; }
+          }
+        } else {
+          const idx = Math.max(0, Math.min(s.length - 1, Math.round(fx * (s.length - 1))));
+          p = s[idx];
+        }
         if (!p || p.t == null) { tip.style.display = 'none'; return; }
         const d = new Date(p.t * 1000);
         const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
