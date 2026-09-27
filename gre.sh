@@ -803,16 +803,28 @@ restart_all() {
 }
 
 uninstall_all() {
-    echo -e "\n${RED}=== Uninstalling GRE + FRP Tunnel ===${NC}"
-    read -p "Are you sure you want to completely remove GRE & FRP? (y/N): " CONFIRM
+    echo -e "\n${RED}=== Uninstalling EVERYTHING (tunnel + panel + hashem command) ===${NC}"
+    read -p "Are you sure? This removes GRE & FRP, the web panel AND the 'hashem' command. (y/N): " CONFIRM
     if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
-        # Stop & disable services
-        systemctl stop frps frpc "${TUNNEL_NAME}.service" >/dev/null 2>&1
-        systemctl disable frps frpc "${TUNNEL_NAME}.service" >/dev/null 2>&1
+        uninstall_all_force
+    else
+        echo -e "${YELLOW}[*] Aborted.${NC}"
+    fi
+}
+
+# Non-interactive core: full wipe. Called by uninstall_all() after confirm
+# and by `hashem uninstall --force`. Must also delete the menu entrypoints
+# (/usr/local/bin/hashem + /usr/local/bin/gre.sh) so `hashem` stops working.
+uninstall_all_force() {
+        # Stop & disable services (legacy + all peers + panel)
+        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-panel >/dev/null 2>&1
+        systemctl stop 'frps@*' 'frpc@*' 'gre-t*.service' >/dev/null 2>&1 || true
+        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-panel >/dev/null 2>&1 || true
 
         # Remove systemd files
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service
+        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc*.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-panel.service
         systemctl daemon-reload
+        systemctl reset-failed >/dev/null 2>&1 || true
 
         # Remove GRE interfaces (legacy + all peers)
         local gif
@@ -820,15 +832,20 @@ uninstall_all() {
             ip tunnel del "$gif" >/dev/null 2>&1 || true
         done
 
-        # Remove binaries & configs (including peers registry)
+        # Remove tunnel binaries & configs (including peers registry)
         rm -f "${INSTALL_DIR}/frps" "${INSTALL_DIR}/frpc"
         rm -rf "$CONFIG_DIR"
         rm -f "$PEERS_FILE"
 
-        echo -e "${GREEN}[✔️] GRE & FRP completely uninstalled.${NC}"
-    else
-        echo -e "${YELLOW}[*] Aborted.${NC}"
-    fi
+        # Remove web panel (service + binary + config + helper CLIs)
+        rm -f /usr/local/bin/gre-panel /usr/local/bin/grepanel
+        rm -rf /etc/gre-panel /usr/local/gre-panel
+
+        # Remove the menu entrypoints LAST so `hashem` stops opening a menu.
+        # (Deleting a running script's own file is safe on Linux — the open fd stays valid.)
+        rm -f /usr/local/bin/hashem /usr/local/bin/gre.sh
+
+        echo -e "${GREEN}[✔️] Everything uninstalled: tunnel + panel + 'hashem' command removed.${NC}"
 }
 
 remove_tunnel() {
@@ -1263,7 +1280,7 @@ main_menu() {
     echo "3) Check Connection Status & GRE Ping Test"
     echo "4) View FRP Live Logs"
     echo "5) Restart Tunnel Services"
-    echo "6) Uninstall Everything (GRE + FRP)"
+    echo "6) Uninstall Everything (tunnel + panel + 'hashem' command)"
     echo "7) Update All (latest script + latest panel binary)"
     echo "8) Show Panel URL + Username + Password"
     echo "9) Remove Tunnel (GRE + FRP, panel stays)"
@@ -1356,6 +1373,7 @@ Usage:
   hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--force]
   hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--force]
   hashem status | remove-tunnel [--force] | show-panel-url
+  hashem uninstall [--force]                   # full wipe: tunnel + panel + 'hashem' itself
   hashem add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL]
   hashem remove-peer --id N [--force] | peer-list | peer-token --id N
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash gre.sh ...)
@@ -1446,6 +1464,8 @@ if [[ $# -gt 0 ]]; then
         free-ram|optimize-ram) free_ram ;;
         remove-tunnel)
             if [[ "${2:-}" == "--force" ]]; then remove_tunnel_force; else remove_tunnel; fi ;;
+        uninstall)
+            if [[ "${2:-}" == "--force" ]]; then uninstall_all_force; else uninstall_all; fi ;;
         show-panel-url) show_panel_url ;;
         -h|--help|help) usage_cli ;;
         *) echo -e "${RED}[!] Unknown command: $1${NC}"; usage_cli; exit 1 ;;
