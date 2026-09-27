@@ -26,6 +26,8 @@ DEFAULT_FRP_VERSION="0.71.0"
 IRAN_GRE_IP="10.10.10.2"
 FOREIGN_GRE_IP="10.10.10.1"
 TUNNEL_NAME="gre-tunnel"
+WATCHDOG_FILE="/etc/gre-panel/watchdog.json"
+BACKUP_DIR="/var/backups/hashem"
 
 # ---- input validation (same rules as the web panel: IPv4, port 1-65535) ----
 is_valid_ip() {
@@ -1186,13 +1188,14 @@ uninstall_all() {
 # (/usr/local/bin/hashem + /usr/local/bin/hashem.sh + legacy gre.sh) so
 # `hashem` stops working.
 uninstall_all_force() {
-        # Stop & disable services (legacy + all peers + panel + chaff)
-        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff >/dev/null 2>&1
+        # Stop & disable services (legacy + all peers + panel + chaff + watchdog)
+        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-watchdog.timer hashem-watchdog.service >/dev/null 2>&1
         systemctl stop 'frps@*' 'frpc@*' 'gre-t*.service' 'gre-chaff*.service' >/dev/null 2>&1 || true
-        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff 'gre-chaff*.service' >/dev/null 2>&1 || true
+        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-watchdog.timer 'gre-chaff*.service' >/dev/null 2>&1 || true
 
         # Remove systemd files
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-panel.service /etc/systemd/system/gre-chaff*.service
+        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-panel.service /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-watchdog.*
+        rm -f /var/lock/hashem-watchdog.lock
         systemctl daemon-reload
         systemctl reset-failed >/dev/null 2>&1 || true
 
@@ -1608,6 +1611,1031 @@ save_panel_pass() {
     chmod 600 /etc/gre-panel/panel.pass 2>/dev/null || true
 }
 
+# ---- Watchdog & Scheduled Encrypted Backup ----
+init_watchdog_json() {
+    mkdir -p /etc/gre-panel
+    if [[ ! -f "$WATCHDOG_FILE" ]]; then
+        cat << 'EOF' > "$WATCHDOG_FILE"
+{
+  "enabled": false,
+  "interval_sec": 60,
+  "fail_threshold": 2,
+  "tg_bot_token": "",
+  "tg_chat_id": "",
+  "tg_route": "direct",
+  "tg_tunnel_port": 0,
+  "backup_every_hours": 0,
+  "backup_daily_at": "",
+  "last_check": "",
+  "consec_fails": 0,
+  "last_alert": ""
+}
+EOF
+        chmod 600 "$WATCHDOG_FILE" 2>/dev/null || true
+    fi
+}
+
+watchdog_get_peer_gre() {
+    local PEER=""
+    if ip link show "$TUNNEL_NAME" >/dev/null 2>&1; then
+        local INNER
+        INNER=$(ip -4 addr show dev "$TUNNEL_NAME" 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
+        if [[ -n "$INNER" ]]; then
+            if [[ "$INNER" == "$IRAN_GRE_IP" ]]; then
+                PEER="$FOREIGN_GRE_IP"
+            elif [[ "$INNER" == "$FOREIGN_GRE_IP" ]]; then
+                PEER="$IRAN_GRE_IP"
+            else
+                local IFS=. read -r a b c d <<< "$INNER"
+                if (( d % 2 == 0 )); then
+                    PEER="$a.$b.$c.$((d - 1))"
+                else
+                    PEER="$a.$b.$c.$((d + 1))"
+                fi
+            fi
+        fi
+    fi
+    if [[ -z "$PEER" && -f "$PEERS_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        PEER=$(python3 -c '
+import json
+try:
+    with open("'"$PEERS_FILE"'") as f:
+        d = json.load(f)
+        peers = d.get("peers", [])
+        if peers and "peer_gre" in peers[0]:
+            print(peers[0]["peer_gre"])
+except Exception:
+    pass
+' 2>/dev/null)
+    fi
+    echo "$PEER"
+}
+
+watchdog_check() {
+    init_watchdog_json
+    local PEER_GRE
+    PEER_GRE=$(watchdog_get_peer_gre)
+    local GRE_OK=0
+    if [[ -n "$PEER_GRE" ]] && ping -c 1 -W 2 "$PEER_GRE" >/dev/null 2>&1; then
+        GRE_OK=1
+    fi
+
+    local FRP_NAME=""
+    local FRP_OK=0
+    if [[ -f /etc/frp/frpc.toml ]] || systemctl list-unit-files 2>/dev/null | grep -q "^frpc\.service"; then
+        FRP_NAME="frpc"
+        systemctl is-active --quiet frpc 2>/dev/null && FRP_OK=1
+    elif [[ -f /etc/frp/frps.toml ]] || systemctl list-unit-files 2>/dev/null | grep -q "^frps\.service"; then
+        FRP_NAME="frps"
+        systemctl is-active --quiet frps 2>/dev/null && FRP_OK=1
+    else
+        if systemctl list-units --type=service 2>/dev/null | grep -q 'frps'; then
+            FRP_NAME="frps"
+            FRP_OK=1
+        fi
+    fi
+
+    local FAILS=0
+    if [[ -f "$WATCHDOG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        FAILS=$(python3 -c '
+import json
+try:
+    with open("'"$WATCHDOG_FILE"'") as f:
+        print(int(json.load(f).get("consec_fails", 0)))
+except Exception:
+    print(0)
+' 2>/dev/null || echo 0)
+    fi
+
+    local STATUS="down"
+    local DETAIL=""
+    if [[ $GRE_OK -eq 1 && $FRP_OK -eq 1 ]]; then
+        STATUS="up"
+        DETAIL="GRE ping OK ($PEER_GRE), FRP $FRP_NAME active"
+    else
+        local ERR_PARTS=()
+        if [[ $GRE_OK -ne 1 ]]; then
+            if [[ -z "$PEER_GRE" ]]; then
+                ERR_PARTS+=("GRE interface missing/down")
+            else
+                ERR_PARTS+=("GRE ping $PEER_GRE failed")
+            fi
+        fi
+        if [[ $FRP_OK -ne 1 ]]; then
+            ERR_PARTS+=("FRP ${FRP_NAME:-service} inactive")
+        fi
+        DETAIL=$(IFS="; "; echo "${ERR_PARTS[*]}")
+    fi
+
+    echo "WATCHDOG status=$STATUS fails=$FAILS detail=$DETAIL"
+    return 0
+}
+
+watchdog_send() {
+    local TEXT="$1"
+    [[ -z "$TEXT" ]] && return 1
+    init_watchdog_json
+
+    local CFG
+    CFG=$(python3 -c '
+import json
+try:
+    with open("'"$WATCHDOG_FILE"'") as f:
+        d = json.load(f)
+        tok = d.get("tg_bot_token", "").strip()
+        cid = str(d.get("tg_chat_id", "")).strip()
+        route = d.get("tg_route", "direct").strip()
+        port = str(d.get("tg_tunnel_port", 0)).strip()
+        print(f"{tok}\t{cid}\t{route}\t{port}")
+except Exception:
+    pass
+' 2>/dev/null)
+
+    local TG_TOKEN TG_CHAT_ID TG_ROUTE TG_PORT
+    IFS=$'\t' read -r TG_TOKEN TG_CHAT_ID TG_ROUTE TG_PORT <<< "$CFG"
+
+    if [[ -z "$TG_TOKEN" || -z "$TG_CHAT_ID" ]]; then
+        echo -e "${YELLOW}[!] Telegram bot token or chat ID not configured in ${WATCHDOG_FILE}.${NC}" >&2
+        return 1
+    fi
+
+    local HOST
+    HOST="$(hostname 2>/dev/null || echo 'server')"
+    local FULL_MSG="[Hashem ${HOST}] ${TEXT}"
+
+    local CURL_ARGS=(-sS -f)
+    if [[ "$TG_ROUTE" == "tunnel" ]]; then
+        if [[ -z "$TG_PORT" || "$TG_PORT" -le 0 ]]; then
+            echo -e "${RED}[!] Telegram route is set to tunnel but tunnel port is not configured.${NC}" >&2
+            return 1
+        fi
+        CURL_ARGS+=(--max-time 20 --socks5-hostname "127.0.0.1:${TG_PORT}")
+    else
+        CURL_ARGS+=(--max-time 15)
+    fi
+
+    local CURL_OUT
+    CURL_OUT=$(curl "${CURL_ARGS[@]}" -d "chat_id=${TG_CHAT_ID}" --data-urlencode "text=${FULL_MSG}" "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" 2>&1)
+    local RET=$?
+
+    if [[ $RET -ne 0 ]]; then
+        local REDACTED_ERR
+        REDACTED_ERR=$(echo "$CURL_OUT" | sed "s/${TG_TOKEN}/[REDACTED]/g")
+        echo -e "${RED}[!] Telegram send failed: ${REDACTED_ERR}${NC}" >&2
+        return 1
+    fi
+    return 0
+}
+
+watchdog_test() {
+    echo -e "${CYAN}[*] Testing Telegram alerts...${NC}"
+    if watchdog_send "✅ Hashem watchdog test OK"; then
+        echo -e "${GREEN}[✔️] Telegram test message sent successfully.${NC}"
+        return 0
+    else
+        echo -e "${RED}[!] Telegram test message failed. Check token, chat ID, and route.${NC}"
+        return 1
+    fi
+}
+
+restart_all_lite() {
+    local u
+    for u in /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-tunnel.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service; do
+        [[ -f "$u" ]] || continue
+        systemctl restart "$(basename "$u")" >/dev/null 2>&1
+    done
+}
+
+watchdog_tick() {
+    local LOCKFILE="/var/lock/hashem-watchdog.lock"
+    mkdir -p /var/lock 2>/dev/null || true
+    exec 200>"$LOCKFILE" 2>/dev/null || exec 200>/tmp/hashem-watchdog.lock
+    if ! flock -n 200; then
+        echo "watchdog_tick: another instance running, exiting"
+        return 0
+    fi
+
+    init_watchdog_json
+
+    local TICK_ACTION
+    TICK_ACTION=$(python3 -c '
+import json, time
+try:
+    with open("'"$WATCHDOG_FILE"'") as f:
+        d = json.load(f)
+    enabled = d.get("enabled", False)
+    backup_every = int(d.get("backup_every_hours", 0))
+    backup_daily = d.get("backup_daily_at", "").strip()
+    last_backup = int(d.get("last_backup", 0))
+    last_bdate = d.get("last_backup_date", "")
+    now = int(time.time())
+    do_backup = False
+    if backup_every > 0:
+        if (now - last_backup) >= (backup_every * 3600):
+            do_backup = True
+    elif backup_daily:
+        cur_hm = time.strftime("%H:%M")
+        cur_date = time.strftime("%Y-%m-%d")
+        if cur_hm == backup_daily and last_bdate != cur_date:
+            do_backup = True
+    print(f"{enabled} {do_backup}")
+except Exception as e:
+    print("False False")
+' 2>/dev/null)
+
+    local IS_ENABLED="False"
+    local DO_BACKUP="False"
+    read -r IS_ENABLED DO_BACKUP <<< "$TICK_ACTION"
+
+    if [[ "$IS_ENABLED" == "True" || "$IS_ENABLED" == "true" ]]; then
+        local CHECK_OUT
+        CHECK_OUT=$(watchdog_check)
+        local STATUS DETAIL
+        STATUS=$(echo "$CHECK_OUT" | sed -n 's/.*status=\([^ ]*\).*/\1/p')
+        DETAIL=$(echo "$CHECK_OUT" | sed -n 's/.*detail=\(.*\)/\1/p')
+
+        local DECISION
+        DECISION=$(CHECK_STATUS="$STATUS" CHECK_DETAIL="$DETAIL" python3 -c '
+import json, os, time
+
+path = "'"$WATCHDOG_FILE"'"
+st = os.environ.get("CHECK_STATUS", "down")
+detail = os.environ.get("CHECK_DETAIL", "")
+now = int(time.time())
+now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+
+try:
+    with open(path) as f:
+        d = json.load(f)
+except Exception:
+    d = {"enabled": True, "fail_threshold": 2, "consec_fails": 0, "last_alert": ""}
+
+threshold = int(d.get("fail_threshold", 2))
+consec = int(d.get("consec_fails", 0))
+last_alert = d.get("last_alert", "")
+down_since = int(d.get("down_since", 0))
+
+action = "NONE"
+
+if st == "up":
+    if last_alert == "down":
+        down_min = max(1, int((now - down_since + 59) / 60))
+        action = f"RECOVERED {down_min}"
+        d["last_alert"] = "up"
+        d["down_since"] = 0
+    d["consec_fails"] = 0
+else:
+    consec += 1
+    d["consec_fails"] = consec
+    if consec >= threshold and last_alert != "down":
+        action = "DOWN"
+        d["last_alert"] = "down"
+        d["down_since"] = now
+
+d["last_check"] = now_str
+
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(d, f, indent=2)
+os.replace(tmp, path)
+os.chmod(path, 0o600)
+print(action)
+' 2>/dev/null)
+
+        if [[ "$DECISION" == DOWN* ]]; then
+            watchdog_send "🔴 Tunnel DOWN: ${DETAIL} (attempting tunnel restart)" || true
+            restart_all_lite
+        elif [[ "$DECISION" == RECOVERED* ]]; then
+            local DMIN
+            DMIN=$(echo "$DECISION" | awk '{print $2}')
+            watchdog_send "🟢 Tunnel RECOVERED (was down ${DMIN}m)" || true
+        fi
+    fi
+
+    if [[ "$DO_BACKUP" == "True" || "$DO_BACKUP" == "true" ]]; then
+        backup_now >/dev/null 2>&1 || true
+        python3 -c '
+import json, time
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["last_backup"] = int(time.time())
+    d["last_backup_date"] = time.strftime("%Y-%m-%d")
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null || true
+    fi
+
+    return 0
+}
+
+backup_now() {
+    local OUTDIR="$BACKUP_DIR"
+    local KEEP=7
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --keep) KEEP="$2"; shift 2 ;;
+            *)
+                if [[ "$1" != --* ]]; then
+                    OUTDIR="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    mkdir -p "$OUTDIR"
+    chmod 700 "$OUTDIR" 2>/dev/null || true
+
+    if [[ ! -f /etc/gre-panel/panel.pass ]]; then
+        echo -e "${RED}[!] /etc/gre-panel/panel.pass not found — cannot encrypt backup.${NC}" >&2
+        return 1
+    fi
+
+    local DATE_STR
+    DATE_STR=$(date +%Y%m%d-%H%M%S)
+    local OUT_FILE="${OUTDIR}/hashem-backup-${DATE_STR}.enc"
+
+    local FILES=()
+    local f
+    for f in /etc/frp/*.toml /etc/gre-panel/panel.json /etc/gre-panel/peers.json /etc/gre-panel/watchdog.json \
+             /etc/systemd/system/gre-*.service /etc/systemd/system/frps*.service \
+             /etc/systemd/system/frpc*.service /etc/systemd/system/gre-chaff*.service; do
+        [[ -f "$f" ]] && FILES+=("$f")
+    done
+
+    if [[ ${#FILES[@]} -eq 0 ]]; then
+        echo -e "${RED}[!] No configuration or unit files found to back up.${NC}" >&2
+        return 1
+    fi
+
+    if ! tar -czf - "${FILES[@]}" 2>/dev/null | openssl enc -aes-256-cbc -pbkdf2 -pass file:/etc/gre-panel/panel.pass -out "$OUT_FILE"; then
+        echo -e "${RED}[!] Failed to create encrypted backup.${NC}" >&2
+        rm -f "$OUT_FILE"
+        return 1
+    fi
+
+    chmod 600 "$OUT_FILE" 2>/dev/null || true
+    local SIZE
+    SIZE=$(stat -c%s "$OUT_FILE" 2>/dev/null || echo 0)
+    local HSIZE
+    HSIZE=$(du -h "$OUT_FILE" 2>/dev/null | cut -f1)
+
+    echo "BACKUP path=${OUT_FILE} size=${SIZE}"
+    echo -e "${GREEN}[✔️] Backup created: ${OUT_FILE} (${HSIZE})${NC}"
+
+    if [[ "$KEEP" -gt 0 ]]; then
+        local OLD_FILES
+        OLD_FILES=$(ls -1t "$OUTDIR"/hashem-backup-*.enc 2>/dev/null | tail -n +$((KEEP + 1)))
+        if [[ -n "$OLD_FILES" ]]; then
+            echo "$OLD_FILES" | xargs -r rm -f
+            echo -e "${CYAN}[*] Pruned old backups (kept latest ${KEEP}).${NC}"
+        fi
+    fi
+    return 0
+}
+
+backup_restore() {
+    local FILE=""
+    local DRY_RUN=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run) DRY_RUN=1; shift ;;
+            *) FILE="$1"; shift ;;
+        esac
+    done
+
+    if [[ -z "$FILE" || ! -f "$FILE" ]]; then
+        echo -e "${RED}[!] Backup file not found: '${FILE}'${NC}" >&2
+        return 1
+    fi
+    if [[ ! -f /etc/gre-panel/panel.pass ]]; then
+        echo -e "${RED}[!] /etc/gre-panel/panel.pass not found — cannot decrypt backup.${NC}" >&2
+        return 1
+    fi
+
+    local TMP_D
+    TMP_D=$(mktemp -d)
+    trap 'rm -rf "$TMP_D"' RETURN
+
+    echo -e "${CYAN}[*] Decrypting backup archive with panel password...${NC}"
+    if ! openssl enc -d -aes-256-cbc -pbkdf2 -pass file:/etc/gre-panel/panel.pass -in "$FILE" -out "$TMP_D/backup.tar.gz" 2>/dev/null; then
+        echo -e "${RED}[!] Decryption failed: invalid panel password or file corrupted.${NC}" >&2
+        return 1
+    fi
+
+    echo -e "${CYAN}[*] Verifying archive contents...${NC}"
+    if ! tar -ztf "$TMP_D/backup.tar.gz" >"$TMP_D/list.txt" 2>/dev/null; then
+        echo -e "${RED}[!] Archive verification failed: invalid tar archive.${NC}" >&2
+        return 1
+    fi
+
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo -e "${GREEN}[✔️] Archive verified OK. Files inside:${NC}"
+        cat "$TMP_D/list.txt"
+        return 0
+    fi
+
+    echo -e "${CYAN}[*] Restoring configuration files and systemd units...${NC}"
+    tar -xzf "$TMP_D/backup.tar.gz" -C /
+    chmod 600 /etc/gre-panel/*.json 2>/dev/null || true
+    chmod 600 /etc/gre-panel/*.pass 2>/dev/null || true
+    echo -e "${GREEN}[✔️] Files restored:${NC}"
+    cat "$TMP_D/list.txt"
+
+    echo -e "${CYAN}[*] Reloading systemd daemon...${NC}"
+    systemctl daemon-reload
+
+    echo -e "${CYAN}[*] Restarting tunnel services...${NC}"
+    restart_all
+
+    echo -e "${GREEN}[✔️] Restore completed successfully.${NC}"
+    return 0
+}
+
+install_watchdog_units() {
+    [[ -x "$HASHEM_BIN" ]] || { cp "$0" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN"; } || true
+    cat << 'EOF' > /etc/systemd/system/hashem-watchdog.service
+[Unit]
+Description=Hashem Watchdog and Scheduled Backup Tick
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/hashem watchdog tick
+EOF
+
+    cat << 'EOF' > /etc/systemd/system/hashem-watchdog.timer
+[Unit]
+Description=Run Hashem Watchdog every minute
+After=network.target
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    systemctl daemon-reload
+}
+
+watchdog_on() {
+    init_watchdog_json
+    install_watchdog_units
+    systemctl enable --now hashem-watchdog.timer >/dev/null 2>&1
+    python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["enabled"] = True
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null || true
+    echo -e "${GREEN}[✔️] Watchdog enabled (systemd timer active, checks every 1 min).${NC}"
+}
+
+watchdog_off() {
+    init_watchdog_json
+    systemctl stop hashem-watchdog.timer hashem-watchdog.service >/dev/null 2>&1 || true
+    systemctl disable hashem-watchdog.timer >/dev/null 2>&1 || true
+    python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["enabled"] = False
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null || true
+    echo -e "${YELLOW}[*] Watchdog disabled (systemd timer stopped).${NC}"
+}
+
+watchdog_status_full() {
+    init_watchdog_json
+    echo -e "${CYAN}==========================================================${NC}"
+    echo -e "${CYAN}                 Hashem Watchdog Status                   ${NC}"
+    echo -e "${CYAN}==========================================================${NC}"
+
+    local INFO
+    INFO=$(python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    en = "Enabled" if d.get("enabled", False) else "Disabled"
+    tok = d.get("tg_bot_token", "").strip()
+    if tok:
+        masked = tok[:6] + "..." + tok[-4:] if len(tok) > 10 else "******"
+    else:
+        masked = "(not configured)"
+    cid = str(d.get("tg_chat_id", "")) or "(not configured)"
+    route = d.get("tg_route", "direct")
+    port = str(d.get("tg_tunnel_port", 0))
+    fails = str(d.get("consec_fails", 0))
+    thresh = str(d.get("fail_threshold", 2))
+    last_c = d.get("last_check", "") or "(none yet)"
+    last_a = d.get("last_alert", "") or "(none)"
+    be = int(d.get("backup_every_hours", 0))
+    bd = d.get("backup_daily_at", "")
+    if be > 0:
+        sched = f"Every {be} hours"
+    elif bd:
+        sched = f"Daily at {bd}"
+    else:
+        sched = "Disabled"
+    print(f"{en}\t{masked}\t{cid}\t{route}\t{port}\t{fails}\t{thresh}\t{last_c}\t{last_a}\t{sched}")
+except Exception as e:
+    print(f"Error\t-\t-\t-\t-\t0\t2\t-\t-\tDisabled")
+' 2>/dev/null)
+
+    local EN TOK CID ROUTE PORT FAILS THRESH LAST_C LAST_A SCHED
+    IFS=$'\t' read -r EN TOK CID ROUTE PORT FAILS THRESH LAST_C LAST_A SCHED <<< "$INFO"
+
+    local TIMER_ACTIVE="inactive"
+    if systemctl is-active --quiet hashem-watchdog.timer 2>/dev/null; then
+        TIMER_ACTIVE="active (every 1 min)"
+    fi
+
+    echo -e "Watchdog State:     ${CYAN}${EN}${NC} (systemd timer: ${TIMER_ACTIVE})"
+    echo -e "Consecutive Fails:  ${FAILS} / ${THRESH}"
+    echo -e "Last Check:         ${LAST_C}"
+    echo -e "Last Alert:         ${LAST_A}"
+    echo ""
+    echo -e "${YELLOW}── Telegram Alerts ──${NC}"
+    echo -e "Bot Token:          ${TOK}"
+    echo -e "Chat ID:            ${CID}"
+    if [[ "$ROUTE" == "tunnel" ]]; then
+        echo -e "Route:              tunnel (SOCKS5 127.0.0.1:${PORT})"
+    else
+        echo -e "Route:              direct"
+    fi
+    echo ""
+    echo -e "${YELLOW}── Backup Schedule & Files ──${NC}"
+    echo -e "Schedule:           ${SCHED}"
+    local BC=0
+    if [[ -d "$BACKUP_DIR" ]]; then
+        BC=$(ls -1 "$BACKUP_DIR"/hashem-backup-*.enc 2>/dev/null | wc -l)
+    fi
+    echo -e "Stored Backups:     ${BC} in ${BACKUP_DIR}"
+    if [[ "$BC" -gt 0 ]]; then
+        ls -lh "$BACKUP_DIR"/hashem-backup-*.enc 2>/dev/null | awk '{print "  " $9 " (" $5 ", " $6 " " $7 " " $8 ")"}' | tail -n 5
+    fi
+    echo ""
+    echo -e "${YELLOW}── Live Health Check ──${NC}"
+    watchdog_check
+    echo -e "${CYAN}==========================================================${NC}"
+}
+
+find_live_proxy_ports() {
+    local PORTS=()
+    if [[ -f /etc/frp/frpc.toml ]]; then
+        while read -r p; do
+            [[ -n "$p" ]] && PORTS+=("$p")
+        done < <(grep -E '^(remotePort|localPort)\s*=' /etc/frp/frpc.toml 2>/dev/null | awk -F= '{print $2}' | tr -d ' "')
+    fi
+    local f
+    for f in /etc/frp/frps*.toml; do
+        [[ -f "$f" ]] || continue
+        while read -r p; do
+            [[ -n "$p" ]] && PORTS+=("$p")
+        done < <(grep -E '^(remotePort|localPort)\s*=' "$f" 2>/dev/null | awk -F= '{print $2}' | tr -d ' "')
+    done
+    if [[ -f "$PEERS_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        while read -r p; do
+            [[ -n "$p" ]] && PORTS+=("$p")
+        done < <(python3 -c '
+import json
+try:
+    with open("'"$PEERS_FILE"'") as f:
+        d = json.load(f)
+        for peer in d.get("peers", []):
+            for port in peer.get("ports", []):
+                print(port)
+except Exception:
+    pass
+' 2>/dev/null)
+    fi
+    if [[ ${#PORTS[@]} -gt 0 ]]; then
+        printf "%s\n" "${PORTS[@]}" | sort -n -u
+    fi
+}
+
+menu_watchdog() {
+    while true; do
+        clear
+        echo -e "${CYAN}==========================================================${NC}"
+        echo -e "${CYAN}              Watchdog & Encrypted Backup                 ${NC}"
+        echo -e "${CYAN}==========================================================${NC}"
+        echo ""
+        init_watchdog_json
+        local W_EN
+        W_EN=$(python3 -c '
+import json
+try:
+    with open("'"$WATCHDOG_FILE"'") as f:
+        print("ENABLED" if json.load(f).get("enabled", False) else "DISABLED")
+except Exception:
+    print("DISABLED")
+' 2>/dev/null)
+        if [[ "$W_EN" == "ENABLED" ]]; then
+            echo -e "Watchdog Status: ${GREEN}● ENABLED${NC} (checks every 1 min)"
+        else
+            echo -e "Watchdog Status: ${RED}○ DISABLED${NC}"
+        fi
+        echo ""
+        echo "  1) Enable / Disable Watchdog"
+        echo "  2) Set Telegram (Bot Token & Chat ID)"
+        echo "  3) Test Telegram Alert"
+        echo "  4) Route Direct vs Tunnel (+pick tunnel socks port)"
+        echo "  5) Backup Now (OpenSSL AES-256-CBC Encrypted)"
+        echo "  6) Schedule Backup (Every-N-Hours OR Daily at HH:MM)"
+        echo "  7) Restore from Encrypted Backup"
+        echo "  8) View Full Status & Stored Backups"
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select an option [0-8]: " SUBOPT
+        case "$SUBOPT" in
+            1)
+                if [[ "$W_EN" == "ENABLED" ]]; then
+                    watchdog_off
+                else
+                    watchdog_on
+                fi
+                read -p "Press Enter to continue..." _
+                ;;
+            2)
+                echo -e "\n${CYAN}── Configure Telegram Alerts ──${NC}"
+                read -p "Enter Telegram Bot Token: " INPUT_TOKEN
+                read -p "Enter Telegram Chat ID: " INPUT_CID
+                if [[ -n "$INPUT_TOKEN" || -n "$INPUT_CID" ]]; then
+                    python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+tok = "'"$INPUT_TOKEN"'".strip()
+cid = "'"$INPUT_CID"'".strip()
+try:
+    with open(path) as f:
+        d = json.load(f)
+    if tok:
+        d["tg_bot_token"] = tok
+    if cid:
+        d["tg_chat_id"] = cid
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception as e:
+    print(e)
+' 2>/dev/null
+                    echo -e "${GREEN}[✔️] Telegram settings saved.${NC}"
+                else
+                    echo -e "${YELLOW}[*] No changes made.${NC}"
+                fi
+                read -p "Press Enter to continue..." _
+                ;;
+            3)
+                watchdog_test
+                read -p "Press Enter to continue..." _
+                ;;
+            4)
+                echo -e "\n${CYAN}── Telegram Delivery Route ──${NC}"
+                echo "  1) Direct (curl direct to Telegram API)"
+                echo "  2) Via Tunnel (SOCKS5 through tunnel port)"
+                read -p "Choose route [1-2]: " ROUTE_CHOICE
+                if [[ "$ROUTE_CHOICE" == "1" ]]; then
+                    python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["tg_route"] = "direct"
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null
+                    echo -e "${GREEN}[✔️] Route set to Direct.${NC}"
+                elif [[ "$ROUTE_CHOICE" == "2" ]]; then
+                    local PORTS=()
+                    mapfile -t PORTS < <(find_live_proxy_ports)
+                    local CHOSEN_PORT=0
+                    if [[ ${#PORTS[@]} -gt 0 ]]; then
+                        echo -e "\nDetected live tunnel ports:"
+                        local idx=1
+                        for p in "${PORTS[@]}"; do
+                            echo "  $idx) Port $p"
+                            ((idx++))
+                        done
+                        echo "  $idx) Enter custom port manually"
+                        read -p "Select port [1-$idx]: " PIDX
+                        if [[ "$PIDX" =~ ^[0-9]+$ ]] && (( PIDX >= 1 && PIDX < idx )); then
+                            CHOSEN_PORT="${PORTS[$((PIDX-1))]}"
+                        else
+                            read -p "Enter SOCKS5 tunnel port (1-65535): " CHOSEN_PORT
+                        fi
+                    else
+                        read -p "Enter SOCKS5 tunnel port (1-65535): " CHOSEN_PORT
+                    fi
+                    if is_valid_port "$CHOSEN_PORT"; then
+                        python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["tg_route"] = "tunnel"
+    d["tg_tunnel_port"] = int("'"$CHOSEN_PORT"'")
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null
+                        echo -e "${GREEN}[✔️] Route set to Tunnel (127.0.0.1:${CHOSEN_PORT}).${NC}"
+                    else
+                        echo -e "${RED}[!] Invalid port number.${NC}"
+                    fi
+                fi
+                read -p "Press Enter to continue..." _
+                ;;
+            5)
+                echo -e "\n${CYAN}── Creating Encrypted Backup ──${NC}"
+                backup_now
+                read -p "Press Enter to continue..." _
+                ;;
+            6)
+                echo -e "\n${CYAN}── Schedule Encrypted Backup ──${NC}"
+                echo "  1) Every N hours"
+                echo "  2) Daily at fixed time (HH:MM)"
+                echo "  3) Disable scheduled backups"
+                read -p "Select schedule mode [1-3]: " S_CHOICE
+                case "$S_CHOICE" in
+                    1)
+                        read -p "Enter interval in hours (e.g. 6): " N_HOURS
+                        if [[ "$N_HOURS" =~ ^[0-9]+$ ]] && (( N_HOURS >= 1 && N_HOURS <= 168 )); then
+                            python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["backup_every_hours"] = int("'"$N_HOURS"'")
+    d["backup_daily_at"] = ""
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null
+                            echo -e "${GREEN}[✔️] Backup scheduled every ${N_HOURS} hours.${NC}"
+                        else
+                            echo -e "${RED}[!] Invalid hours (must be 1-168).${NC}"
+                        fi
+                        ;;
+                    2)
+                        read -p "Enter daily time in 24h format HH:MM (e.g. 03:00): " DAILY_T
+                        if [[ "$DAILY_T" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+                            python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["backup_every_hours"] = 0
+    d["backup_daily_at"] = "'"$DAILY_T"'"
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null
+                            echo -e "${GREEN}[✔️] Backup scheduled daily at ${DAILY_T}.${NC}"
+                        else
+                            echo -e "${RED}[!] Invalid time format (use HH:MM e.g. 03:00).${NC}"
+                        fi
+                        ;;
+                    3)
+                        python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["backup_every_hours"] = 0
+    d["backup_daily_at"] = ""
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null
+                        echo -e "${GREEN}[✔️] Scheduled backups disabled.${NC}"
+                        ;;
+                    *)
+                        echo -e "${RED}[!] Invalid option.${NC}"
+                        ;;
+                esac
+                read -p "Press Enter to continue..." _
+                ;;
+            7)
+                echo -e "\n${CYAN}── Restore Backup ──${NC}"
+                local BAKS=()
+                if [[ -d "$BACKUP_DIR" ]]; then
+                    mapfile -t BAKS < <(ls -1t "$BACKUP_DIR"/hashem-backup-*.enc 2>/dev/null)
+                fi
+                if [[ ${#BAKS[@]} -eq 0 ]]; then
+                    echo -e "${YELLOW}[!] No backups found in ${BACKUP_DIR}.${NC}"
+                    read -p "Enter full path to backup file manually (or Enter to cancel): " MAN_FILE
+                    if [[ -n "$MAN_FILE" ]]; then
+                        backup_restore "$MAN_FILE"
+                    fi
+                else
+                    echo "Available backups:"
+                    local bidx=1
+                    for b in "${BAKS[@]}"; do
+                        local bsz
+                        bsz=$(du -h "$b" 2>/dev/null | cut -f1)
+                        echo "  $bidx) $(basename "$b") ($bsz)"
+                        ((bidx++))
+                    done
+                    read -p "Select backup to restore [1-$((bidx-1))]: " PICK_B
+                    if [[ "$PICK_B" =~ ^[0-9]+$ ]] && (( PICK_B >= 1 && PICK_B < bidx )); then
+                        local SELECTED="${BAKS[$((PICK_B-1))]}"
+                        read -p "Restore $(basename "$SELECTED")? Current configs will be overwritten and services restarted. (y/N): " CONFIRM_R
+                        if [[ "$CONFIRM_R" =~ ^[Yy]$ ]]; then
+                            backup_restore "$SELECTED"
+                        else
+                            echo -e "${YELLOW}[*] Restore cancelled.${NC}"
+                        fi
+                    else
+                        echo -e "${RED}[!] Invalid choice.${NC}"
+                    fi
+                fi
+                read -p "Press Enter to continue..." _
+                ;;
+            8)
+                watchdog_status_full
+                read -p "Press Enter to continue..." _
+                ;;
+            0)
+                return 0
+                ;;
+            *)
+                echo -e "${RED}[!] Invalid option.${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+cli_watchdog() {
+    local SUB="$1"
+    shift || true
+    case "$SUB" in
+        on) watchdog_on ;;
+        off) watchdog_off ;;
+        status) watchdog_status_full ;;
+        test) watchdog_test ;;
+        tick) watchdog_tick ;;
+        check) watchdog_check ;;
+        *) echo -e "${RED}[!] Unknown watchdog command: '$SUB' (want on|off|status|test|tick)${NC}"; return 1 ;;
+    esac
+}
+
+cli_backup() {
+    local SUB="$1"
+    shift || true
+    case "$SUB" in
+        now) backup_now "$@" ;;
+        restore) backup_restore "$@" ;;
+        status)
+            echo -e "${CYAN}=== Hashem Backups (${BACKUP_DIR}) ===${NC}"
+            if [[ -d "$BACKUP_DIR" ]]; then
+                ls -lh "$BACKUP_DIR"/hashem-backup-*.enc 2>/dev/null || echo "(no backups found)"
+            else
+                echo "(no backup directory)"
+            fi
+            ;;
+        schedule)
+            local MODE="" HOURS=0 DAILY=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --every|every) HOURS="$2"; MODE="interval"; shift 2 ;;
+                    --daily|daily) DAILY="$2"; MODE="daily"; shift 2 ;;
+                    --off|off) MODE="off"; shift ;;
+                    *) shift ;;
+                esac
+            done
+            init_watchdog_json
+            if [[ "$MODE" == "interval" ]]; then
+                if [[ "$HOURS" =~ ^[0-9]+$ ]] && (( HOURS >= 1 && HOURS <= 168 )); then
+                    python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["backup_every_hours"] = int("'"$HOURS"'")
+    d["backup_daily_at"] = ""
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null
+                    echo -e "${GREEN}[✔️] Backup scheduled every ${HOURS} hours.${NC}"
+                else
+                    echo -e "${RED}[!] Invalid interval hours: '$HOURS' (1-168)${NC}"; return 1
+                fi
+            elif [[ "$MODE" == "daily" ]]; then
+                if [[ "$DAILY" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+                    python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["backup_every_hours"] = 0
+    d["backup_daily_at"] = "'"$DAILY"'"
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null
+                    echo -e "${GREEN}[✔️] Backup scheduled daily at ${DAILY}.${NC}"
+                else
+                    echo -e "${RED}[!] Invalid daily time format: '$DAILY' (HH:MM e.g. 03:00)${NC}"; return 1
+                fi
+            elif [[ "$MODE" == "off" ]]; then
+                python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["backup_every_hours"] = 0
+    d["backup_daily_at"] = ""
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null
+                echo -e "${GREEN}[✔️] Scheduled backups disabled.${NC}"
+            else
+                echo -e "${RED}[!] Usage: hashem backup schedule [--every N | --daily HH:MM | --off]${NC}"; return 1
+            fi
+            ;;
+        *)
+            echo -e "${RED}[!] Unknown backup command: '$SUB' (want now|restore|schedule|status)${NC}"
+            return 1
+            ;;
+    esac
+}
+
 update_all() {
     echo -e "${CYAN}[*] Updating Hashem (script + panel binary)...${NC}"
     TMP_U="$(mktemp -d)"
@@ -1650,6 +2678,21 @@ update_all() {
     install_chaff_script || true
     rm -f /usr/local/bin/gre-chaff.sh 2>/dev/null || true
     update_chaff_existing_tunnels || true
+    if [[ -f "$WATCHDOG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        local WD_EN
+        WD_EN=$(python3 -c '
+import json
+try:
+    with open("'"$WATCHDOG_FILE"'") as f:
+        print(json.load(f).get("enabled", False))
+except Exception:
+    print(False)
+' 2>/dev/null)
+        if [[ "$WD_EN" == "True" || "$WD_EN" == "true" ]]; then
+            install_watchdog_units
+            systemctl enable --now hashem-watchdog.timer >/dev/null 2>&1 || true
+        fi
+    fi
     PANEL_VER=$("$PANEL_BIN" --version 2>/dev/null || echo "unknown")
     echo -e "${GREEN}[✔️] Update complete — script + panel are latest (panel: ${PANEL_VER}). Re-run the script to use the new menu.${NC}"
 }
@@ -1682,6 +2725,7 @@ main_menu() {
     echo " 11) Restore Pre-Optimize Settings"
     echo " 12) Optimization Status"
     echo " 19) Traffic Chaff / Obfuscation (idle-gap filler: on/off/status)"
+    echo " 20) Watchdog & Backup (Telegram alerts, route direct/tunnel, encrypted backup)"
     echo ""
     echo -e "${YELLOW}── Panel & System ──${NC}"
     echo " 13) Show Panel URL + Username + Password"
@@ -1692,7 +2736,7 @@ main_menu() {
     echo " 18) Uninstall Everything (tunnel + panel + 'hashem' command)"
     echo "  0) Exit"
     echo ""
-    read -p "Select an option [0-19]: " OPTION
+    read -p "Select an option [0-20]: " OPTION
 
     case "$OPTION" in
         1)
@@ -1752,6 +2796,9 @@ main_menu() {
         19)
             menu_chaff
             ;;
+        20)
+            menu_watchdog
+            ;;
         0)
             echo "Exiting..."
             exit 0
@@ -1769,7 +2816,7 @@ check_root
 usage_cli() {
     cat <<EOF
 Usage:
-  hashem                                    # interactive menu (options 0-19)
+  hashem                                    # interactive menu (options 0-20)
   hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--chaff low|mid|off] [--force]
   hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--chaff low|mid|off] [--force]
                        # ... or: hashem setup-foreign --bundle hsh1_...  (fills everything; explicit flags win)
@@ -1780,7 +2827,10 @@ Usage:
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
   hashem chaff on|off|status                   # traffic obfuscation (idle-gap filler)
-  hashem free-ram                            # cap journald + drop cache + 1GB swap
+  hashem watchdog on|off|status|test|tick      # tunnel watchdog monitoring & alerts
+  hashem backup now [--keep N] | restore <f> | schedule ... | status
+  hashem tgsend "msg"                          # send Telegram alert manually
+  hashem free-ram                              # cap journald + drop cache + 1GB swap
 
 Setup bundle (one string with everything foreign needs):
   hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
@@ -1895,6 +2945,9 @@ if [[ $# -gt 0 ]]; then
         logs) show_logs ;;
         restart) restart_all ;;
         chaff) shift; cli_chaff "$@" ;;
+        watchdog) shift; cli_watchdog "$@" ;;
+        backup) shift; cli_backup "$@" ;;
+        tgsend) shift; watchdog_send "$1" ;;
         peer-token)
             shift; ID=""
             while [[ $# -gt 0 ]]; do case "$1" in --id) ID="$2"; shift 2 ;; *) shift ;; esac; done

@@ -16,6 +16,7 @@ package main
 //   E-GRE-xx     GRE interface / ping diagnostics (log annotation)
 //   E-FRP-xx     FRP diagnostics (log annotation)
 //   E-SYS-xx     host tooling (journalctl/systemctl missing)
+//   E-WD-xx      watchdog / telegram alerts / backup
 
 import (
 	"encoding/json"
@@ -101,6 +102,12 @@ var errCatalog = map[string]errInfo{
 	"E-TLS-06": {500, "cannot install certificate", "Disk write failed — check /etc/gre-panel permissions."},
 	"E-TLS-07": {400, "no certificate to renew", "Issue a certificate first from the Settings tab."},
 	"E-TLS-08": {500, "HTTPS listener failed", "Port in use or bad cert — HTTP still works; check the error detail."},
+	// watchdog & backup
+	"E-WD-01": {400, "bad watchdog request", "Check request parameters and try again."},
+	"E-WD-02": {502, "telegram alert failed", "Verify bot token, chat ID, and selected route."},
+	"E-WD-03": {500, "backup creation failed", "Check disk space and write permissions in /var/backups/hashem."},
+	"E-WD-04": {500, "backup restore failed", "Decryption failed or backup archive is corrupted."},
+	"E-WD-05": {502, "telegram route unreachable", "Ensure tunnel is up or switch route to direct."},
 }
 
 type errEvent struct {

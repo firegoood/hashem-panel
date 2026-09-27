@@ -24,10 +24,12 @@ _Iran's IP stays behind the tunnel — foreign-server ports become reachable thr
 ## ✨ Features
 
 - 🚀 **One-line install** — prebuilt panel binary from GitHub releases, no Go needed on servers
-- 🖥️ **Premium web panel** — 7 tabs: Dashboard · Tunnel · Setup · Logs · Update · Settings · Terminal
-- ⌨️ **`hashem` CLI** — one command in SSH opens the full tunnel menu (options 0–18)
+- 🖥️ **Premium web panel** — 8 tabs: Dashboard · Tunnel · Setup · Logs · Watchdog · Update · Settings · Terminal
+- ⌨️ **`hashem` CLI** — one command in SSH opens the full tunnel menu (options 0–20)
 - 🌐 **Multi-peer** — up to 5 foreign servers on one Iran, each with its own token + card in the Tunnel tab
 - 📦 **Setup bundle** — one `hsh1_...` string carries IP + control port + GRE pair + token + ports; paste it on Foreign and everything auto-fills (legacy 32-char tokens still work)
+- 🐕 **Watchdog & Telegram alerts** — checks GRE ping and FRP status every 1 min, alerts after 2 consecutive fails with auto-restart attempt, route direct or via tunnel (SOCKS5), recovery notifications with downtime duration
+- 💾 **Encrypted scheduled backups** — OpenSSL AES-256-CBC encrypted backups of FRP configs, panel state, peers, and systemd units keyed from panel password, user-picked schedule (every N hours or daily at HH:MM), one-click download & restore
 - 🗑️ **Per-peer remove that works** — inline two-step confirm (arm 5s + Undo) inside each card; falls back to direct removal on servers with a stale installer
 - 🃏 **Dashboard-style cards** — Main tunnel card (gold accent) + per-peer cards (Foreign/IP, GRE, FRP & traffic) in Tunnel, peer summary rows in Dashboard that jump to the full card
 - 🔒 **Panel HTTPS** — Let's Encrypt from Settings or terminal, HTTP + HTTPS side by side, auto-renew
@@ -36,6 +38,12 @@ _Iran's IP stays behind the tunnel — foreign-server ports become reachable thr
 - 📊 **Premium charts** — total-traffic chart with 24H / 7D / 30D ranges
 - ⚡ **Optimize tunnel** — BBR + buffers + MTU/MSS tuning with backup & restore
 - 🔄 **Safe updates** — script + panel update with config backup and rollback
+
+### 🐕 Watchdog & Encrypted Backup
+
+- **Watchdog**: Checks peer GRE ping (1x, -W2) and FRP service status every 1 minute via `hashem-watchdog.timer` or panel background poll. When down for 2 consecutive checks (2 minutes), fires a Telegram alert (`🔴 Tunnel DOWN...`) and triggers a safe restart of GRE & FRP services. On recovery, sends `🟢 Tunnel RECOVERED (was down Xm)`.
+- **Telegram Routing**: Delivery route can be set to **Direct** (HTTPS) or **Via Tunnel** (SOCKS5 through tunnel proxy port) for filtered Iran environments. Bot tokens are masked in API and logs (`123456...7890`).
+- **Encrypted Backups**: Archives all `/etc/frp/*.toml` files, panel settings, peers registry, and systemd service units into an encrypted tarball using `openssl enc -aes-256-cbc -pbkdf2` keyed by `/etc/gre-panel/panel.pass`. Supports on-demand backups, automated schedules (every N hours or daily at HH:MM), automatic pruning (keep 7), web downloads, and safe restores.
 
 ---
 
@@ -102,7 +110,7 @@ sudo bash hashem.sh
 After install, just type in SSH:
 
 ```bash
-hashem            # full interactive menu, grouped: Setup · Peers · Monitor · Tune · Panel & System (0-19)
+hashem            # full interactive menu, grouped: Setup · Peers · Monitor · Tune · Panel & System (0-20)
 ```
 
 Non-interactive (same flags as `hashem.sh`):
@@ -120,6 +128,9 @@ hashem remove-peer --id N [--force] | peer-list | peer-token --id N
 hashem panel-tls [domain] [email]     # Let's Encrypt for the web panel
 hashem optimize | restore | tune-status
 hashem chaff on | off | status        # traffic chaff / idle-gap filler control
+hashem watchdog on | off | status | test | tick
+hashem backup now [--keep N] | restore <file> | schedule [--every N|--daily HH:MM|--off] | status
+hashem tgsend "msg"                   # send Telegram alert manually
 ```
 
 `grepanel` (panel service control) still works side by side:
@@ -146,6 +157,7 @@ Password:   8-digit number
 | Tunnel | **Main tunnel card** (gold accent) + per-peer cards (Foreign + Iran IP, GRE pair, control port, traffic, copy buttons), Ping/Bundle/Restart/Remove per card, inline two-step Remove |
 | Setup | Quick Setup 1-2-3 + `hsh1_...` bundle box (one paste configures Foreign), add-peer, overwrite-guarded, port-clash warnings |
 | Logs | Per-peer FRP logs, live tail, panel errors with `E-XXXX` codes |
+| Watchdog | Status hero (Online/Offline, consec fails), Telegram alert config (direct or via tunnel socks), OpenSSL AES-256-CBC backup manager (create, schedule, download, restore), event log |
 | Update | One-click update to the latest `panel-rN` release |
 | Settings | Password, panel HTTPS (Let's Encrypt), terminal flag |
 | Terminal | Real root shell (enable in Settings first), quick `hashem` buttons |
@@ -179,6 +191,7 @@ After login you can re-run the whole tunnel setup from the browser — same logi
 | 11 | Tune | Restore pre-optimize settings |
 | 12 | Tune | Optimization status |
 | 19 | Tune | Traffic chaff / obfuscation (idle-gap filler: on / off / status) |
+| 20 | Tune | Watchdog & Backup (Telegram alerts, route direct/tunnel, encrypted scheduled backups) |
 | 13 | Panel & System | Show panel URL + username + password |
 | 14 | Panel & System | Panel HTTPS (Let's Encrypt certificate) |
 | 15 | Panel & System | Update all (latest script + latest prebuilt panel) |
