@@ -694,7 +694,8 @@ cli_remove_peer() {
         ip tunnel del "$GIF" >/dev/null 2>&1 || true
     fi
     PEERS_F="$PEERS_FILE" PEER_ID="$ID" python3 -c \
-'import json,os; f=os.environ["PEERS_F"]; d=json.load(open(f)); d["peers"]=[p for p in d.get("peers",[]) if p["id"]!=int(os.environ["PEER_ID"])]; json.dump(d,open(f,"w"),indent=2)'
+'import json,os; f=os.environ["PEERS_F"]; d=json.load(open(f)); d["peers"]=[p for p in d.get("peers",[]) if p["id"]!=int(os.environ["PEER_ID"])]; json.dump(d,open(f,"w"),indent=2)' \
+        || echo -e "${YELLOW}[!] peers registry already gone — nothing left to clean.${NC}"
     echo -e "${GREEN}[✔️] Peer '${NAME}' (id ${ID}) removed.${NC}"
 }
 

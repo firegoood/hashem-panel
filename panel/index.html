@@ -261,6 +261,23 @@
   .det-v.mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size:12.5px; background:var(--s2); border:1px solid var(--ln);
     padding:3px 9px; border-radius:8px; letter-spacing:-.01em; }
+  /* peer cards: bottom action row + inline remove confirm */
+  .peer-card .peer-acts .armed {
+    border-color:var(--er)!important; color:#fff!important;
+    background:linear-gradient(135deg, #dc2626, #b91c1c)!important;
+    animation:peerArmPulse 1s ease-in-out infinite;
+  }
+  @keyframes peerArmPulse { 0%,100% { filter:brightness(1); } 50% { filter:brightness(1.25); } }
+  .peer-confirm { margin-top:2px; }
+  .peer-confirm-in { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .peer-count { display:inline-grid; place-items:center; min-width:20px; height:20px;
+    padding:0 5px; border-radius:999px; background:rgba(220,38,38,.15);
+    font-variant-numeric:tabular-nums; font-weight:700; }
+  /* dashboard per-peer summary rows (jump to the full card in Tunnel tab) */
+  .dash-peer-row { display:flex; align-items:center; gap:10px; padding:8px 10px;
+    border:1px solid var(--ln); border-radius:10px; margin-top:8px; cursor:pointer;
+    background:var(--sunk); transition:border-color .15s; }
+  .dash-peer-row:hover { border-color:var(--ln2); }
   .det-copy { border:1px solid var(--ln); background:var(--s2); color:var(--mu); border-radius:7px;
     font-size:11px; font-weight:700; padding:3px 8px; cursor:pointer; transition:all .15s ease; }
   .det-copy:hover { color:var(--tx); border-color:var(--ac); }
@@ -919,21 +936,49 @@ function dot(ok) { return `<span class="dot ${ok ? 'up' : 'down'}"></span>`; }
 function peerAct(action, peerId) {
   return (async () => {
     try {
+      const btn = document.querySelector(`[data-peer-act="${action}-${peerId}"]`);
+      if (btn) { btn.disabled = true; const t = btn.textContent; btn.innerHTML = '<span class="ent-spinner"></span>'; btn.dataset.rst = t; }
       const r = await api('/api/action', {action, peer_id: peerId});
       $('actOut').classList.remove('hidden');
       $('actOut').textContent = r.output || 'ok';
       toastOk(action + ' ok', r.output ? String(r.output).slice(0, 120) : '');
       refresh();
-    } catch(e) { toastErr(action + ' failed', e.message); }
+    } catch(e) { toastErr(action + ' failed', e.message); refresh(); }
   })();
 }
+// Inline two-step remove: first click arms (5s + Undo), second click deletes.
+// No modal — the confirm lives inside the card so it works from any tab.
+const peerRemoveTimers = {};
+function armRemovePeer(peerId, name) {
+  const box = $('peer-confirm-' + peerId);
+  if (!box) return;
+  const btns = document.querySelectorAll(`[data-peer-remove="${peerId}"]`);
+  btns.forEach(b => { b.classList.add('armed'); b.innerHTML = '⚠️ Confirm 5s <span class="peer-count" data-peer-n="' + peerId + '">5</span>'; });
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="peer-confirm-in">Remove <b>${esc(name)} (#${peerId})</b>? GRE + frps go away; other tunnels keep running. <button class="hashem-btn hashem-btn-ghost" style="height:28px;padding:0 10px;font-size:12px" onclick="disarmRemovePeer(${peerId})">Undo</button></div>`;
+  clearTimeout(peerRemoveTimers[peerId]); clearInterval(peerRemoveTimers[peerId + '_n']);
+  let n = 5;
+  peerRemoveTimers[peerId + '_n'] = setInterval(() => {
+    n--; const el = document.querySelector(`[data-peer-n="${peerId}"]`); if (el) el.textContent = n;
+    if (n <= 0) clearInterval(peerRemoveTimers[peerId + '_n']);
+  }, 1000);
+  peerRemoveTimers[peerId] = setTimeout(() => disarmRemovePeer(peerId), 5000);
+}
+function disarmRemovePeer(peerId) {
+  clearTimeout(peerRemoveTimers[peerId]); clearInterval(peerRemoveTimers[peerId + '_n']);
+  const box = $('peer-confirm-' + peerId);
+  if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+  document.querySelectorAll(`[data-peer-remove="${peerId}"]`).forEach(b => { b.classList.remove('armed'); b.textContent = 'Remove'; b.disabled = false; });
+}
 async function removePeer(peerId, name) {
-  if (!await entConfirm('Remove tunnel?', `Tunnel '${name}' (#${peerId}): its GRE + frps go away; other tunnels keep running.`, 'Remove')) return;
+  disarmRemovePeer(peerId);
+  const btns = document.querySelectorAll(`[data-peer-remove="${peerId}"]`);
+  btns.forEach(b => { b.disabled = true; b.innerHTML = '<span class="ent-spinner"></span> Removing…'; });
   try {
-    const r = await api('/api/action', {action: 'remove-tunnel', peer_id: peerId});
+    await api('/api/action', {action: 'remove-tunnel', peer_id: peerId});
     toastOk(`tunnel '${name}' removed`);
     refresh();
-  } catch(e) { toastErr('remove failed', e.message); }
+  } catch(e) { toastErr('remove failed', e.message); refresh(); }
 }
 async function showPeerToken(peerId, name) {
   try {
@@ -960,7 +1005,7 @@ function renderPeers(peers) {
     const traffic = (p.rx != null && p.tx != null)
       ? ('↓ ' + fmtBytes(p.rx) + ' · ↑ ' + fmtBytes(p.tx))
       : 'N/A';
-    return `<div class="tunnel-card peer-card" style="grid-column:1/-1;padding:16px;display:flex;flex-direction:column;gap:12px">
+    return `<div class="tunnel-card peer-card" id="peer-card-${p.id}" style="grid-column:1/-1;padding:16px;display:flex;flex-direction:column;gap:12px">
       <div class="tc-header" style="flex-wrap:wrap;gap:8px">
         <div style="display:flex;align-items:center;gap:10px">
           <span class="status-indicator ${up ? 'active' : 'offline'}"><span class="dot"></span></span>
@@ -968,17 +1013,12 @@ function renderPeers(peers) {
           <span class="qs-hint mono">#${p.id}</span>
           <span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${up ? 'active' : 'down'}</span>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto">
-          <button class="hashem-btn hashem-btn-secondary" style="height:28px;padding:0 10px;font-size:12px" onclick="peerAct('ping', ${p.id})">Ping</button>
-          <button class="hashem-btn hashem-btn-secondary" style="height:28px;padding:0 10px;font-size:12px" onclick="showPeerToken(${p.id}, '${esc(nm)}')">📦 Bundle</button>
-          <button class="hashem-btn hashem-btn-secondary" style="height:28px;padding:0 10px;font-size:12px" onclick="peerAct('restart-frps', ${p.id})">Restart</button>
-          <button class="hashem-btn hashem-btn-danger" style="height:28px;padding:0 10px;font-size:12px" onclick="removePeer(${p.id}, '${esc(nm)}')">Remove</button>
-        </div>
       </div>
       <div class="det-grid">
         <div class="det-card">
           <div class="det-card-head">${ICO_SRV} <span>Foreign Server</span></div>
           <div class="det-row"><span class="det-k">Foreign IP</span><span class="det-v mono">${esc(p.remote_pub || '—')}<button type="button" class="det-copy" data-copy="${esc(p.remote_pub || '')}" title="Copy">⧉</button></span></div>
+          <div class="det-row"><span class="det-k">Iran IP</span><span class="det-v mono">${esc(p.local_pub || '—')}<button type="button" class="det-copy" data-copy="${esc(p.local_pub || '')}" title="Copy">⧉</button></span></div>
           <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc((p.ports || []).join(', ') || '—')}</span></div>
         </div>
         <div class="det-card">
@@ -990,10 +1030,17 @@ function renderPeers(peers) {
         <div class="det-card">
           <div class="det-card-head">${ICO_FRP} <span>FRP & Traffic</span></div>
           <div class="det-row"><span class="det-k">Service</span><span class="det-v">${stBadge(p.frp_up, p.frps_svc || 'frps')}</span></div>
-          <div class="det-row"><span class="det-k">Control Port</span><span class="det-v mono">${esc(String(p.frp_port || '—'))}</span></div>
+          <div class="det-row"><span class="det-k">Control Port</span><span class="det-v mono">${esc(String(p.frp_port || '—'))}<button type="button" class="det-copy" data-copy="${esc(String(p.frp_port || ''))}" title="Copy">⧉</button></span></div>
           <div class="det-row"><span class="det-k">Traffic</span><span class="det-v mono">${esc(traffic)}</span></div>
         </div>
       </div>
+      <div class="peer-acts" style="display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--ln);padding-top:12px">
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" data-peer-act="ping-${p.id}" onclick="peerAct('ping', ${p.id})">Ping</button>
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="showPeerToken(${p.id}, '${esc(nm)}')">📦 Bundle</button>
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" data-peer-act="restart-frps-${p.id}" onclick="peerAct('restart-frps', ${p.id})">Restart</button>
+        <button class="hashem-btn hashem-btn-danger peer-remove-btn" style="height:30px;padding:0 12px;font-size:12px" data-peer-remove="${p.id}" onclick="peerRemoveClick(${p.id}, '${esc(nm)}')">Remove</button>
+      </div>
+      <div id="peer-confirm-${p.id}" class="peer-confirm warnbox hidden"></div>
     </div>`;
   }).join('');
   box.querySelectorAll('[data-copy]').forEach(b => {
@@ -1004,6 +1051,13 @@ function renderPeers(peers) {
         .catch(() => toastWarn('copy failed', v));
     };
   });
+}
+// Two-step remove (inline confirm, no modal): 1st click arms 5s + Undo,
+// 2nd click while armed deletes. Same from Tunnel tab or Dashboard summary.
+function peerRemoveClick(peerId, name) {
+  const armed = document.querySelector(`[data-peer-remove="${peerId}"].armed`);
+  if (armed) removePeer(peerId, name);
+  else armRemovePeer(peerId, name);
 }
 function renderTunnel(st) {
   $('roleLine').textContent = esc(st.role || 'unknown role');
@@ -1431,14 +1485,45 @@ async function refreshDash() {
       + detCard(ICO_GRE, 'GRE Tunnel', detRow('Local', dmono(g.local)) + detRow('Peer', dmono(g.peer)) + detRow('Inner', dmono(g.inner)))
       + detCard(ICO_FRP, 'FRP Service', detRow('Status', frpBadge) + detRow(portLabel, portCell)
         + (proxyPorts.length ? detRow('Tunnel Ports', `<span class="det-v">${proxyPorts.map(p => `<span class="det-v mono" style="margin-right:4px">${esc(String(p))}</span>`).join('')}</span>`) : '')
-        + (u.frp_since ? detRow('Since', dval(u.frp_since)) : '')));
+        + (u.frp_since ? detRow('Since', dval(u.frp_since)) : ''))
+      + dashPeersCard(d.peers || []));
     // one-click copy for IP/port pills
     document.querySelectorAll('#dashDetails [data-copy]').forEach(b => { if (!b.dataset.cpBound) { b.dataset.cpBound = '1';
       b.onclick = () => { const v = b.dataset.copy; (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject())
         .then(() => { b.textContent = '✓'; b.classList.add('ok'); setTimeout(() => { b.textContent = '⧉'; b.classList.remove('ok'); }, 1200); })
         .catch(() => toastWarn('copy failed', v)); }; } });
     set('dashChecked', 'last check: ' + (d.checked || '—'));
+    // click-through for dashboard peer rows → jump to the full card.
+    document.querySelectorAll('#dashDetails [data-goto-peer]').forEach(b => { if (!b.dataset.cpBound) { b.dataset.cpBound = '1';
+      b.onclick = () => gotoPeerCard(parseInt(b.dataset.gotoPeer, 10)); }; });
   } catch(e) { /* keep old values; N/A already default */ }
+}
+// Dashboard per-peer summary: one compact row per tunnel (name, status,
+// foreign IP, forwarded ports, ping) + a jump to the full card in Tunnel.
+// Hidden when there are no peers (single-tunnel servers stay unchanged).
+function dashPeersCard(peers) {
+  if (!peers || !peers.length) return '';
+  const rows = peers.map(p => {
+    const up = !!(p.gre_up || p.frp_up);
+    const nm = p.name || ('peer-' + p.id);
+    const ping = p.ping_ok ? (p.ping_ms || 'ok') : 'down';
+    return `<div class="dash-peer-row" data-goto-peer="${p.id}" title="Open full card in Tunnel tab">`
+      + `<span class="ent-st ${up ? 'on' : 'off'}"><i></i></span>`
+      + `<b style="color:var(--tx)">${esc(nm)}</b><span class="qs-hint mono">#${p.id}</span>`
+      + `<span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${up ? 'active' : 'down'}</span>`
+      + `<span class="det-v mono">${esc(p.remote_pub || '—')}</span>`
+      + `<span class="qs-hint">${esc((p.ports || []).join(', ') || '—')} · ${esc(ping)}</span>`
+      + `</div>`;
+  }).join('');
+  return `<div class="det-card" style="grid-column:1/-1"><div class="det-head"><span class="det-ico">${ICO_SRV}</span>Peer Tunnels (${peers.length})</div><div>${rows}</div></div>`;
+}
+// Scroll to a peer's full card (switches tab if needed).
+function gotoPeerCard(peerId) {
+  goTab('tunnel');
+  requestAnimationFrame(() => {
+    const el = $('peer-card-' + peerId);
+    if (el && el.scrollIntoView) el.scrollIntoView({behavior: 'smooth', block: 'start'});
+  });
 }
 // ---- setup form (unified Setup tab: step 1 role, steps 2-3 per role, + add-peer card) ----
 let setupExists = false;

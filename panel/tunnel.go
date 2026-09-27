@@ -186,25 +186,26 @@ func removeViaInstaller() (string, error) {
 // a registry fall back to the old single-tunnel view.
 
 type peerRecord struct {
-	ID       int    `json:"id"`
-	Name     string `json:"name"`
-	LocalPub string `json:"local_pub"`
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	LocalPub  string `json:"local_pub"`
 	RemotePub string `json:"remote_pub"`
-	FrpPort  int    `json:"frp_port"`
-	LocalGre string `json:"local_gre"`
-	PeerGre  string `json:"peer_gre"`
-	Ports    []int  `json:"ports"`
-	GreIf    string `json:"gre_if"`
-	FrpsSvc  string `json:"frps_svc"`
+	FrpPort   int    `json:"frp_port"`
+	LocalGre  string `json:"local_gre"`
+	PeerGre   string `json:"peer_gre"`
+	Ports     []int  `json:"ports"`
+	GreIf     string `json:"gre_if"`
+	FrpsSvc   string `json:"frps_svc"`
+	Legacy    bool   `json:"legacy,omitempty"`
 }
 
 type peerLive struct {
 	peerRecord
-	GreUp    bool   `json:"gre_up"`
-	GreInner string `json:"gre_inner"`
-	FrpUp    bool   `json:"frp_up"`
-	PingOK   bool   `json:"ping_ok"`
-	PingMs   string `json:"ping_ms"`
+	GreUp    bool    `json:"gre_up"`
+	GreInner string  `json:"gre_inner"`
+	FrpUp    bool    `json:"frp_up"`
+	PingOK   bool    `json:"ping_ok"`
+	PingMs   string  `json:"ping_ms"`
 	Rx       *uint64 `json:"rx"`
 	Tx       *uint64 `json:"tx"`
 }
@@ -350,14 +351,83 @@ func removePeerViaInstaller(id int) (string, error) {
 	cmd := exec.Command("bash", script, "remove-peer", "--id", fmt.Sprint(id), "--force")
 	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
 	out, runErr := cmd.CombinedOutput()
-	o := strings.TrimSpace(string(out))
+	o := strings.TrimSpace(stripANSI(string(out)))
 	if o == "" {
 		o = fmt.Sprintf("peer %d removed", id)
 	}
 	if runErr != nil {
+		// Stale installer without remove-peer: fall back to direct removal
+		// from the registry record (same units the installer would stop).
+		if p := findPeer(id); p != nil && isMissingRemovePeer(o) {
+			if fo, ferr := removePeerDirect(p); ferr == nil {
+				return fo, nil
+			} else {
+				return o, fmt.Errorf("remove-peer failed (%v) and fallback failed: %v", runErr, ferr)
+			}
+		}
 		return o, fmt.Errorf("remove-peer failed: %w", runErr)
 	}
 	return o, nil
+}
+
+// isMissingRemovePeer reports whether installer output means the script has
+// no remove-peer subcommand (stale gre.sh on a server that was never updated).
+func isMissingRemovePeer(out string) bool {
+	l := strings.ToLower(out)
+	return strings.Contains(l, "unknown command") || strings.Contains(l, "unknown flag")
+}
+
+// stripANSI drops shell color codes so output matching works on any installer.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// removePeerDirect deletes one peer using its registry record: stop + disable
+// its units, delete unit files + frps toml + GRE iface, drop the record.
+// Legacy peer 1 also drops the old single tunnel (same as remove_tunnel_force).
+func removePeerDirect(p *peerRecord) (string, error) {
+	if p.Legacy {
+		return removeViaInstaller()
+	}
+	greSvc := p.GreIf
+	if greSvc == "" {
+		greSvc = fmt.Sprintf("gre-t%d", p.ID)
+	}
+	frpsSvc := p.FrpsSvc
+	if frpsSvc == "" {
+		frpsSvc = fmt.Sprintf("frps-%d", p.ID)
+	}
+	exec.Command("systemctl", "stop", frpsSvc, greSvc+".service").CombinedOutput()
+	exec.Command("systemctl", "disable", frpsSvc, greSvc+".service").CombinedOutput()
+	os.Remove("/etc/systemd/system/" + frpsSvc + ".service")
+	os.Remove("/etc/systemd/system/" + greSvc + ".service")
+	os.Remove(fmt.Sprintf("/etc/frp/frps-%d.toml", p.ID))
+	exec.Command("systemctl", "daemon-reload").CombinedOutput()
+	exec.Command("systemctl", "reset-failed").CombinedOutput()
+	exec.Command("ip", "tunnel", "del", greSvc).CombinedOutput()
+	peers := loadPeers()
+	keep := peers[:0]
+	for _, q := range peers {
+		if q.ID != p.ID {
+			keep = append(keep, q)
+		}
+	}
+	data, _ := json.MarshalIndent(map[string]any{"peers": keep}, "", "  ")
+	if err := os.WriteFile(peersFile(), append(data, '\n'), 0600); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("peer '%s' (id %d) removed", p.Name, p.ID), nil
 }
 
 // ---- local inspection (reads systemd + ip, never writes except via actions) ----
@@ -371,17 +441,17 @@ type greState struct {
 }
 
 type tunnelStatus struct {
-	Role     string   `json:"role"`
-	Gre      greState `json:"gre"`
-	GrePeer  string   `json:"gre_peer"`
-	PingOK   bool     `json:"ping_ok"`
-	PingMs   string   `json:"ping_ms"`
-	FrpUp    bool     `json:"frp_up"`
-	FrpSvc   string   `json:"frp_svc"`
-	FrpPort  int      `json:"frp_port"`
-	Proxies  []string `json:"proxies"`
-	ProxyPorts []int  `json:"proxy_ports"`
-	BindPort int      `json:"bind_port"`
+	Role       string   `json:"role"`
+	Gre        greState `json:"gre"`
+	GrePeer    string   `json:"gre_peer"`
+	PingOK     bool     `json:"ping_ok"`
+	PingMs     string   `json:"ping_ms"`
+	FrpUp      bool     `json:"frp_up"`
+	FrpSvc     string   `json:"frp_svc"`
+	FrpPort    int      `json:"frp_port"`
+	Proxies    []string `json:"proxies"`
+	ProxyPorts []int    `json:"proxy_ports"`
+	BindPort   int      `json:"bind_port"`
 }
 
 func localStatus() tunnelStatus {
