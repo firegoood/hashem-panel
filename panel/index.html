@@ -23,6 +23,8 @@
 </script>
 <style>
   body { min-height:100dvh; background:var(--bg); }
+  img, canvas, table { max-width:100%; }
+  .tunnel-card, .qs, .det-card { min-width:0; }
   .app-layout { display:flex; min-height:100dvh; width:100%; background:var(--bg); }
   .sidebar { width:236px; background:var(--sidebar-bg); border-right:1px solid var(--ln);
     display:flex; flex-direction:column; position:sticky; top:0; height:100dvh; z-index:50; flex-shrink:0; }
@@ -306,7 +308,20 @@
   .kpi-ico { transition:transform .25s var(--spring); }
   .kpi:hover .kpi-ico { transform:scale(1.08); }
   .chart-card { overflow:hidden; }
-  @media (max-width:640px) { .chart-card { padding:14px; } #trafficChart { height:200px; } }
+  @media (max-width:640px) {
+    .chart-card { padding:14px; }
+    #trafficChart { height:200px; }
+    .page { padding:12px 10px 72px; }
+    .tunnel-card, .qs { padding:14px; gap:10px; }
+    .peer-acts { flex-wrap:wrap; }
+    .peer-acts .hashem-btn { flex:1 1 45%; min-width:140px; }
+    .det-row, .dash-peer-row { flex-wrap:wrap; }
+    .mono { overflow-wrap:anywhere; word-break:break-word; }
+    .topbar { gap:8px; }
+    .topbar h1 { font-size:17px; }
+    .chart-actions { gap:6px; }
+    input.hashem-input, select, textarea { font-size:16px; }
+  }
   #toast.toast { border-radius:12px; backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
     background:color-mix(in srgb, var(--s2) 88%, transparent); box-shadow:var(--lift);
     font-size:var(--fs-body); font-weight:500; }
@@ -410,6 +425,7 @@
   .tun-chip .qs-hint { margin-left:auto; }
   #tunChips { display:grid; gap:6px; margin-top:10px; }
   .drawer-foot { padding:12px; border-top:1px solid var(--ln); display:flex; gap:8px; }
+  .drawer-foot .hashem-btn { flex:1; min-width:0; }
   #login { position:fixed; inset:0; z-index:50; display:grid; place-items:center;
     background:#09090b; color:#f4f4f5; min-height:100dvh; overflow:hidden;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
@@ -1420,7 +1436,12 @@ function drawChart(hist, isDown) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = C_IDLE; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(pts.length === 0 ? 'No history yet — collecting every 5s while the panel runs' : 'Collecting… need at least 2 samples', W/2, H/2);
+    if (pts.length === 0) {
+      ctx.fillText('No history yet', W/2, H/2 - 9);
+      ctx.fillText('collecting every 5s while the panel runs', W/2, H/2 + 9);
+    } else {
+      ctx.fillText('Collecting… need at least 2 samples', W/2, H/2);
+    }
     return;
   }
 
@@ -1990,7 +2011,7 @@ async function refreshDash() {
       b.onclick = () => { const v = b.dataset.copy; (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject())
         .then(() => { b.textContent = '✓'; b.classList.add('ok'); setTimeout(() => { b.textContent = '⧉'; b.classList.remove('ok'); }, 1200); })
         .catch(() => toastWarn('copy failed', v)); }; } });
-    set('dashChecked', 'last check: ' + (d.checked || '—'));
+    set('dashChecked', 'checked ' + String(d.checked || '').slice(11, 19));
     // click-through for dashboard peer rows → jump to the full card.
     document.querySelectorAll('#dashDetails [data-goto-peer]').forEach(b => { if (!b.dataset.cpBound) { b.dataset.cpBound = '1';
       b.onclick = () => gotoPeerCard(parseInt(b.dataset.gotoPeer, 10)); }; });
