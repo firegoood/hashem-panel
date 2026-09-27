@@ -2353,7 +2353,11 @@ install_panel() {
     if systemctl is-active --quiet gre-panel 2>/dev/null; then
         systemctl stop gre-panel 2>/dev/null || true
     fi
-    cp "$TMP_PANEL/gre-panel" "$PANEL_BIN"
+    if ! cp "$TMP_PANEL/gre-panel" "$PANEL_BIN"; then
+        echo -e "${RED}[!] Failed to install panel binary — keeping the running version.${NC}"
+        rm -rf "$TMP_PANEL"
+        return 1
+    fi
     chmod +x "$PANEL_BIN"
     rm -rf "$TMP_PANEL"
     # /usr/local/bin/hashem IS this script now (no shortcut file anymore):
