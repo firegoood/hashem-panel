@@ -165,16 +165,13 @@
     padding:6px 12px; font-size:var(--fs-small); font-weight:600; cursor:pointer;
     transition:background .18s ease, color .18s ease; }
   .chart-filters button[aria-pressed="true"] { background:var(--ac); color:var(--ac-on); }
-  #trafficChart { width:100%; height:220px; display:block; }
-  .chart-legend { display:flex; gap:16px; font-size:var(--fs-small); color:var(--mu); flex-wrap:wrap; }
-  .chart-legend .sw { display:inline-block; width:10px; height:3px; border-radius:2px; margin-right:6px; vertical-align:middle; }
   /* Sidebar sections */
   .nav-sec { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
     color:var(--dim); padding:12px 12px 4px; }
   .nav-sec:first-child { padding-top:2px; }
   /* Chart card — Total Traffic & Activity (dark, premium) */
-  .chart-card { background:linear-gradient(180deg, color-mix(in srgb, var(--s1) 92%, #ffffff 8%), var(--s1));
-    border-radius:18px; padding:20px; }
+  .chart-card { position:relative; background:linear-gradient(180deg, color-mix(in srgb, var(--s1) 92%, #ffffff 8%), var(--s1));
+    border:1px solid var(--ln); border-radius:18px; padding:20px; transition:border-color .25s ease, box-shadow .25s ease; }
   .chart-title { font-size:15px; font-weight:700; color:var(--tx); margin:0; letter-spacing:-.01em; }
   .chart-sub { font-size:var(--fs-small); color:var(--mu); margin-top:2px; }
   .chart-card .chart-filters { background:rgba(255,255,255,.045); border-color:transparent;
@@ -186,11 +183,32 @@
   #trafficChart { width:100%; height:260px; display:block; }
   .chart-down { border:1px solid color-mix(in srgb, var(--er) 45%, transparent); border-radius:var(--r-md);
     padding:10px 14px; font-size:var(--fs-body); color:var(--er);
-    background:var(--er-soft); box-shadow:0 0 0 1px color-mix(in srgb, var(--er) 20%, transparent); }
+    background:var(--er-soft); box-shadow:0 0 0 1px color-mix(in srgb, var(--er) 20%, transparent);
+    margin-top:10px; margin-bottom:6px; }
   .chart-card.is-down { border-color:color-mix(in srgb, var(--er) 45%, transparent);
     box-shadow:0 0 24px color-mix(in srgb, var(--er) 12%, transparent), var(--lift-sm); }
+  .chart-legend { display:flex; gap:16px; font-size:var(--fs-small); color:var(--mu); flex-wrap:wrap; margin-top:10px; align-items:center; }
+  .chart-legend .sw { display:inline-block; width:12px; height:4px; border-radius:2px; margin-right:6px; vertical-align:middle; transition:background .2s ease; }
+  .chart-legend .sw-dl, .chart-legend span:first-child .sw { background:#38bdf8; box-shadow:0 0 6px rgba(56,189,248,.45); }
+  .chart-legend .sw-ul, .chart-legend span:last-child .sw { background:#a78bfa; box-shadow:0 0 6px rgba(167,139,250,.35); }
+  /* Glass tooltip */
+  .ent-chart-tip {
+    position:absolute; z-index:40; pointer-events:none; display:none; align-items:center; gap:8px;
+    padding:6px 12px; border-radius:9px; font-size:11.5px; font-weight:500; line-height:1; white-space:nowrap;
+    background:rgba(18, 18, 20, 0.82); backdrop-filter:blur(14px) saturate(160%); -webkit-backdrop-filter:blur(14px) saturate(160%);
+    border:1px solid rgba(255, 255, 255, 0.12); color:var(--tx);
+    box-shadow:0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    font-variant-numeric:tabular-nums; transition:opacity .1s ease;
+  }
+  .ent-chart-tip .tip-time { color:var(--mu); font-weight:600; }
+  .ent-chart-tip .tip-sep { color:var(--ln2); opacity:.8; }
+  .ent-chart-tip .tip-down { color:#38bdf8; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+  .ent-chart-tip .tip-up { color:#a78bfa; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+  .ent-chart-tip .sw-dl { display:inline-block; width:6px; height:6px; border-radius:50%; background:#38bdf8; }
+  .ent-chart-tip .sw-ul { display:inline-block; width:6px; height:6px; border-radius:50%; background:#a78bfa; }
   /* Light theme: chart lives on a white card — dark pills, dark active tab,
-   * dark legend swatches so everything stays visible. */
+   * high-contrast legend swatches so everything stays visible. */
+  body[data-t="light"] .chart-card { background:#ffffff; border-color:var(--ln); }
   body[data-t="light"] .chart-card .chart-filters { background:rgba(0,0,0,.05);
     border-color:var(--ln); box-shadow:inset 0 1px 2px rgba(0,0,0,.06); }
   body[data-t="light"] .chart-card .chart-filters button { color:var(--mu); }
@@ -198,8 +216,19 @@
   body[data-t="light"] .chart-card .chart-filters button[aria-pressed="true"] {
     background:var(--tx); color:#fff;
     box-shadow:0 1px 6px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.15); }
-  body[data-t="light"] .chart-legend span:first-child .sw { background:#18181b !important; }
-  body[data-t="light"] .chart-legend span:last-child .sw { background:rgba(24,24,27,.35) !important; }
+  body[data-t="light"] .chart-legend .sw-dl, body[data-t="light"] .chart-legend span:first-child .sw { background:#0284c7 !important; box-shadow:none; }
+  body[data-t="light"] .chart-legend .sw-ul, body[data-t="light"] .chart-legend span:last-child .sw { background:#6366f1 !important; box-shadow:none; }
+  .chart-card.is-down .chart-legend .sw-dl, .chart-card.is-down .chart-legend span:first-child .sw { background:var(--er) !important; box-shadow:none; }
+  .chart-card.is-down .chart-legend .sw-ul, .chart-card.is-down .chart-legend span:last-child .sw { background:color-mix(in srgb, var(--er) 50%, transparent) !important; box-shadow:none; }
+  body[data-t="light"] .ent-chart-tip {
+    background:rgba(255, 255, 255, 0.92); border-color:rgba(0, 0, 0, 0.1); color:var(--tx);
+    box-shadow:0 8px 24px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+  body[data-t="light"] .ent-chart-tip .tip-time { color:var(--mu); }
+  body[data-t="light"] .ent-chart-tip .tip-down { color:#0284c7; }
+  body[data-t="light"] .ent-chart-tip .tip-up { color:#6366f1; }
+  body[data-t="light"] .ent-chart-tip .sw-dl { background:#0284c7; }
+  body[data-t="light"] .ent-chart-tip .sw-ul { background:#6366f1; }
   /* Update tab */
   .ver-big { font-size:28px; font-weight:700; color:var(--tx); letter-spacing:-.02em;
     font-variant-numeric:tabular-nums; }
@@ -500,7 +529,7 @@
             </div>
             <div class="chart-down hidden" id="chartDown">🔴 Tunnel is down — no live traffic. History below is stale until the tunnel comes back up.</div>
             <canvas id="trafficChart" height="260"></canvas>
-            <div class="chart-legend"><span><i class="sw" style="background:#f4f4f5"></i>Download</span><span><i class="sw" style="background:rgba(244,244,245,.35)"></i>Upload</span></div>
+            <div class="chart-legend"><span><i class="sw sw-dl"></i>Download</span><span><i class="sw sw-ul"></i>Upload</span></div>
             <div class="warnbox hidden" id="tunnelWarn"></div>
           </div>
           <div class="tunnel-card kpi">
@@ -1287,33 +1316,47 @@ document.querySelectorAll('[data-range]').forEach(b => b.onclick = () => {
   refreshDash();
 });
 // Throughput line chart (canvas, no deps): cumulative counters -> per-interval rate.
-// Style: premium dark chart — two soft-white series, hairline grid, glow on live line.
+// Style: premium Hashem theme — blue/cyan download + violet upload, gradient strokes,
+// dual glow, peak rate flag, live pulsing beacon dot, and smooth entry draw-in.
 function drawChart(hist, isDown) {
   const cv = $('trafficChart');
   if (!cv) return;
-  // Red state: tint the chart red and keep history visible underneath.
-  // Light theme: near-black lines so they stay visible on white cards.
+  cv._isDown = isDown;
+  if (hist) cv._hist = hist;
+
   const light = (document.body && document.body.dataset.t === 'light') ||
     (document.documentElement && document.documentElement.dataset.t === 'light');
-  const C_DOWN = light ? '#dc2626' : '#f87171', C_UP = light ? 'rgba(220,38,38,.4)' : 'rgba(248,113,113,.4)';
-  const C_DL = light ? '#18181b' : '#f4f4f5', C_UL = light ? 'rgba(24,24,27,.42)' : 'rgba(244,244,245,.38)';
-  const C_GRID = light ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.06)';
-  const C_AXIS = light ? 'rgba(24,24,27,.55)' : 'rgba(255,255,255,.42)';
-  const C_IDLE = light ? 'rgba(24,24,27,.55)' : 'rgba(255,255,255,.45)';
-  const lineA = isDown ? C_DOWN : C_DL, lineB = isDown ? C_UP : C_UL;
+
+  // Palette: Hashem theme (cyan download, lighter blue/violet upload, down-state red)
+  const C_GRID = light ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.06)';
+  const C_AXIS = light ? 'rgba(24,24,27,0.6)' : 'rgba(255,255,255,0.45)';
+  const C_IDLE = light ? 'rgba(24,24,27,0.55)' : 'rgba(255,255,255,0.45)';
+
   const dpr = window.devicePixelRatio || 1;
-  const W = cv.clientWidth || cv.parentElement.clientWidth || 600, H = 260;
-  cv.width = W * dpr; cv.height = H * dpr;
-  const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, W, H);
-  const padL = 46, padR = 10, padT = 14, padB = 24;
-  const iw = W - padL - padR, ih = H - padT - padB;
-  const pts = (hist || []).filter(p => p.t != null);
+  const W = cv.clientWidth || (cv.parentElement ? cv.parentElement.clientWidth : 600) || 600;
+  const H = 260;
+  if (cv.width !== W * dpr || cv.height !== H * dpr) {
+    cv.width = W * dpr;
+    cv.height = H * dpr;
+  }
+  const ctx = cv.getContext('2d');
+
+  const padL = 46, padR = 10, padT = 18, padB = 24;
+  const iw = Math.max(10, W - padL - padR), ih = Math.max(10, H - padT - padB);
+  cv._padL = padL;
+  cv._iw = iw;
+
+  const pts = (hist || []).filter(p => p && p.t != null);
   if (pts.length < 2) {
+    if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
+    cv._dataSig = null;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = C_IDLE; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(pts.length === 0 ? 'No history yet — collecting every 5s while the panel runs' : 'Collecting… need at least 2 samples', W/2, H/2);
     return;
   }
+
   // per-interval bytes/sec for up & down
   const series = [];
   for (let i = 1; i < pts.length; i++) {
@@ -1324,49 +1367,33 @@ function drawChart(hist, isDown) {
     if (dd < 0 || du < 0) { series.push(null); continue; } // counter reset
     series.push({t: b.t, down: dd, up: du});
   }
+  cv._series = series;
+
   const vals = series.filter(Boolean);
   if (!vals.length) {
+    if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
+    cv._dataSig = null;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = C_IDLE; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('Waiting for traffic…', W/2, H/2);
     return;
   }
+
   let max = 0;
   vals.forEach(p => { max = Math.max(max, p.down, p.up); });
   max = max * 1.2 || 1;
   // nice ceiling (1/2/5 × 10^n)
   { const p = Math.pow(10, Math.floor(Math.log10(max))); const n = max / p;
     max = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; }
+
   const X = i => padL + (i / (series.length - 1 || 1)) * iw;
   const Y = v => padT + ih - (v / max) * ih;
-  // gridlines (4) + y labels
-  ctx.strokeStyle = C_GRID; ctx.lineWidth = 1;
-  ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'left';
-  for (let g = 0; g <= 4; g++) {
-    const y = Math.round(padT + ih * g / 4) + .5, val = max * (1 - g / 4);
-    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
-    ctx.fillText(fmtRate(val), 4, y + 3);
-  }
-  // x labels: evenly spaced date ticks (never overlap)
-  const fmtTick = t => { const d = new Date(t * 1000);
-    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
-    return dashRange === '24h'
-      ? String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0')
-      : M + ' ' + d.getDate(); };
-  const approxLabel = 64, nTicks = Math.max(2, Math.min(6, Math.floor(iw / approxLabel)));
-  ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  for (let k = 0; k < nTicks; k++) {
-    const x = padL + iw * k / (nTicks - 1);
-    const idx = Math.round((pts.length - 1) * k / (nTicks - 1));
-    ctx.fillText(fmtTick(pts[idx].t), Math.min(Math.max(x, padL + 20), W - padR - 20), H - 7);
-  }
-  const line = (key, color, glow, fill) => {
-    ctx.beginPath();
-    // ultra-smooth: Catmull-Rom -> cubic bezier through every point kept,
-    // with short spikes pre-flattened so curves stay silky and wobble-free.
-    const seq = series.map((p, i) => p ? {x: X(i), y: Y(p[key])} : null).filter(Boolean);
-    if (seq.length === 1) { ctx.moveTo(seq[0].x, seq[0].y); ctx.lineTo(seq[0].x + 0.01, seq[0].y); }
-    else if (seq.length > 1) {
+
+  // Build smoothed point sequences with Catmull-Rom & de-spiking
+  const getSeq = key => {
+    const seq = series.map((p, i) => p ? { x: X(i), y: Y(p[key]), val: p[key], i } : null).filter(Boolean);
+    if (seq.length > 1) {
       // de-spike: clamp any single-sample jump to 1.6x of neighbours
       for (let i = 1; i < seq.length - 1; i++) {
         const prev = seq[i-1].y, cur = seq[i].y, next = seq[i+1].y;
@@ -1374,6 +1401,26 @@ function drawChart(hist, isDown) {
         const dev = Math.abs(cur - base), lim = Math.max(ih * 0.05, span * 1.5 + ih * 0.01);
         if (dev > lim) seq[i].y = base + (cur > base ? lim : -lim);
       }
+    }
+    return seq;
+  };
+
+  const seqUl = getSeq('up');
+  const seqDl = getSeq('down');
+
+  // Peak marker on visible download series
+  let peakPt = null;
+  for (const pt of seqDl) {
+    if (!peakPt || pt.val > peakPt.val) peakPt = pt;
+  }
+
+  // Curve tracer for Catmull-Rom cubic beziers
+  const traceCurve = seq => {
+    ctx.beginPath();
+    if (seq.length === 1) {
+      ctx.moveTo(seq[0].x, seq[0].y);
+      ctx.lineTo(seq[0].x + 0.01, seq[0].y);
+    } else if (seq.length > 1) {
       ctx.moveTo(seq[0].x, seq[0].y);
       for (let i = 0; i < seq.length - 1; i++) {
         const p0 = seq[Math.max(0, i - 1)], p1 = seq[i], p2 = seq[i + 1], p3 = seq[Math.min(seq.length - 1, i + 2)];
@@ -1382,25 +1429,265 @@ function drawChart(hist, isDown) {
         ctx.bezierCurveTo(c1x, c1y, c2x, c2y, p2.x, p2.y);
       }
     }
-    var lastPt = seq[seq.length - 1] || {x: X(series.length - 1), y: padT + ih};
-    var lastX = lastPt.x, lastY = lastPt.y;
-    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 8; }
-    ctx.stroke(); ctx.shadowBlur = 0;
-    if (fill) {
-      ctx.lineTo(lastX || X(series.length - 1), padT + ih); ctx.lineTo(X(0), padT + ih); ctx.closePath();
-      const gr = ctx.createLinearGradient(0, padT, 0, padT + ih);
-      gr.addColorStop(0, color.replace(/[\d.]+\)$/, '0.14)').replace('#f4f4f5', 'rgba(244,244,245,0.14)').replace('#f87171', 'rgba(248,113,113,0.14)').replace('#18181b', 'rgba(24,24,27,0.10)').replace('#dc2626', 'rgba(220,38,38,0.12)'));
-      gr.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = gr; ctx.fill();
+  };
+
+  // Pre-generate styles & gradients
+  const gradDl = ctx.createLinearGradient(padL, 0, W - padR, 0);
+  const gradUl = ctx.createLinearGradient(padL, 0, W - padR, 0);
+  const gradFill = ctx.createLinearGradient(0, padT, 0, padT + ih);
+
+  let glowDl, glowUl, colDlEnd, colUlEnd;
+  if (isDown) {
+    if (light) {
+      gradDl.addColorStop(0, '#dc2626'); gradDl.addColorStop(1, '#b91c1c');
+      gradUl.addColorStop(0, 'rgba(220,38,38,0.4)'); gradUl.addColorStop(1, 'rgba(185,28,28,0.55)');
+      glowDl = 'rgba(220,38,38,0.35)'; glowUl = 'rgba(220,38,38,0.2)';
+      colDlEnd = '#dc2626'; colUlEnd = '#b91c1c';
+      gradFill.addColorStop(0, 'rgba(220,38,38,0.12)'); gradFill.addColorStop(1, 'rgba(220,38,38,0)');
     } else {
-      // end dot on upload line
-      ctx.beginPath(); ctx.arc(lastX, lastY, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = color; ctx.fill();
+      gradDl.addColorStop(0, '#f87171'); gradDl.addColorStop(1, '#ef4444');
+      gradUl.addColorStop(0, 'rgba(248,113,113,0.45)'); gradUl.addColorStop(1, 'rgba(239,68,68,0.6)');
+      glowDl = 'rgba(239,68,68,0.5)'; glowUl = 'rgba(248,113,113,0.35)';
+      colDlEnd = '#ef4444'; colUlEnd = '#f87171';
+      gradFill.addColorStop(0, 'rgba(239,68,68,0.18)'); gradFill.addColorStop(1, 'rgba(239,68,68,0)');
+    }
+  } else {
+    if (light) {
+      // Light theme: crisp, high-contrast cyan-blue & violet readable on pure white cards
+      gradDl.addColorStop(0, '#0284c7'); gradDl.addColorStop(1, '#0369a1');
+      gradUl.addColorStop(0, '#6366f1'); gradUl.addColorStop(1, '#7c3aed');
+      glowDl = 'rgba(2,132,199,0.35)'; glowUl = 'rgba(99,102,241,0.25)';
+      colDlEnd = '#0284c7'; colUlEnd = '#6366f1';
+      gradFill.addColorStop(0, 'rgba(2,132,199,0.14)'); gradFill.addColorStop(1, 'rgba(2,132,199,0)');
+    } else {
+      // Dark theme: Hashem cyan (#38bdf8) & lighter blue/violet (#a78bfa)
+      gradDl.addColorStop(0, '#0ea5e9'); gradDl.addColorStop(1, '#38bdf8');
+      gradUl.addColorStop(0, '#818cf8'); gradUl.addColorStop(1, '#a78bfa');
+      glowDl = 'rgba(56,189,248,0.55)'; glowUl = 'rgba(167,139,250,0.4)';
+      colDlEnd = '#38bdf8'; colUlEnd = '#a78bfa';
+      gradFill.addColorStop(0, 'rgba(56,189,248,0.22)'); gradFill.addColorStop(1, 'rgba(56,189,248,0)');
+    }
+  }
+
+  // Pre-compute x tick labels
+  const fmtTick = t => {
+    const d = new Date(t * 1000);
+    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+    return dashRange === '24h'
+      ? String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0')
+      : M + ' ' + d.getDate();
+  };
+  const approxLabel = 64, nTicks = Math.max(2, Math.min(6, Math.floor(iw / approxLabel)));
+
+  // Frame renderer
+  const renderFrame = (progress, pulsePhase) => {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    // 1. Gridlines (4) + Y labels
+    ctx.strokeStyle = C_GRID; ctx.lineWidth = 1;
+    ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'left';
+    for (let g = 0; g <= 4; g++) {
+      const y = Math.round(padT + ih * g / 4) + 0.5, val = max * (1 - g / 4);
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+      ctx.fillText(fmtRate(val), 4, y + 3);
+    }
+
+    // 2. X labels: evenly spaced date ticks (never overlap)
+    ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
+    for (let k = 0; k < nTicks; k++) {
+      const x = padL + iw * k / (nTicks - 1);
+      const idx = Math.round((pts.length - 1) * k / (nTicks - 1));
+      ctx.fillText(fmtTick(pts[idx].t), Math.min(Math.max(x, padL + 20), W - padR - 20), H - 7);
+    }
+
+    // 3. Clipped series drawing according to draw-in progress
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padL - 2, 0, (iw + 4) * Math.max(0, Math.min(1, progress)), H);
+    ctx.clip();
+
+    // Upload line (behind) with soft glow
+    if (seqUl.length) {
+      traceCurve(seqUl);
+      ctx.strokeStyle = gradUl; ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.shadowColor = glowUl; ctx.shadowBlur = light ? 4 : 7;
+      ctx.stroke(); ctx.shadowBlur = 0;
+
+      const lastUl = seqUl[seqUl.length - 1];
+      ctx.beginPath(); ctx.arc(lastUl.x, lastUl.y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = colUlEnd; ctx.fill();
+    }
+
+    // Download fill under line
+    if (seqDl.length) {
+      traceCurve(seqDl);
+      const lastDl = seqDl[seqDl.length - 1];
+      ctx.lineTo(lastDl.x, padT + ih);
+      ctx.lineTo(seqDl[0].x, padT + ih);
+      ctx.closePath();
+      ctx.fillStyle = gradFill;
+      ctx.fill();
+    }
+
+    // Download line (front) with soft glow
+    if (seqDl.length) {
+      traceCurve(seqDl);
+      ctx.strokeStyle = gradDl; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.shadowColor = glowDl; ctx.shadowBlur = light ? 6 : 10;
+      ctx.stroke(); ctx.shadowBlur = 0;
+    }
+
+    ctx.restore();
+
+    // 4. Peak marker (drawn once line progress has reached peak or completed)
+    if (peakPt && peakPt.val > 0 && progress >= Math.min(1, Math.max(0.2, (peakPt.x - padL) / iw))) {
+      const px = peakPt.x, py = peakPt.y;
+      const peakTxt = 'Peak ' + fmtRate(peakPt.val);
+      ctx.font = '600 10px -apple-system, system-ui, sans-serif';
+      const tw = ctx.measureText(peakTxt).width;
+      const tagW = Math.round(tw + 12), tagH = 17;
+
+      // nudge the flag away from the hover tooltip: if the tooltip is up
+      // and near the peak x, drop the flag below the point instead.
+      let placeAbovePeak = (py - tagH - 12) >= padT;
+      try {
+        const tipEl = document.querySelector('.ent-chart-tip');
+        if (tipEl && tipEl.style.display !== 'none') {
+          const tipX = (cv.offsetLeft || 0) + (parseFloat(tipEl.style.left) || 0);
+          if (Math.abs(tipX - px) < tagW + 40) placeAbovePeak = false;
+        }
+      } catch (_) {}
+      const placeAbove = placeAbovePeak;
+      const tagY = placeAbove ? (py - 12 - tagH / 2) : (py + 12 + tagH / 2);
+      let tagX = px - tagW / 2;
+      if (tagX < padL + 4) tagX = padL + 4;
+      if (tagX + tagW > W - padR - 4) tagX = W - padR - 4 - tagW;
+
+      const peakBorder = isDown ? (light ? 'rgba(220,38,38,0.45)' : 'rgba(239,68,68,0.45)') : (light ? 'rgba(2,132,199,0.45)' : 'rgba(56,189,248,0.45)');
+      const peakTxtCol = isDown ? (light ? '#dc2626' : '#f87171') : (light ? '#0369a1' : '#38bdf8');
+      const peakDotCol = isDown ? (light ? '#dc2626' : '#ef4444') : (light ? '#0284c7' : '#38bdf8');
+      const peakGlow = isDown ? (light ? 'rgba(220,38,38,0.5)' : 'rgba(239,68,68,0.8)') : (light ? 'rgba(2,132,199,0.5)' : 'rgba(56,189,248,0.8)');
+
+      // Stem line
+      ctx.beginPath();
+      ctx.moveTo(px, placeAbove ? (py - 3) : (py + 3));
+      ctx.lineTo(px, placeAbove ? (tagY + tagH / 2) : (tagY - tagH / 2));
+      ctx.strokeStyle = peakBorder;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Tag pill
+      const rx = 4;
+      if (ctx.roundRect) ctx.roundRect(tagX, tagY - tagH / 2, tagW, tagH, rx);
+      else ctx.rect(tagX, tagY - tagH / 2, tagW, tagH);
+      ctx.fillStyle = light ? 'rgba(255,255,255,0.94)' : 'rgba(15,23,42,0.88)';
+      ctx.fill();
+      ctx.strokeStyle = peakBorder;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Tag text
+      ctx.fillStyle = peakTxtCol;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(peakTxt, tagX + tagW / 2, tagY);
+
+      // Peak dot on curve
+      ctx.beginPath(); ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = peakDotCol;
+      ctx.shadowColor = peakGlow; ctx.shadowBlur = 6;
+      ctx.fill(); ctx.shadowBlur = 0;
+      ctx.beginPath(); ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff'; ctx.fill();
+    }
+
+    // 5. Pulsing "live" dot at the last point of download series
+    if (seqDl.length && progress >= 1) {
+      const lastDl = seqDl[seqDl.length - 1];
+      if (isDown) {
+        // Red static dot when tunnel is down
+        ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = colDlEnd; ctx.fill();
+      } else if (prefersReduced) {
+        // Static live dot under reduced motion
+        ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = light ? 'rgba(2,132,199,0.25)' : 'rgba(56,189,248,0.25)';
+        ctx.fill();
+        ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = colDlEnd; ctx.fill();
+        ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 1.3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff'; ctx.fill();
+      } else {
+        // Pulsing ripple ring
+        const ripR = 3.5 + pulsePhase * 7.5;
+        const ripAlpha = (1 - pulsePhase) * (light ? 0.45 : 0.65);
+        ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, ripR, 0, Math.PI * 2);
+        ctx.strokeStyle = light ? ('rgba(2,132,199,' + ripAlpha.toFixed(2) + ')') : ('rgba(56,189,248,' + ripAlpha.toFixed(2) + ')');
+        ctx.lineWidth = 1.5; ctx.stroke();
+
+        // Soft halo
+        ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = light ? 'rgba(2,132,199,0.22)' : 'rgba(56,189,248,0.3)';
+        ctx.fill();
+
+        // Solid core with glow
+        ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = colDlEnd;
+        ctx.shadowColor = colDlEnd; ctx.shadowBlur = light ? 5 : 8;
+        ctx.fill(); ctx.shadowBlur = 0;
+
+        // Inner white specular dot
+        ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 1.3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff'; ctx.fill();
+      }
     }
   };
-  line('up', lineB, false, false);   // upload behind
-  line('down', lineA, !isDown, true); // download front, glowing when live
+
+  // Determine animation need
+  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const lastSample = pts[pts.length - 1];
+  const dataSig = pts.length + '_' + (lastSample ? lastSample.t + '_' + lastSample.down : '') + '_' + dashRange + '_' + isDown + '_' + light + '_' + Math.round(W);
+  const isNew = cv._dataSig !== dataSig;
+  cv._dataSig = dataSig;
+
+  if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
+
+  const startPulseLoop = () => {
+    if (cv._animId) cancelAnimationFrame(cv._animId);
+    const pulseStep = () => {
+      if (document.hidden || ($('tab-dashboard') && $('tab-dashboard').hidden)) {
+        cv._animId = null;
+        return;
+      }
+      const pPhase = (Date.now() % 1600) / 1600;
+      renderFrame(1, pPhase);
+      cv._animId = requestAnimationFrame(pulseStep);
+    };
+    cv._animId = requestAnimationFrame(pulseStep);
+  };
+
+  if (prefersReduced) {
+    renderFrame(1, 0);
+  } else if (isNew) {
+    const animStart = performance.now();
+    const DURATION = 550;
+    const animStep = now => {
+      const elapsed = now - animStart;
+      const p = Math.min(1, elapsed / DURATION);
+      const progress = 1 - Math.pow(1 - p, 3);
+      renderFrame(progress, 0);
+      if (p < 1) {
+        cv._animId = requestAnimationFrame(animStep);
+      } else {
+        if (!isDown) startPulseLoop();
+        else cv._animId = null;
+      }
+    };
+    cv._animId = requestAnimationFrame(animStep);
+  } else {
+    if (!isDown) startPulseLoop();
+    else renderFrame(1, 0);
+  }
 }
 async function refreshDash() {
   const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
@@ -1456,21 +1743,35 @@ async function refreshDash() {
       tip.className = 'ent-chart-tip'; tip.style.display = 'none';
       (wrap || cv.parentElement).appendChild(tip);
       cv.addEventListener('mousemove', e => {
-        const hist = cv._hist;
-        if (!hist || hist.length < 2) { tip.style.display = 'none'; return; }
+        const s = cv._series;
+        if (!s || !s.length) { tip.style.display = 'none'; return; }
         const r = cv.getBoundingClientRect();
-        const fx = (e.clientX - r.left - 46) / Math.max(1, r.width - 56);
-        const idx = Math.round(fx * (hist.length - 1));
-        const p = hist[Math.max(0, Math.min(hist.length - 1, idx))];
+        const mx = e.clientX - r.left;
+        const my = e.clientY - r.top;
+        const padL = cv._padL || 46;
+        const iw = cv._iw || Math.max(1, r.width - padL - 10);
+        const fx = (mx - padL) / iw;
+        if (fx < -0.05 || fx > 1.05) { tip.style.display = 'none'; return; }
+        const idx = Math.max(0, Math.min(s.length - 1, Math.round(fx * (s.length - 1))));
+        const p = s[idx];
         if (!p || p.t == null) { tip.style.display = 'none'; return; }
         const d = new Date(p.t * 1000);
-        const when = dashRange === '24h'
-          ? String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
-          : d.toLocaleDateString();
-        tip.innerHTML = '<b>' + esc(when) + '</b> · ↓ ' + esc(fmtBytes(p.down)) + ' · ↑ ' + esc(fmtBytes(p.up));
-        tip.style.display = 'block';
-        tip.style.left = Math.min(Math.max(e.clientX - r.left + 12, 4), r.width - 170) + 'px';
-        tip.style.top = (e.clientY - r.top - 10) + 'px';
+        const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+        const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        const when = dashRange === '24h' ? hhmm : M + ' ' + d.getDate() + ' ' + hhmm;
+        tip.innerHTML = '<span class="tip-time">' + esc(when) + '</span><span class="tip-sep">·</span>' +
+          '<span class="tip-down"><i class="sw-dl"></i>↓ ' + esc(fmtRate(p.down)) + '</span><span class="tip-sep">·</span>' +
+          '<span class="tip-up"><i class="sw-ul"></i>↑ ' + esc(fmtRate(p.up)) + '</span>';
+        tip.style.display = 'inline-flex';
+        const tw = tip.offsetWidth || 180;
+        const th = tip.offsetHeight || 30;
+        let left = mx + 14;
+        if (left + tw > r.width - 8) left = mx - tw - 14;
+        left = Math.max(6, Math.min(left, r.width - tw - 6));
+        let top = my - th - 12;
+        if (top < 6) top = my + 18;
+        tip.style.left = (cv.offsetLeft + left) + 'px';
+        tip.style.top = (cv.offsetTop + top) + 'px';
       });
       cv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
     }
@@ -2293,7 +2594,10 @@ $('termSearchNext').onclick = () => termDoSearch(true);
 $('termSearchPrev').onclick = () => termDoSearch(false);
 $('termSearchInput').addEventListener('keydown', e => { if (e.key === 'Enter') termDoSearch(!e.shiftKey); if (e.key === 'Escape') $('termSearchBar').classList.add('hidden'); });
 document.querySelectorAll('#termKeys button').forEach(b => b.onclick = () => { termSend({v:1, t:'in', d: b.dataset.k}); termState.term && termState.term.focus(); });
-window.addEventListener('resize', () => { if (!$('tab-terminal').hidden && termState.fit) { try { termState.fit.fit(); termSendResize(); } catch(_){} } });
+window.addEventListener('resize', () => {
+  if (!$('tab-terminal').hidden && termState.fit) { try { termState.fit.fit(); termSendResize(); } catch(_){} }
+  const c = $('trafficChart'); if (c && c._hist && !$('tab-dashboard').hidden) { c._dataSig = null; drawChart(c._hist, c._isDown); }
+});
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('termWrap').classList.contains('full')) { $('termWrap').classList.remove('full'); try { termState.fit.fit(); termSendResize(); } catch(_){} } });
 // ---------- panel TLS (Settings: Let's Encrypt via certbot) ----------
 async function tlsRefresh() {
@@ -2345,8 +2649,13 @@ setInterval(() => { if (document.hidden) return; if (!$('app').classList.contain
 armLogFollow();
 setInterval(() => { if (document.hidden) return; if (!$('app').classList.contains('hidden') && !$('tab-dashboard').hidden) refreshDash(); }, 5000);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { const cv = $('trafficChart'); if (cv) cv._hist = null; }
-  else if (!$('app').classList.contains('hidden') && !$('tab-dashboard').hidden) refreshDash();
+  if (document.hidden) {
+    const cv = $('trafficChart');
+    if (cv) {
+      cv._hist = null; cv._dataSig = null;
+      if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
+    }
+  } else if (!$('app').classList.contains('hidden') && !$('tab-dashboard').hidden) refreshDash();
 });
 </script>
 </body>
