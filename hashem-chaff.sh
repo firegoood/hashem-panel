@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# /usr/local/bin/hashem-chaff.sh - GRE tunnel idle-gap chaff generator
-# Honest notice: This chaff service fills idle gaps to prevent mechanical timing
-# analysis; it does NOT hide traffic volume under load.
+# GRE idle-gap chaff: random ping to peer inner IP
 
 PEER_IP="${1:-}"
 if [[ -z "$PEER_IP" ]]; then

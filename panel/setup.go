@@ -283,7 +283,7 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// overwrite guard (per user decision: warn first, proceed only with force)
+	// overwrite guard: warn first, proceed only with force
 	// add-peer never overwrites: it appends a new tunnel instead.
 	if body.Role != "add-peer" && tunnelExists() && !body.Force {
 		writeAPIError(w, r, "E-PEER-03", "tunnel already exists — resubmit with force:true to overwrite")

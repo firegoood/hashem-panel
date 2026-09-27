@@ -1383,9 +1383,7 @@ document.querySelectorAll('[data-range]').forEach(b => b.onclick = () => {
   if (cv) { cv._forceAnim = true; cv._ymax = null; }
   refreshDash();
 });
-// Throughput line chart (canvas, no deps): cumulative counters -> per-interval rate.
-// Style: premium Hashem theme — blue/cyan download + violet upload, gradient strokes,
-// dual glow, peak rate flag, live pulsing beacon dot, and smooth entry draw-in.
+// Throughput chart: cumulative counters to interval rate.
 function drawChart(hist, isDown) {
   const cv = $('trafficChart');
   if (!cv) return;
@@ -1395,7 +1393,7 @@ function drawChart(hist, isDown) {
   const light = (document.body && document.body.dataset.t === 'light') ||
     (document.documentElement && document.documentElement.dataset.t === 'light');
 
-  // Palette: Hashem theme (cyan download, lighter blue/violet upload, down-state red)
+  // Palette: cyan download, violet upload, down red.
   const C_GRID = light ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.06)';
   const C_AXIS = light ? 'rgba(24,24,27,0.6)' : 'rgba(255,255,255,0.45)';
   const C_IDLE = light ? 'rgba(24,24,27,0.55)' : 'rgba(255,255,255,0.45)';
@@ -1450,7 +1448,7 @@ function drawChart(hist, isDown) {
     return;
   }
 
-  // nice ceiling (1/2/5 × 10^n rule)
+  // Nice ceiling: 1/2/5 × 10^n rule.
   const niceCeil = val => {
     const v = val || 1;
     const p = Math.pow(10, Math.floor(Math.log10(v)));
@@ -1510,7 +1508,7 @@ function drawChart(hist, isDown) {
   const seqUl = getSeq('up');
   const seqDl = getSeq('down');
 
-  // Sticky peak detection on visible download series
+  // Sticky peak detection on download series.
   let curMaxPt = null;
   for (const pt of seqDl) {
     if (!curMaxPt || pt.val > curMaxPt.val) curMaxPt = pt;
@@ -1634,7 +1632,6 @@ function drawChart(hist, isDown) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    // 1. Gridlines (4 horizontal + vertical ticks) + Y labels
     ctx.strokeStyle = C_GRID; ctx.lineWidth = 1;
     ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'left';
     for (let g = 0; g <= 4; g++) {
@@ -1643,7 +1640,6 @@ function drawChart(hist, isDown) {
       ctx.fillText(fmtRate(val), 4, y + 3);
     }
 
-    // 2. Vertical gridlines + X labels: time-based ticks
     ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
     for (let k = 0; k < nTicks; k++) {
       const tickTime = t0 + ((t1 - t0) * k) / (nTicks - 1);
@@ -1653,13 +1649,11 @@ function drawChart(hist, isDown) {
       ctx.fillText(fmtTick(tickTime), Math.min(Math.max(x, padL + 20), W - padR - 20), H - 7);
     }
 
-    // 3. Clipped series drawing according to draw-in progress
     ctx.save();
     ctx.beginPath();
     ctx.rect(padL - 2, 0, (iw + 4) * Math.max(0, Math.min(1, progress)), H);
     ctx.clip();
 
-    // Upload line (behind) with soft glow
     if (seqUl.length) {
       traceCurve(seqUl);
       ctx.strokeStyle = gradUl; ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -1671,7 +1665,6 @@ function drawChart(hist, isDown) {
       ctx.fillStyle = colUlEnd; ctx.fill();
     }
 
-    // Download fill under line
     if (seqDl.length) {
       traceCurve(seqDl);
       const lastDl = seqDl[seqDl.length - 1];
@@ -1682,7 +1675,6 @@ function drawChart(hist, isDown) {
       ctx.fill();
     }
 
-    // Download line (front) with soft glow
     if (seqDl.length) {
       traceCurve(seqDl);
       ctx.strokeStyle = gradDl; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -1692,7 +1684,6 @@ function drawChart(hist, isDown) {
 
     ctx.restore();
 
-    // 4. Peak marker (drawn once line progress has reached peak or completed)
     if (peakPt && peakPt.val > 0 && progress >= Math.min(1, Math.max(0.2, (peakPt.x - padL) / iw))) {
       const px = peakPt.x, py = peakPt.y;
       const peakTxt = 'Peak ' + fmtRate(peakPt.val);
@@ -1700,8 +1691,7 @@ function drawChart(hist, isDown) {
       const tw = ctx.measureText(peakTxt).width;
       const tagW = Math.round(tw + 12), tagH = 17;
 
-      // nudge the flag away from the hover tooltip: if the tooltip is up
-      // and near the peak x, drop the flag below the point instead.
+      // Nudge flag away from active hover tooltip.
       let placeAbovePeak = (py - tagH - 12) >= padT;
       try {
         const tipEl = document.querySelector('.ent-chart-tip');
@@ -1721,7 +1711,6 @@ function drawChart(hist, isDown) {
       const peakDotCol = isDown ? (light ? '#dc2626' : '#ef4444') : (light ? '#0284c7' : '#38bdf8');
       const peakGlow = isDown ? (light ? 'rgba(220,38,38,0.5)' : 'rgba(239,68,68,0.8)') : (light ? 'rgba(2,132,199,0.5)' : 'rgba(56,189,248,0.8)');
 
-      // Stem line
       ctx.beginPath();
       ctx.moveTo(px, placeAbove ? (py - 3) : (py + 3));
       ctx.lineTo(px, placeAbove ? (tagY + tagH / 2) : (tagY - tagH / 2));
@@ -1729,7 +1718,6 @@ function drawChart(hist, isDown) {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Tag pill
       const rx = 4;
       if (ctx.roundRect) ctx.roundRect(tagX, tagY - tagH / 2, tagW, tagH, rx);
       else ctx.rect(tagX, tagY - tagH / 2, tagW, tagH);
@@ -1739,12 +1727,10 @@ function drawChart(hist, isDown) {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Tag text
       ctx.fillStyle = peakTxtCol;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(peakTxt, tagX + tagW / 2, tagY);
 
-      // Peak dot on curve
       ctx.beginPath(); ctx.arc(px, py, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = peakDotCol;
       ctx.shadowColor = peakGlow; ctx.shadowBlur = 6;
@@ -1753,15 +1739,12 @@ function drawChart(hist, isDown) {
       ctx.fillStyle = '#ffffff'; ctx.fill();
     }
 
-    // 5. Pulsing "live" dot at the last point of download series
     if (seqDl.length && progress >= 1) {
       const lastDl = seqDl[seqDl.length - 1];
       if (isDown) {
-        // Red static dot when tunnel is down
         ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 3, 0, Math.PI * 2);
         ctx.fillStyle = colDlEnd; ctx.fill();
       } else if (prefersReduced) {
-        // Static live dot under reduced motion
         ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 5, 0, Math.PI * 2);
         ctx.fillStyle = light ? 'rgba(2,132,199,0.25)' : 'rgba(56,189,248,0.25)';
         ctx.fill();
@@ -1770,25 +1753,21 @@ function drawChart(hist, isDown) {
         ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 1.3, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff'; ctx.fill();
       } else {
-        // Pulsing ripple ring
         const ripR = 3.5 + pulsePhase * 7.5;
         const ripAlpha = (1 - pulsePhase) * (light ? 0.45 : 0.65);
         ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, ripR, 0, Math.PI * 2);
         ctx.strokeStyle = light ? ('rgba(2,132,199,' + ripAlpha.toFixed(2) + ')') : ('rgba(56,189,248,' + ripAlpha.toFixed(2) + ')');
         ctx.lineWidth = 1.5; ctx.stroke();
 
-        // Soft halo
         ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 4.5, 0, Math.PI * 2);
         ctx.fillStyle = light ? 'rgba(2,132,199,0.22)' : 'rgba(56,189,248,0.3)';
         ctx.fill();
 
-        // Solid core with glow
         ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 3, 0, Math.PI * 2);
         ctx.fillStyle = colDlEnd;
         ctx.shadowColor = colDlEnd; ctx.shadowBlur = light ? 5 : 8;
         ctx.fill(); ctx.shadowBlur = 0;
 
-        // Inner white specular dot
         ctx.beginPath(); ctx.arc(lastDl.x, lastDl.y, 1.3, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff'; ctx.fill();
       }
@@ -1840,7 +1819,7 @@ function drawChart(hist, isDown) {
     };
     cv._animId = requestAnimationFrame(animStep);
   } else {
-    // Soft update: same-range data tick, no draw-in animation, no clip wipe
+    // Soft update: same range, no draw animation.
     if (!isDown) {
       startPulseLoop();
     } else {

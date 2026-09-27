@@ -321,16 +321,12 @@ EOF
 }
 
 # ---- Traffic Obfuscation / Chaff Service (idle gap filler) ----
-# Honest notice: This chaff service fills idle gaps to prevent mechanical timing
-# analysis; it does NOT hide traffic volume under load.
 CHAFF_BIN="/usr/local/bin/hashem-chaff.sh"
 
 install_chaff_script() {
     cat <<'EOF' > "$CHAFF_BIN"
 #!/usr/bin/env bash
 # /usr/local/bin/hashem-chaff.sh - GRE tunnel idle-gap chaff generator
-# Honest notice: This chaff service fills idle gaps to prevent mechanical timing
-# analysis; it does NOT hide traffic volume under load.
 
 PEER_IP="${1:-}"
 if [[ -z "$PEER_IP" ]]; then
@@ -546,9 +542,7 @@ cli_chaff() {
 
 menu_chaff() {
     echo -e "\n${YELLOW}=== Traffic Chaff / Obfuscation (Idle-Gap Filler) ===${NC}"
-    echo -e "Honest notice: Fills idle gaps with pseudo-random ICMP packets (random interval,"
-    echo -e "random payload size and pattern) to break mechanical timing analysis."
-    echo -e "It does NOT hide total traffic volume under active load (low overhead ~few KB/s).\n"
+    echo -e "Random pings fill idle gaps to break timing analysis (low overhead, ~few KB/s)."
     cli_chaff status
     echo ""
     echo "  1) Enable / Start chaff services (on)"

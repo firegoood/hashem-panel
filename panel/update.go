@@ -206,10 +206,8 @@ func sessionFile() string { return filepath.Join(configDir, "sessions.json") }
 
 // syncPanelScript downloads the latest hashem.sh from main, syntax-checks
 // it with `bash -n`, and installs it where greScriptPath() reads from
-// (next to the running binary on servers). Best effort: any failure is
-// recorded in the error log and ignored — a stale-but-working script
-// must never block the binary update. No separate error code: check
-// panel-errors.log (source "script-sync").
+// (next to the running binary on servers).
+// best-effort: never blocks the binary update.
 func syncPanelScript() {
 	target := greScriptTarget()
 	if target == "" {
@@ -260,9 +258,7 @@ func syncPanelScript() {
 	syncChaffScript()
 }
 
-// syncChaffScript installs /usr/local/bin/hashem-chaff.sh from the repo so
-// servers updated via the panel also get the chaff generator. Best-effort:
-// failures are logged to panel-errors.log, never block the panel update.
+// syncChaffScript installs /usr/local/bin/hashem-chaff.sh from the repo.
 func syncChaffScript() {
 	tmp, err := os.CreateTemp("", "hashem-chaff-*.sh")
 	if err != nil {
@@ -289,8 +285,7 @@ func syncChaffScript() {
 
 const scriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem.sh"
 
-// chaffScriptURL ships the standalone chaff generator next to hashem.sh;
-// syncPanelScript installs it so update_all works on servers too.
+// chaffScriptURL ships the standalone chaff generator next to hashem.sh.
 const chaffScriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem-chaff.sh"
 
 // greScriptURL stays as an alias: releases before the rename shipped gre.sh,
