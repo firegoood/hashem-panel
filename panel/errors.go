@@ -61,7 +61,7 @@ var errCatalog = map[string]errInfo{
 	"E-PEER-06": {400, "use POST /api/setup with role=add-peer", "This endpoint is read-only; create peers from the Tunnel tab."},
 	// installer
 	"E-INSTALL-01": {500, "gre.sh installer not found", "Reinstall the panel or set GRE_SCRIPT=/path/to/gre.sh."},
-	"E-INSTALL-02": {500, "installer (gre.sh) failed", "Open the steps output; the failing shell line is shown first."},
+	"E-INSTALL-02": {500, "installer (gre.sh) failed", "Open the steps output — failing detail is appended. \"Unknown command\" = panel gre.sh is an old version: run Update to latest."},
 	// actions
 	"E-ACTION-01": {400, "unknown action", "Reload the page; the button may be from an older version."},
 	"E-ACTION-02": {400, "bad action request (invalid JSON)", "Reload the page and try again."},
@@ -72,6 +72,7 @@ var errCatalog = map[string]errInfo{
 	"E-UPDATE-03": {502, "downloaded file failed verification", "Stale release redirect (HTML instead of ELF) — retry in a minute."},
 	"E-UPDATE-04": {500, "cannot install new binary (rolled back)", "Disk full or /usr/local/bin not writable — old binary kept."},
 	"E-UPDATE-05": {400, "unsupported arch for update", "Only amd64/arm64 prebuilt binaries are published."},
+	"E-UPDATE-06": {500, "cannot sync gre.sh installer script", "Panel binary updated, but installer script download failed — check internet or DNS."},
 	// log diagnostics (annotation only, also reused by status hints)
 	"E-GRE-01": {0, "GRE interface missing / down", "Tunnel setup did not create it, or it was deleted — reinstall that peer."},
 	"E-GRE-02": {0, "GRE ping failed (100% loss / unreachable)", "Peers cannot reach each other: firewall, wrong public IP, or GRE blocked."},

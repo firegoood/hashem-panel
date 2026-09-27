@@ -1056,12 +1056,23 @@ $('addPeerBtn').onclick = async () => {
     try {
       r = await api('/api/setup', body);
     } catch(e) {
-      // 409 = port already served by another tunnel — show it inline
+      // 409 = port already served by another tunnel — show it inline,
+      // same for a stale gre.sh on this host (E-INSTALL-02 "Unknown command"):
+      // tell the user to update instead of a bare failure.
       if (/already served|already used|peer table full/i.test(e.message)) {
         const w = $('peerWarn');
         w.innerHTML = '⚠️ ' + esc(e.message);
         w.classList.remove('hidden');
         toastWarn('pick a different port', e.code ? '[' + e.code + ']' : '');
+        b.disabled = false;
+        b.textContent = oldTxt;
+        return;
+      }
+      if (/Unknown command|old version/i.test(e.message)) {
+        const w = $('peerWarn');
+        w.innerHTML = '⚠️ ' + esc(e.message) + '<br>Go to <b>Update</b> tab → install latest, then add the server again.';
+        w.classList.remove('hidden');
+        toastWarn('panel files outdated', e.code ? '[' + e.code + ']' : '');
         b.disabled = false;
         b.textContent = oldTxt;
         return;

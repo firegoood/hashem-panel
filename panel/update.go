@@ -53,8 +53,12 @@ func latestReleaseTag() (string, error) {
 }
 
 // handleUpdate downloads the latest prebuilt binary for this arch,
-// verifies it (non-empty ELF), swaps it in, and restarts the service.
+// verifies it (non-empty ELF), swaps it in, syncs the latest gre.sh
+// next to the panel binary (the panel shells out to gre.sh for all
+// setup Peer/tunnel work — a stale gre.sh would break add-peer with
+// E-INSTALL-02 "Unknown command"), and restarts the service.
 // panel.json / panel.pass are never touched, so local credentials survive.
+const panelScriptName = "gre.sh"
 func handleUpdate(w http.ResponseWriter, r *http.Request) {
 	arch, asset, err := panelAsset()
 	if err != nil {
@@ -105,6 +109,11 @@ func handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = os.Chmod(exe, 0755)
+	// Keep gre.sh in sync with the binary: find it next to the running
+	// binary (servers: /usr/local/bin/gre.sh) or via GRE_SCRIPT, download
+	// the latest from main, syntax-check it, then replace. Best effort —
+	// a failed script sync never blocks the binary update.
+	syncPanelScript()
 	writeJSON(w, map[string]string{"status": "ok", "detail": "updated to " + latest + " — restarting panel"})
 	go func() {
 		time.Sleep(500 * time.Millisecond)
@@ -191,6 +200,68 @@ func restartSelf() {
 
 // sessionFile returns the path of the server-side session store.
 func sessionFile() string { return filepath.Join(configDir, "sessions.json") }
+
+// ---- gre.sh sync (keeps server script in step with the binary) ----
+
+// syncPanelScript downloads the latest gre.sh from main, syntax-checks
+// it with `bash -n`, and installs it where greScriptPath() reads from
+// (next to the running binary on servers). Best effort: any failure is
+// recorded in the error log and ignored — a stale-but-working script
+// must never block the binary update. No separate error code: check
+// panel-errors.log (source "script-sync").
+func syncPanelScript() {
+	target := greScriptTarget()
+	if target == "" {
+		return
+	}
+	dir := filepath.Dir(target)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			recordError("E-UPDATE-06", "script-sync", "mkdir "+dir+": "+err.Error())
+			return
+		}
+	}
+	tmp, err := os.CreateTemp("", "gresh-*.sh")
+	if err != nil {
+		recordError("E-UPDATE-06", "script-sync", "tmpfile: "+err.Error())
+		return
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := downloadFile(greScriptURL, mustOpen(tmpPath)); err != nil {
+		recordError("E-UPDATE-06", "script-sync", "download: "+err.Error())
+		return
+	}
+	chk := exec.Command("bash", "-n", tmpPath)
+	if out, err := chk.CombinedOutput(); err != nil {
+		recordError("E-UPDATE-06", "script-sync", "bash -n failed: "+string(out))
+		return
+	}
+	if err := copyFile(tmpPath, target); err != nil {
+		recordError("E-UPDATE-06", "script-sync", "install: "+err.Error())
+		return
+	}
+	_ = os.Chmod(target, 0755)
+	// Keep the legacy /usr/local/bin/gre.sh copy in step too, so any
+	// lookup path greScriptPath() accepts runs the same commands.
+	if target != "/usr/local/bin/gre.sh" {
+		if err := copyFile(tmpPath, "/usr/local/bin/gre.sh"); err == nil {
+			_ = os.Chmod("/usr/local/bin/gre.sh", 0755)
+		}
+	}
+}
+
+const greScriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/gre.sh"
+
+func mustOpen(path string) *os.File {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err == nil {
+		return f
+	}
+	f2, _ := os.Create(path)
+	return f2
+}
 
 // sessionStore is the persisted set of valid session tokens.
 type sessionStore struct {

@@ -14,8 +14,7 @@
   text-transform: uppercase; color: var(--dim);
 }
 .ent-dense .trow { padding: 7px 0; }
-/* NOTE: .kpi-val size intentionally NOT overridden here — base .kpi-val
- * (24px) is the pre-Phase-2 size users want for Total Traffic / Status. */
+.ent-dense .kpi-val { font-size: var(--ent-kpi-val); }
 
 /* ---------- tables (peers, errors, future analytics) ---------- */
 .ent-tbl-wrap {

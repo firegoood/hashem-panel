@@ -178,6 +178,12 @@ get_latest_frp_version() {
 }
 
 install_frp_binaries() {
+    # already installed → reuse (add-peer must not re-download FRP per peer,
+    # and must never exit the caller if the network is slow — peers 2..5
+    # would otherwise fail with E-INSTALL-02 on a healthy machine).
+    if [[ -x "${INSTALL_DIR}/frps" && -x "${INSTALL_DIR}/frpc" ]]; then
+        return 0
+    fi
     detect_arch
     get_latest_frp_version
     echo -e "${CYAN}[*] Downloading FRP v${FRP_VERSION} (${FRP_ARCH})...${NC}"
@@ -187,10 +193,10 @@ install_frp_binaries() {
     TAR_FILE="frp_${FRP_VERSION}_linux_${FRP_ARCH}.tar.gz"
     DOWNLOAD_URL="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/${TAR_FILE}"
 
-    if ! curl -sSL -o "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL"; then
+    if ! curl -fsSL --max-time 90 -o "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL"; then
         echo -e "${RED}[!] Failed to download FRP from GitHub.${NC}"
         rm -rf "$TMP_DIR"
-        exit 1
+        return 1
     fi
 
     tar -xzf "${TMP_DIR}/${TAR_FILE}" -C "$TMP_DIR"
@@ -241,7 +247,10 @@ EOF
 
     systemctl daemon-reload
     systemctl enable "${IFNAME}.service" >/dev/null 2>&1
-    systemctl restart "${IFNAME}.service"
+    if ! systemctl restart "${IFNAME}.service"; then
+        echo -e "${RED}[!] GRE interface ${IFNAME} failed to start — check: ip tunnel show; journalctl -u ${IFNAME}.service${NC}"
+        return 1
+    fi
 
     # Enable packet forwarding & MSS clamping to avoid fragmentation
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
@@ -537,7 +546,7 @@ cli_add_peer() {
         echo -e "${RED}[!] GRE IP ${LOCAL_GRE} is already used by another peer.${NC}"; return 1
     fi
     [[ -z "$NAME" ]] && NAME="peer-${ID}"
-    install_frp_binaries
+    install_frp_binaries || return 1
     if [[ "$ID" -eq 1 ]] && ! tunnel_present; then
         # first tunnel keeps legacy names (gre-tunnel, frps) — old setups untouched
         setup_gre_systemd "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE"

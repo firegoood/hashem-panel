@@ -32,6 +32,8 @@ const (
 
 // greScriptPath finds the installer: GRE_SCRIPT env wins, else <bindir>/gre.sh
 // (servers: alongside /usr/local/bin/gre-panel), else ./gre.sh (panel/ dev).
+// The legacy /usr/local/bin/gre.sh copy is also accepted — update_all()
+// syncs both locations, so an old install layout must not break add-peer.
 func greScriptPath() (string, error) {
 	if p := os.Getenv("GRE_SCRIPT"); p != "" {
 		if _, err := os.Stat(p); err == nil {
@@ -43,6 +45,9 @@ func greScriptPath() (string, error) {
 		if p := filepath.Join(filepath.Dir(exe), "gre.sh"); fileExists(p) {
 			return p, nil
 		}
+	}
+	if fileExists("/usr/local/bin/gre.sh") {
+		return "/usr/local/bin/gre.sh", nil
 	}
 	if fileExists("gre.sh") {
 		if abs, err := filepath.Abs("gre.sh"); err == nil {
@@ -56,6 +61,34 @@ func greScriptPath() (string, error) {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// greScriptTarget is where syncPanelScript writes the fresh script:
+// same place greScriptPath() reads from (GRE_SCRIPT wins, else next to
+// the running binary, else ./gre.sh for panel/ dev).
+func greScriptTarget() string {
+	if p := os.Getenv("GRE_SCRIPT"); p != "" {
+		return p
+	}
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), panelScriptName)
+	}
+	return panelScriptName
+}
+
+// ensureAddPeerScript checks the script on disk supports the add-peer
+// CLI verb; if not (stale Sep-26 copy on older hosts), it pulls the
+// latest gre.sh from main (bash -n verified) and replaces it — so an
+// add-peer request self-heals instead of failing with E-INSTALL-02.
+func ensureAddPeerScript(script string) {
+	data, err := os.ReadFile(script)
+	if err != nil {
+		return
+	}
+	if strings.Contains(string(data), "add-peer") {
+		return
+	}
+	syncPanelScript()
 }
 
 // ---- GET /api/setup: defaults + whether a tunnel already exists ----
@@ -233,6 +266,12 @@ func runInstaller(b setupRequest, ports []int) (string, []string, error) {
 	if err != nil {
 		return "", nil, err
 	}
+	// Self-healing: if add-peer is invoked on a host whose gre.sh is
+	// an old version (lacking the "add-peer" CLI verb), auto-sync the
+	// script before shelling out so the user does not hit E-INSTALL-02.
+	if b.Role == "add-peer" {
+		ensureAddPeerScript(script)
+	}
 	token := ""
 	args := []string{}
 	if b.Role == "add-peer" {
@@ -292,7 +331,16 @@ func runInstaller(b setupRequest, ports []int) (string, []string, error) {
 		steps = append([]string{"token generated (copy to Foreign side)"}, steps...)
 	}
 	if runErr != nil {
-		return "", steps, fmt.Errorf("gre.sh %s failed: %w", args[0], runErr)
+		errText := runErr.Error()
+		if len(steps) > 0 {
+			if tail := strings.Join(steps[max(0, len(steps)-3):], " | "); tail != "" {
+				errText += " — " + tail
+			}
+		}
+		if b.Role == "add-peer" && strings.Contains(strings.Join(steps, "\n"), "Unknown command") {
+			errText += " — panel gre.sh is an old version: run Update to latest, or re-run install.sh on this host"
+		}
+		return "", steps, fmt.Errorf("gre.sh %s failed: %s", args[0], errText)
 	}
 	if b.Role == "iran" || b.Role == "add-peer" {
 		return token, steps, nil
