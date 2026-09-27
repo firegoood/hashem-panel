@@ -3097,6 +3097,7 @@ Usage:
   hashem watchdog on|off|status|test|tick      # tunnel watchdog monitoring & alerts
   hashem backup now [--keep N] | restore <f> | schedule ... | status
   hashem tgsend "msg"                          # send Telegram alert manually
+  hashem update | update-all                   # update script + panel to latest release
   hashem free-ram                              # cap journald + drop cache + 1GB swap
 
 Setup bundle (one string with everything foreign needs):
@@ -3216,6 +3217,7 @@ if [[ $# -gt 0 ]]; then
         watchdog) shift; cli_watchdog "$@" ;;
         backup) shift; cli_backup "$@" ;;
         tgsend) shift; watchdog_send "$1" ;;
+        update|update-all) update_all ;;
         peer-token)
             shift; ID=""
             while [[ $# -gt 0 ]]; do case "$1" in --id) ID="$2"; shift 2 ;; *) shift ;; esac; done
