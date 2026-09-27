@@ -170,6 +170,10 @@ body[data-t="light"] .ent-topo-node { background: var(--s1); }
 .term-keys button { border: 1px solid var(--ln2); background: var(--s2); color: var(--tx2); border-radius: 8px; padding: 7px 11px; font-size: 12px; font-family: var(--font-mono); cursor: pointer; }
 .term-keys button:hover { border-color: var(--ac); color: var(--tx); }
 .term-keys button:active { transform: translateY(1px); }
+.term-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+.term-quick button { border: 1px dashed var(--ac); background: color-mix(in srgb, var(--ac) 10%, transparent); color: var(--tx); border-radius: 8px; padding: 7px 11px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.term-quick button:hover { background: color-mix(in srgb, var(--ac) 22%, transparent); }
+.term-quick button:active { transform: translateY(1px); }
 @media (max-width: 760px) {
   .term-wrap { min-height: 340px; height: 56dvh; }
   .term-keys button { padding: 10px 14px; font-size: 13px; }

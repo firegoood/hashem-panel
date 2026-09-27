@@ -595,9 +595,10 @@
             <p class="tc-title">Terminal</p>
             <span class="status-indicator" id="termDot"><span class="dot"></span><span id="termDotTxt">disconnected</span></span>
           </div>
-          <div class="qs-hint" id="termMeta">Root shell on this server · single session · 10m idle kill · 30m cap</div>
+          <div class="qs-hint" id="termMeta">Root shell on this server · single session · 10m idle kill · 30m cap · type <b>hashem</b> for the tunnel menu</div>
           <div class="term-toolbar" role="toolbar" aria-label="Terminal controls">
             <button class="hashem-btn hashem-btn-primary" id="termConnBtn">Connect</button>
+            <button class="hashem-btn hashem-btn-secondary" id="termHashemBtn" title="Open the Hashem tunnel menu in this shell">hashem</button>
             <button class="hashem-btn hashem-btn-secondary" id="termFontDown" title="Smaller font">A−</button>
             <button class="hashem-btn hashem-btn-secondary" id="termFontUp" title="Larger font">A+</button>
             <button class="hashem-btn hashem-btn-secondary" id="termSearchBtn" title="Search in buffer">Search</button>
@@ -617,6 +618,13 @@
           </div>
           <div class="term-keys" id="termKeys">
             <button data-k="&#9;">Tab</button><button data-k="&#27;">Esc</button><button data-k="&#3;">Ctrl+C</button><button data-k="&#4;">Ctrl+D</button><button data-k="&#12;">Ctrl+L</button><button data-k="|">|</button><button data-k="~">~</button>
+          </div>
+          <div class="term-quick" role="group" aria-label="Hashem quick commands">
+            <button data-q="hashem status">Status</button>
+            <button data-q="hashem show-panel-url">Panel URL</button>
+            <button data-q="check">GRE ping</button>
+            <button data-q="logs">FRP logs</button>
+            <button data-q="update">Update</button>
           </div>
           <div class="qs-hint" id="termFoot">Idle kill 10m · cap 30m · commands are audit-logged (secrets redacted) in Logs → Panel errors.</div>
         </div>
@@ -1597,6 +1605,7 @@ function termEnsure() {
   t.onResize(sz => termSend({v:1, t:'resize', cols: sz.cols, rows: sz.rows}));
   termState.term = t;
   t.writeln('\x1b[1;36mHashem terminal\x1b[0m — press Connect for a root shell on this server.');
+  t.writeln('Type \x1b[1mhashem\x1b[0m + Enter for the full tunnel menu (setup · peers · logs · update · HTTPS).');
   try { termState.fit.fit(); } catch(_){}
 }
 function termSend(m) { try { if (termState.ws && termState.ws.readyState === 1) termState.ws.send(JSON.stringify(m)); } catch(_){} }
@@ -1626,7 +1635,7 @@ async function termConnect() {
   termState.ws = ws;
   termSetDot('warn', 'connecting…');
   termOverlay(false);
-  ws.onopen = () => { termState.connecting = false; termSetDot('on', 'connected'); $('termMeta').textContent = 'Root shell on this server · single session · 10m idle kill · 30m cap'; try { termState.fit.fit(); } catch(_){} termSendResize(); termState.hb = setInterval(() => termSend({v:1,t:'hb'}), 25000); termState.term && termState.term.focus(); };
+  ws.onopen = () => { termState.connecting = false; termSetDot('on', 'connected'); $('termMeta').textContent = 'Root shell on this server · single session · 10m idle kill · 30m cap · type hashem for the tunnel menu'; try { termState.fit.fit(); } catch(_){} termSendResize(); termState.hb = setInterval(() => termSend({v:1,t:'hb'}), 25000); termState.term && termState.term.focus(); };
   ws.onmessage = ev => {
     let m; try { m = JSON.parse(ev.data); } catch(_) { return; }
     if (m.v !== 1) return;
@@ -1646,6 +1655,16 @@ function termDisconnect(note) {
 }
 $('termConnBtn').onclick = () => { termState.ws ? termDisconnect() : termConnect(); };
 $('termOverlayBtn').onclick = () => termConnect();
+// hashem quick buttons: type the command into the live shell + Enter.
+// 'check'/'logs'/'update' are shortcuts for the matching hashem subcommands.
+const termQuickMap = { check: 'hashem status', logs: 'hashem logs', update: 'hashem update' };
+function termTypeCmd(cmd) {
+  if (!termState.ws || !termState.term) { toastWarn('not connected', 'Press Connect first, then run hashem commands.'); return; }
+  termSend({v:1, t:'in', d: cmd + '\r'});
+  termState.term.focus();
+}
+$('termHashemBtn').onclick = () => termTypeCmd('hashem');
+document.querySelectorAll('#tab-terminal .term-quick button').forEach(b => b.onclick = () => termTypeCmd(termQuickMap[b.dataset.q] || b.dataset.q));
 $('termKillBtn').onclick = async () => {
   if (!termState.ws) { toastWarn('no active session', 'Nothing to kill — connect first.'); return; }
   if (!await entConfirm('Kill terminal session?', 'The root shell ends immediately. Unsaved command-line state is lost.', 'Kill')) return;

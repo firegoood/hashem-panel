@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# hashem — Hashem Tunnel Manager shortcut.
+# No args  -> full interactive menu (same as `bash gre.sh`).
+# With args -> passthrough to gre.sh CLI (e.g. `hashem status`).
+set -euo pipefail
+for p in /usr/local/bin/gre.sh /root/gre.sh ./gre.sh /root/gre-frp/gre.sh; do
+    if [[ -f "$p" ]]; then SCRIPT="$p"; break; fi
+done
+if [[ -z "${SCRIPT:-}" ]]; then
+    echo "hashem: gre.sh not found (expected /usr/local/bin/gre.sh). Re-install with:" >&2
+    echo "  bash <(curl -fsSL https://raw.githubusercontent.com/pdnczone/hashem-panel/main/install.sh)" >&2
+    exit 1
+fi
+exec bash "$SCRIPT" "$@"

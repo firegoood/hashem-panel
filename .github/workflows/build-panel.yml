@@ -30,11 +30,12 @@ jobs:
           ./gre-panel-linux-amd64 --version
           ls -la gre-panel-linux-*
 
-      - name: Sync gre.sh + grepanel into release
+      - name: Sync gre.sh + grepanel + hashem into release
         run: |
           mkdir -p panel/dist
           cp gre.sh panel/dist/gre.sh
           cp panel/grepanel panel/dist/grepanel
+          cp panel/hashem panel/dist/hashem
           ls -la panel/dist/
 
       - name: Create release
@@ -48,3 +49,4 @@ jobs:
             panel/gre-panel-linux-arm64
             panel/dist/gre.sh
             panel/dist/grepanel
+            panel/dist/hashem

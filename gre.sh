@@ -1016,6 +1016,10 @@ install_panel() {
         if [[ -n "$GRESH_URL" ]]; then
             curl -fsSL --max-time 30 "$GRESH_URL" -o /usr/local/bin/gre.sh 2>/dev/null && chmod +x /usr/local/bin/gre.sh || true
         fi
+        HASHEM_URL=$(echo "$LATEST_JSON" | grep -o "\"browser_download_url\": *\"[^\"]*/hashem\"" | head -1 | cut -d'"' -f4)
+        if [[ -n "$HASHEM_URL" ]]; then
+            curl -fsSL --max-time 30 "$HASHEM_URL" -o /usr/local/bin/hashem 2>/dev/null && chmod +x /usr/local/bin/hashem || true
+        fi
     fi
 
     if [[ "$DL_OK" -ne 1 ]]; then
@@ -1048,6 +1052,14 @@ install_panel() {
     cp "$TMP_PANEL/gre-panel" "$PANEL_BIN"
     chmod +x "$PANEL_BIN"
     rm -rf "$TMP_PANEL"
+    # hashem shortcut -> /usr/local/bin/hashem (same menu, same flags as gre.sh)
+    if [[ -f panel/hashem ]]; then
+        cp panel/hashem /usr/local/bin/hashem
+        chmod +x /usr/local/bin/hashem
+    elif [[ -f "$SRC/hashem" ]]; then
+        cp "$SRC/hashem" /usr/local/bin/hashem
+        chmod +x /usr/local/bin/hashem
+    fi
 
     cat > /etc/systemd/system/gre-panel.service <<EOF
 [Unit]
@@ -1203,9 +1215,10 @@ main_menu() {
     echo "14) List Peer Tunnels"
     echo "15) Remove Peer Tunnel"
     echo "16) Panel HTTPS (Let's Encrypt certificate)"
+    echo "17) hashem CLI help (non-interactive commands)"
     echo "0) Exit"
     echo ""
-    read -p "Select an option [0-16]: " OPTION
+    read -p "Select an option [0-17]: " OPTION
 
     case "$OPTION" in
         1)
@@ -1256,6 +1269,9 @@ main_menu() {
         16)
             panel_tls_issue
             ;;
+        17)
+            usage_cli
+            ;;
         0)
             echo "Exiting..."
             exit 0
@@ -1273,14 +1289,14 @@ check_root
 usage_cli() {
     cat <<EOF
 Usage:
-  bash gre.sh                                   # interactive menu
-  bash gre.sh setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--force]
-  bash gre.sh setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--force]
-  bash gre.sh status | remove-tunnel [--force] | show-panel-url
-  bash gre.sh add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL]
-  bash gre.sh remove-peer --id N [--force] | peer-list | peer-token --id N
-  bash gre.sh panel-tls [domain] [email]   # Let's Encrypt for the web panel
-  bash gre.sh optimize | restore | tune-status
+  hashem                                    # interactive menu (same 0-17 options)
+  hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--force]
+  hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--force]
+  hashem status | remove-tunnel [--force] | show-panel-url
+  hashem add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL]
+  hashem remove-peer --id N [--force] | peer-list | peer-token --id N
+  hashem logs | restart | panel-tls [domain] [email]   # (also: bash gre.sh ...)
+  hashem optimize | restore | tune-status
 EOF
 }
 
@@ -1352,6 +1368,8 @@ if [[ $# -gt 0 ]]; then
         add-peer) shift; cli_add_peer "$@" ;;
         remove-peer) shift; cli_remove_peer "$@" ;;
         peer-list) peer_list ;;
+        logs) show_logs ;;
+        restart) restart_all ;;
         peer-token)
             shift; ID=""
             while [[ $# -gt 0 ]]; do case "$1" in --id) ID="$2"; shift 2 ;; *) shift ;; esac; done
