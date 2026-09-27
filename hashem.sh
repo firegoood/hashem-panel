@@ -40,7 +40,7 @@ init_perf_json() {
   "proxy_compression": false,
   "force_tls": true,
   "chaff_profile": "low",
-  "dpi_enabled": true,
+  "dpi_enabled": false,
   "dpi_rate": "300/min",
   "dpi_burst": 100
 }
@@ -894,14 +894,29 @@ dpi_shield_on() {
         iptables -I INPUT 1 -j HASHEM-DPI
     fi
 
-    # Add per-port hashlimit rules
+    # 1. Always allow loopback traffic (localhost, internal proxying frpc <-> 3x-ui / local services)
+    iptables -A HASHEM-DPI -i lo -j ACCEPT
+
+    # 2. Always accept established and related connections so active traffic/downloads are NEVER throttled or dropped
+    iptables -A HASHEM-DPI -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
+        iptables -A HASHEM-DPI -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+
+    # 3. Rate-limit ONLY new incoming connection handshakes (SYN packets) to mitigate scanner flood attacks
     local port
     local DPI_RATE=$(perf_get_dpi_rate)
     local DPI_BURST=$(perf_get_dpi_burst)
     for port in "${REVERSE_PORTS[@]}"; do
-        iptables -A HASHEM-DPI -p tcp --dport "$port" -m limit --limit "$DPI_RATE" --limit-burst "$DPI_BURST" -j ACCEPT
-        iptables -A HASHEM-DPI -p tcp --dport "$port" -j DROP
+        iptables -A HASHEM-DPI -p tcp --dport "$port" --syn -m limit --limit "$DPI_RATE" --limit-burst "$DPI_BURST" -j ACCEPT
+        iptables -A HASHEM-DPI -p tcp --dport "$port" --syn -j DROP
     done
+
+    # 4. If UFW is active, also ensure reverse ports are allowed so UFW does not block them
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+        for port in "${REVERSE_PORTS[@]}"; do
+            ufw allow "$port"/tcp >/dev/null 2>&1 || true
+            ufw allow "$port"/udp >/dev/null 2>&1 || true
+        done
+    fi
 
     # Persist across reboot via systemd oneshot unit
     [[ -x "$HASHEM_BIN" ]] || { cp "$0" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN"; } || true
@@ -1425,7 +1440,7 @@ EOF
     echo -e "${YELLOW}Token: ${TOKEN} (copy to the FOREIGN side)${NC}"
     echo -e "BUNDLE:$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN")"
     local DPI_EN=$(perf_get_dpi_enabled)
-    if [[ "$DPI_EN" != "0" ]]; then
+    if [[ "$DPI_EN" == "1" ]]; then
         dpi_shield_on >/dev/null 2>&1 || true
     fi
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
@@ -1532,7 +1547,7 @@ EOF
     echo -e "${GREEN}[✔️] FOREIGN setup done: GRE ${IP_FOREIGN} <-> ${IP_IRAN} (${LOCAL_GRE} peer ${PEER_GRE}), frpc → ${PEER_GRE}:${SERVER_PORT}${NC}"
     echo -e "${GREEN}Reverse ports: ${PORTS_CLEANED} (TCP & UDP, TLS)${NC}"
     local DPI_EN=$(perf_get_dpi_enabled)
-    if [[ "$DPI_EN" != "0" ]]; then
+    if [[ "$DPI_EN" == "1" ]]; then
         dpi_shield_on >/dev/null 2>&1 || true
     fi
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
@@ -3529,6 +3544,16 @@ update_all() {
     install_chaff_script || true
     rm -f /usr/local/bin/gre-chaff.sh 2>/dev/null || true
     update_chaff_existing_tunnels || true
+    # 5. If DPI shield is active or enabled, refresh with safe rules so old drop-all rules are replaced
+    if iptables -L HASHEM-DPI -n >/dev/null 2>&1; then
+        local DPI_EN
+        DPI_EN=$(perf_get_dpi_enabled)
+        if [[ "$DPI_EN" == "1" ]]; then
+            dpi_shield_on >/dev/null 2>&1 || true
+        else
+            dpi_shield_off >/dev/null 2>&1 || true
+        fi
+    fi
     if [[ -f "$WATCHDOG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
         local WD_EN
         WD_EN=$(python3 -c '

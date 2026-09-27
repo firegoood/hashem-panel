@@ -58,7 +58,7 @@ func defaultPerfConfig() perfConfig {
 		ProxyCompression: false,
 		ForceTLS:         true,
 		ChaffProfile:     "low",
-		DPIEnabled:       true,
+		DPIEnabled:       false,
 		DPIRate:          "300/min",
 		DPIBurst:         100,
 	}

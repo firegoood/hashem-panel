@@ -34,8 +34,8 @@ func TestPerfDefaultsAndLoadSave(t *testing.T) {
 	if def.ChaffProfile != "low" {
 		t.Fatalf("expected chaff_profile=low by default, got %s", def.ChaffProfile)
 	}
-	if def.DPIEnabled != true {
-		t.Fatalf("expected dpi_enabled=true by default, got %v", def.DPIEnabled)
+	if def.DPIEnabled != false {
+		t.Fatalf("expected dpi_enabled=false by default, got %v", def.DPIEnabled)
 	}
 	if def.DPIRate != "300/min" {
 		t.Fatalf("expected dpi_rate=300/min by default, got %s", def.DPIRate)
@@ -88,8 +88,8 @@ func TestPerfDefaultsAndLoadSave(t *testing.T) {
 	if partial.ChaffProfile != "low" {
 		t.Fatalf("expected chaff_profile to retain default low when omitted")
 	}
-	if !partial.DPIEnabled {
-		t.Fatalf("expected dpi_enabled to retain default true when omitted")
+	if partial.DPIEnabled {
+		t.Fatalf("expected dpi_enabled to retain default false when omitted")
 	}
 	if partial.DPIRate != "300/min" || partial.DPIBurst != 100 {
 		t.Fatalf("expected default rate and burst, got %s, %d", partial.DPIRate, partial.DPIBurst)
