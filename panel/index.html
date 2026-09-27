@@ -2227,16 +2227,25 @@ $('joinBtn').onclick = async () => {
       w.classList.remove('hidden');
       b.disabled = false; b.textContent = oldTxt; return;
     }
-    // discover from live config; fall back to bundle, then advanced fields, then Iran-form values
+    // bundle paste: explicit advanced > bundle > live status > Iran-form value.
+    // legacy manual token path: live status first (back-compat).
     const m = (st.gre || {});
     const adv = id => { const el = $(id); return el ? el.value.trim() : ''; };
-    const body = {
+    const body = bundle ? {
       role: 'foreign',
       local_public: m.local || adv('fLocalPub') || d.local_public || '',
-      remote_public: m.peer_ip || adv('fRemotePub') || (bundle ? bundle.iranPub : '') || $('sRemotePub').value.trim(),
-      local_gre: (m.inner || '').split('/')[0] || adv('fLocalGre') || (bundle ? bundle.foreignGre : '') || $('sLocalGre').value.trim(),
-      peer_gre: peerInnerHint(st) || adv('fPeerGre') || (bundle ? bundle.iranGre : '') || $('sPeerGre').value.trim(),
-      frp_port: st.frp_port || parseInt(adv('fFrpPort') || (bundle ? String(bundle.port) : '') || $('sFrpPort').value, 10) || 7000,
+      remote_public: adv('fRemotePub') || bundle.iranPub || m.peer_ip || $('sRemotePub').value.trim(),
+      local_gre: adv('fLocalGre') || bundle.foreignGre || (m.inner || '').split('/')[0] || $('sLocalGre').value.trim(),
+      peer_gre: adv('fPeerGre') || bundle.iranGre || peerInnerHint(st) || $('sPeerGre').value.trim(),
+      frp_port: parseInt(adv('fFrpPort') || String(bundle.port), 10) || st.frp_port || parseInt($('sFrpPort').value, 10) || 7000,
+      token, ports, force: true,
+    } : {
+      role: 'foreign',
+      local_public: m.local || adv('fLocalPub') || d.local_public || '',
+      remote_public: m.peer_ip || adv('fRemotePub') || $('sRemotePub').value.trim(),
+      local_gre: (m.inner || '').split('/')[0] || adv('fLocalGre') || $('sLocalGre').value.trim(),
+      peer_gre: peerInnerHint(st) || adv('fPeerGre') || $('sPeerGre').value.trim(),
+      frp_port: st.frp_port || parseInt(adv('fFrpPort') || $('sFrpPort').value, 10) || 7000,
       token, ports, force: true,
     };
     if (!body.ports) {
