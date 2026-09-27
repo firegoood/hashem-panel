@@ -41,6 +41,7 @@ var errCatalog = map[string]errInfo{
 	"E-AUTH-03": {400, "bad login request", "Reload the page and try again."},
 	"E-AUTH-04": {400, "password must be at least 4 characters", "Pick a longer password."},
 	"E-AUTH-05": {500, "cannot switch password", "Disk write failed — check /etc/gre-panel permissions."},
+	"E-AUTH-06": {401, "session expired", "Log in again from the login screen."},
 	// setup validation
 	"E-SETUP-01": {400, "bad setup request (invalid JSON)", "Reload the page and resubmit the form."},
 	"E-SETUP-02": {400, "role must be iran, foreign or add-peer", "Pick the role from the Setup tab buttons."},

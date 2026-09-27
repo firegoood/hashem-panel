@@ -336,8 +336,8 @@ func (s sessionStore) pruneExpired() bool {
 	return changed
 }
 
-// sessionLifetime is 30 days; each authenticated request extends it.
-const sessionLifetime = int64(30 * 24 * 3600)
+// sessionLifetime is 24 hours (absolute expiry from login).
+const sessionLifetime = int64(24 * 3600)
 
 func validSession(token string) bool {
 	if token == "" {
@@ -350,9 +350,6 @@ func validSession(token string) bool {
 	if !ok || exp < time.Now().Unix() {
 		return false
 	}
-	// Sliding expiration: extend on every use.
-	s.Tokens[token] = time.Now().Unix() + sessionLifetime
-	s.save()
 	return true
 }
 
