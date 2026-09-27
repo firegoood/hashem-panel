@@ -237,7 +237,6 @@ func main() {
 	mux.HandleFunc("GET "+base+"/api/watchdog/backup-download", requireAuth(handleBackupDownload))
 	mux.HandleFunc("POST "+base+"/api/watchdog/backup-download", requireAuth(handleBackupDownload))
 
-
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("gre-panel listening on %s under /%s", addr, cfg.BasePath)
 	go startHTTPSListener()

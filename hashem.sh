@@ -562,6 +562,264 @@ menu_chaff() {
     esac
 }
 
+# ---- DPI Shield: protect reverse proxy ports against scanner floods ----
+DPI_PORTS_FILE="/etc/gre-panel/dpi-ports.conf"
+
+dpi_collect_reverse_ports() {
+    local PORTS=()
+    local EXCLUDE_PORTS=()
+
+    # 1. Collect FRP bind/control ports to exclude
+    local f
+    for f in "${CONFIG_DIR}"/frps*.toml /etc/frp/frps*.toml; do
+        [[ -f "$f" ]] || continue
+        while read -r bp; do
+            [[ -n "$bp" ]] && EXCLUDE_PORTS+=("$bp")
+        done < <(grep -E '^\s*bindPort\s*=' "$f" 2>/dev/null | awk -F= '{print $2}' | tr -d ' "' | tr -d " \t\r\n")
+    done
+    for f in "${CONFIG_DIR}/frpc.toml" /etc/frp/frpc.toml; do
+        [[ -f "$f" ]] || continue
+        while read -r sp; do
+            [[ -n "$sp" ]] && EXCLUDE_PORTS+=("$sp")
+        done < <(grep -E '^\s*serverPort\s*=' "$f" 2>/dev/null | awk -F= '{print $2}' | tr -d ' "' | tr -d " \t\r\n")
+    done
+    if [[ -f "$PEERS_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        while read -r fp; do
+            [[ -n "$fp" ]] && EXCLUDE_PORTS+=("$fp")
+        done < <(PEERS_F="$PEERS_FILE" python3 -c '
+import json, os
+try:
+    with open(os.environ["PEERS_F"]) as f:
+        d = json.load(f)
+        for p in d.get("peers", []):
+            pt = p.get("frp_port")
+            if pt:
+                print(pt)
+except Exception:
+    pass
+' 2>/dev/null)
+    fi
+
+    # 2. Collect panel ports to exclude
+    if [[ -f /etc/gre-panel/panel.json ]]; then
+        while read -r pp; do
+            [[ -n "$pp" ]] && EXCLUDE_PORTS+=("$pp")
+        done < <(grep -oE '"(port|tls_port)":\s*[0-9]+' /etc/gre-panel/panel.json 2>/dev/null | grep -oE '[0-9]+')
+    fi
+    EXCLUDE_PORTS+=(7777 7443)
+
+    # 3. Collect SSH ports to exclude
+    EXCLUDE_PORTS+=(22)
+    if command -v ss >/dev/null 2>&1; then
+        while read -r sp; do
+            [[ -n "$sp" ]] && EXCLUDE_PORTS+=("$sp")
+        done < <(ss -ltnp 2>/dev/null | grep 'sshd' | awk '{print $4}' | awk -F: '{print $NF}')
+    fi
+
+    # Candidate reverse ports:
+    # A. peers.json
+    if [[ -f "$PEERS_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        while read -r p; do
+            [[ -n "$p" ]] && PORTS+=("$p")
+        done < <(PEERS_F="$PEERS_FILE" python3 -c '
+import json, os
+try:
+    with open(os.environ["PEERS_F"]) as f:
+        d = json.load(f)
+        for p in d.get("peers", []):
+            for pt in p.get("ports", []):
+                print(pt)
+except Exception:
+    pass
+' 2>/dev/null)
+    fi
+
+    # B. frpc.toml remotePort
+    for f in "${CONFIG_DIR}/frpc.toml" /etc/frp/frpc.toml; do
+        [[ -f "$f" ]] || continue
+        while read -r p; do
+            [[ -n "$p" ]] && PORTS+=("$p")
+        done < <(grep -E '^\s*remotePort\s*=' "$f" 2>/dev/null | awk -F= '{print $2}' | tr -d ' "' | tr -d " \t\r\n")
+    done
+
+    # C. Active frps listeners via ss -ltn (excluding control ports)
+    if command -v ss >/dev/null 2>&1; then
+        while read -r p; do
+            [[ -n "$p" ]] && PORTS+=("$p")
+        done < <(ss -ltnp 2>/dev/null | grep -E 'users:.*\("frps"' | awk '{print $4}' | awk -F: '{print $NF}')
+    fi
+
+    # D. Saved DPI ports cache (for reboots before frps connects)
+    if [[ -f "$DPI_PORTS_FILE" ]]; then
+        while read -r p; do
+            [[ -n "$p" ]] && PORTS+=("$p")
+        done < "$DPI_PORTS_FILE"
+    fi
+
+    # Filter candidates: remove excluded, check validity (1..65535)
+    local FINAL_PORTS=()
+    local p ex excluded
+    for p in "${PORTS[@]}"; do
+        [[ "$p" =~ ^[0-9]+$ ]] || continue
+        (( p >= 1 && p <= 65535 )) || continue
+        excluded=0
+        for ex in "${EXCLUDE_PORTS[@]}"; do
+            if [[ "$p" -eq "$ex" ]]; then
+                excluded=1
+                break
+            fi
+        done
+        [[ "$excluded" -eq 0 ]] && FINAL_PORTS+=("$p")
+    done
+
+    if [[ ${#FINAL_PORTS[@]} -gt 0 ]]; then
+        printf "%s\n" "${FINAL_PORTS[@]}" | sort -n -u
+    fi
+}
+
+dpi_shield_on() {
+    command -v iptables >/dev/null 2>&1 || {
+        echo -e "${RED}[!] iptables is required for DPI shield but not installed.${NC}"
+        return 1
+    }
+
+    local REVERSE_PORTS=()
+    while read -r p; do
+        [[ -n "$p" ]] && REVERSE_PORTS+=("$p")
+    done < <(dpi_collect_reverse_ports)
+
+    if [[ ${#REVERSE_PORTS[@]} -eq 0 ]]; then
+        echo -e "${YELLOW}[!] No reverse tunnel ports found in peers.json, frpc.toml, or active frps listeners.${NC}"
+        echo -e "${YELLOW}[*] Set up a tunnel or configure reverse ports first.${NC}"
+        return 1
+    fi
+
+    mkdir -p "$(dirname "$DPI_PORTS_FILE")"
+    printf "%s\n" "${REVERSE_PORTS[@]}" > "$DPI_PORTS_FILE"
+
+    echo -e "${CYAN}[*] Installing DPI shield for reverse ports: ${REVERSE_PORTS[*]}...${NC}"
+
+    # Idempotent chain setup: flush existing HASHEM-DPI chain or create it
+    if iptables -L HASHEM-DPI -n >/dev/null 2>&1; then
+        iptables -F HASHEM-DPI
+    else
+        iptables -N HASHEM-DPI
+    fi
+
+    # Ensure jump from INPUT exists
+    if ! iptables -C INPUT -j HASHEM-DPI 2>/dev/null; then
+        iptables -I INPUT 1 -j HASHEM-DPI
+    fi
+
+    # Add per-port hashlimit rules
+    local port
+    for port in "${REVERSE_PORTS[@]}"; do
+        iptables -A HASHEM-DPI -p tcp --dport "$port" -m limit --limit 30/min --limit-burst 20 -j ACCEPT
+        iptables -A HASHEM-DPI -p tcp --dport "$port" -j DROP
+    done
+
+    # Persist across reboot via systemd oneshot unit
+    [[ -x "$HASHEM_BIN" ]] || { cp "$0" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN"; } || true
+    cat << 'EOF' > /etc/systemd/system/hashem-dpi.service
+[Unit]
+Description=Hashem DPI Shield Protection
+DefaultDependencies=no
+After=systemd-modules-load.service local-fs.target
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/hashem dpi-shield on
+
+[Install]
+WantedBy=network-pre.target
+EOF
+    systemctl daemon-reload
+    systemctl enable hashem-dpi.service >/dev/null 2>&1 || true
+
+    echo -e "${GREEN}[✔️] DPI shield ACTIVE: ${#REVERSE_PORTS[@]} port(s) protected (${REVERSE_PORTS[*]}).${NC}"
+    echo -e "${GREEN}[✔️] Persisted via systemd unit hashem-dpi.service (WantedBy=network-pre.target).${NC}"
+}
+
+dpi_shield_off() {
+    # Disable and remove systemd persistence unit
+    systemctl disable --now hashem-dpi.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/hashem-dpi.service "$DPI_PORTS_FILE"
+    systemctl daemon-reload
+
+    # Remove jump from INPUT
+    while iptables -C INPUT -j HASHEM-DPI 2>/dev/null; do
+        iptables -D INPUT -j HASHEM-DPI
+    done
+
+    # Flush and delete HASHEM-DPI chain
+    iptables -F HASHEM-DPI 2>/dev/null || true
+    iptables -X HASHEM-DPI 2>/dev/null || true
+
+    echo -e "${GREEN}[✔️] DPI shield DISABLED (HASHEM-DPI chain removed and service disabled).${NC}"
+}
+
+dpi_shield_status() {
+    if iptables -L HASHEM-DPI -n >/dev/null 2>&1; then
+        echo -e "${GREEN}[✔️] DPI shield is ACTIVE (chain HASHEM-DPI installed).${NC}"
+        echo -e "${CYAN}Packet counters and rules in HASHEM-DPI:${NC}"
+        iptables -L HASHEM-DPI -v -n
+        if systemctl is-enabled hashem-dpi.service >/dev/null 2>&1; then
+            echo -e "${GREEN}[✔️] Persistence: hashem-dpi.service is enabled.${NC}"
+        else
+            echo -e "${YELLOW}[!] Persistence: hashem-dpi.service is not enabled.${NC}"
+        fi
+    else
+        echo -e "${YELLOW}[!] DPI shield is INACTIVE (chain HASHEM-DPI does not exist).${NC}"
+        if systemctl is-enabled hashem-dpi.service >/dev/null 2>&1; then
+            echo -e "${YELLOW}[*] hashem-dpi.service is enabled for boot.${NC}"
+        fi
+    fi
+}
+
+cli_dpi_shield() {
+    local ACTION="${1:-}"
+    case "$ACTION" in
+        on)
+            dpi_shield_on
+            ;;
+        off)
+            dpi_shield_off
+            ;;
+        status)
+            dpi_shield_status
+            ;;
+        *)
+            echo -e "${RED}[!] Usage: hashem dpi-shield on|off|status${NC}"
+            return 1
+            ;;
+    esac
+}
+
+menu_dpi_shield() {
+    echo -e "\n${YELLOW}=== DPI Shield (Reverse Port Flood Protection) ===${NC}"
+    echo -e "Protects reverse ports against DPI scanner floods using iptables rate limiting."
+    echo ""
+    cli_dpi_shield status
+    echo ""
+    echo "  1) Enable DPI Shield (on)"
+    echo "  2) Disable DPI Shield (off)"
+    echo "  3) Check status"
+    echo "  0) Back to main menu"
+    echo ""
+    read -p "Select an action [0-3]: " DPI_OPT
+    case "$DPI_OPT" in
+        1) cli_dpi_shield on ;;
+        2) cli_dpi_shield off ;;
+        3) cli_dpi_shield status ;;
+        0) return 0 ;;
+        *) echo -e "${RED}[!] Invalid option.${NC}"; return 1 ;;
+    esac
+}
+
+
 # ---- SINGLE SOURCE OF TRUTH for install logic ----
 # setup_iran_server_noninteractive / setup_foreign_server_noninteractive do the
 # real work. The interactive menu functions below only prompt + validate, then
@@ -580,7 +838,8 @@ bindPort = ${BIND_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
 transport.tls.force = true
-transport.maxPoolCount = 50
+transport.tcpMux = true
+transport.maxPoolCount = 200
 EOF
     cat <<EOF > /etc/systemd/system/frps.service
 [Unit]
@@ -654,7 +913,7 @@ auth.method = "token"
 auth.token = "${TOKEN}"
 transport.tls.enable = true
 transport.tls.disableCustomTLSFirstByte = true
-transport.poolCount = 10
+transport.poolCount = 25
 
 EOF
     local PORT
@@ -791,7 +1050,8 @@ bindPort = ${BIND_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
 transport.tls.force = true
-transport.maxPoolCount = 50
+transport.tcpMux = true
+transport.maxPoolCount = 200
 EOF
     local SVC="frps${SUF}"
     cat <<EOF > /etc/systemd/system/${SVC}.service
@@ -1194,7 +1454,8 @@ uninstall_all_force() {
         systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-watchdog.timer 'gre-chaff*.service' >/dev/null 2>&1 || true
 
         # Remove systemd files
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-panel.service /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-watchdog.*
+        cli_dpi_shield off >/dev/null 2>&1 || true
+        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-panel.service /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-watchdog.* /etc/systemd/system/hashem-dpi.service
         rm -f /var/lock/hashem-watchdog.lock
         systemctl daemon-reload
         systemctl reset-failed >/dev/null 2>&1 || true
@@ -1242,8 +1503,9 @@ remove_tunnel_force() {
         systemctl stop 'gre-chaff*.service' >/dev/null 2>&1 || true
         systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-chaff 'gre-chaff*.service' >/dev/null 2>&1 || true
 
-        # Remove systemd files (legacy + all peer tunnels + chaff)
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-chaff*.service
+        # Remove systemd files (legacy + all peer tunnels + chaff + dpi shield)
+        cli_dpi_shield off >/dev/null 2>&1 || true
+        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-dpi.service
         systemctl daemon-reload
         systemctl reset-failed >/dev/null 2>&1 || true
 
@@ -2726,6 +2988,7 @@ main_menu() {
     echo " 12) Optimization Status"
     echo " 19) Traffic Chaff / Obfuscation (idle-gap filler: on/off/status)"
     echo " 20) Watchdog & Backup (Telegram alerts, route direct/tunnel, encrypted backup)"
+    echo " 21) DPI Shield (rate-limit reverse ports against flood: on/off/status)"
     echo ""
     echo -e "${YELLOW}── Panel & System ──${NC}"
     echo " 13) Show Panel URL + Username + Password"
@@ -2736,7 +2999,7 @@ main_menu() {
     echo " 18) Uninstall Everything (tunnel + panel + 'hashem' command)"
     echo "  0) Exit"
     echo ""
-    read -p "Select an option [0-20]: " OPTION
+    read -p "Select an option [0-21]: " OPTION
 
     case "$OPTION" in
         1)
@@ -2799,6 +3062,9 @@ main_menu() {
         20)
             menu_watchdog
             ;;
+        21)
+            menu_dpi_shield
+            ;;
         0)
             echo "Exiting..."
             exit 0
@@ -2816,7 +3082,7 @@ check_root
 usage_cli() {
     cat <<EOF
 Usage:
-  hashem                                    # interactive menu (options 0-20)
+  hashem                                    # interactive menu (options 0-21)
   hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--chaff low|mid|off] [--force]
   hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--chaff low|mid|off] [--force]
                        # ... or: hashem setup-foreign --bundle hsh1_...  (fills everything; explicit flags win)
@@ -2827,6 +3093,7 @@ Usage:
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
   hashem chaff on|off|status                   # traffic obfuscation (idle-gap filler)
+  hashem dpi-shield on|off|status              # rate-limit reverse ports against DPI flood
   hashem watchdog on|off|status|test|tick      # tunnel watchdog monitoring & alerts
   hashem backup now [--keep N] | restore <f> | schedule ... | status
   hashem tgsend "msg"                          # send Telegram alert manually
@@ -2945,6 +3212,7 @@ if [[ $# -gt 0 ]]; then
         logs) show_logs ;;
         restart) restart_all ;;
         chaff) shift; cli_chaff "$@" ;;
+        dpi-shield|dpi_shield|dpishield) shift; cli_dpi_shield "$@" ;;
         watchdog) shift; cli_watchdog "$@" ;;
         backup) shift; cli_backup "$@" ;;
         tgsend) shift; watchdog_send "$1" ;;

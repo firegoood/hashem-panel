@@ -25,7 +25,7 @@ _Iran's IP stays behind the tunnel — foreign-server ports become reachable thr
 
 - 🚀 **One-line install** — prebuilt panel binary from GitHub releases, no Go needed on servers
 - 🖥️ **Premium web panel** — 8 tabs: Dashboard · Tunnel · Setup · Logs · Watchdog · Update · Settings · Terminal
-- ⌨️ **`hashem` CLI** — one command in SSH opens the full tunnel menu (options 0–20)
+- ⌨️ **`hashem` CLI** — one command in SSH opens the full tunnel menu (options 0–21)
 - 🌐 **Multi-peer** — up to 5 foreign servers on one Iran, each with its own token + card in the Tunnel tab
 - 📦 **Setup bundle** — one `hsh1_...` string carries IP + control port + GRE pair + token + ports; paste it on Foreign and everything auto-fills (legacy 32-char tokens still work)
 - 🐕 **Watchdog & Telegram alerts** — checks GRE ping and FRP status every 1 min, alerts after 2 consecutive fails with auto-restart attempt, route direct or via tunnel (SOCKS5), recovery notifications with downtime duration
@@ -37,6 +37,7 @@ _Iran's IP stays behind the tunnel — foreign-server ports become reachable thr
 - 🧾 **Useful logs + error codes** — every failure maps to a stable `E-XXXX` code with hints, surfaced in Logs → Panel errors
 - 📊 **Premium charts** — total-traffic chart with 24H / 7D / 30D ranges
 - ⚡ **Optimize tunnel** — BBR + buffers + MTU/MSS tuning with backup & restore
+- 🛡️ **DPI shield** — iptables rate-limiting protection against active DPI probing and connection floods on reverse proxy ports with systemd persistence
 - 🔄 **Safe updates** — script + panel update with config backup and rollback
 
 ### 🐕 Watchdog & Encrypted Backup
@@ -110,7 +111,7 @@ sudo bash hashem.sh
 After install, just type in SSH:
 
 ```bash
-hashem            # full interactive menu, grouped: Setup · Peers · Monitor · Tune · Panel & System (0-20)
+hashem            # full interactive menu, grouped: Setup · Peers · Monitor · Tune · Panel & System (0-21)
 ```
 
 Non-interactive (same flags as `hashem.sh`):
@@ -128,6 +129,7 @@ hashem remove-peer --id N [--force] | peer-list | peer-token --id N
 hashem panel-tls [domain] [email]     # Let's Encrypt for the web panel
 hashem optimize | restore | tune-status
 hashem chaff on | off | status        # traffic chaff / idle-gap filler control
+hashem dpi-shield on | off | status   # rate-limit reverse ports against DPI flood
 hashem watchdog on | off | status | test | tick
 hashem backup now [--keep N] | restore <file> | schedule [--every N|--daily HH:MM|--off] | status
 hashem tgsend "msg"                   # send Telegram alert manually
@@ -192,6 +194,7 @@ After login you can re-run the whole tunnel setup from the browser — same logi
 | 12 | Tune | Optimization status |
 | 19 | Tune | Traffic chaff / obfuscation (idle-gap filler: on / off / status) |
 | 20 | Tune | Watchdog & Backup (Telegram alerts, route direct/tunnel, encrypted scheduled backups) |
+| 21 | Tune | DPI shield (rate-limit reverse ports against flood: on / off / status) |
 | 13 | Panel & System | Show panel URL + username + password |
 | 14 | Panel & System | Panel HTTPS (Let's Encrypt certificate) |
 | 15 | Panel & System | Update all (latest script + latest prebuilt panel) |
