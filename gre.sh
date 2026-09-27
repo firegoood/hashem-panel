@@ -35,6 +35,43 @@ is_valid_port() {
     [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1 && 10#$1 <= 65535))
 }
 
+panel_tls_issue() { # $1=domain [$2=email] — certbot standalone on :80 + install to /etc/gre-panel/tls
+    local DOMAIN=${1:-} EMAIL=${2:-}
+    [[ -z "$DOMAIN" ]] && read -p "Panel domain (e.g. panel.example.com, must point to this server): " DOMAIN
+    [[ -z "$DOMAIN" ]] && { echo -e "${RED}[!] Domain is required.${NC}"; return 1; }
+    read -p "Email for expiry notices [Enter to skip]: " EMAIL_IN
+    EMAIL=${EMAIL:-$EMAIL_IN}
+    if ! command -v certbot >/dev/null 2>&1; then
+        echo -e "${CYAN}[*] Installing certbot...${NC}"
+        apt-get update -qq && apt-get install -y -qq certbot || { echo -e "${RED}[!] certbot install failed.${NC}"; return 1; }
+    fi
+    echo -e "${CYAN}[*] Issuing Let's Encrypt certificate for ${DOMAIN} (needs port 80 free + DNS pointing here)...${NC}"
+    local ARGS=(certonly --standalone --non-interactive --agree-tos --preferred-challenges http --http-01-port 80 -d "$DOMAIN")
+    if [[ -n "$EMAIL" ]]; then ARGS+=(-m "$EMAIL"); else ARGS+=(--register-unsafely-without-email); fi
+    if ! certbot "${ARGS[@]}"; then
+        echo -e "${RED}[!] certbot failed — check DNS (domain → this server IP) and that port 80 is reachable.${NC}"
+        return 1
+    fi
+    mkdir -p /etc/gre-panel/tls
+    cp "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" /etc/gre-panel/tls/server.crt
+    cp "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" /etc/gre-panel/tls/server.key
+    chmod 600 /etc/gre-panel/tls/server.key
+    echo "{\"domain\":\"$DOMAIN\",\"issued_at\":\"$(date '+%F %T')\"}" > /etc/gre-panel/tls/meta.json
+    systemctl restart gre-panel
+    sleep 2
+    local PORT BASE
+    PORT=$(grep -o '"port": *[0-9]*' /etc/gre-panel/panel.json 2>/dev/null | grep -o '[0-9]*'); PORT=${PORT:-7777}
+    BASE=$(grep -o '"base_path": *"[^"]*"' /etc/gre-panel/panel.json 2>/dev/null | cut -d'"' -f4)
+    local TPORT
+    TPORT=$(grep -o '"tls_port": *[0-9]*' /etc/gre-panel/panel.json 2>/dev/null | grep -o '[0-9]*'); TPORT=${TPORT:-7443}
+    echo -e "${GREEN}[✔️] HTTPS ready: ${CYAN}https://${DOMAIN}:${TPORT}/${BASE}${NC}"
+    echo -e "${GREEN}    HTTP still works: ${CYAN}http://<this-server-ip>:${PORT}/${BASE}${NC}"
+    echo -e "${CYAN}[*] certbot auto-renews via its systemd timer; panel shows expiry in Settings.${NC}"
+}
+
+gen_token32() { # 32-char alphanumeric secret (FRP auth token)
+    tr -dc A-Za-z0-9 </dev/urandom | head -c 32 2>/dev/null || openssl rand -hex 16
+}
 prompt_ip() { # $1=varname $2=label $3=default (empty = required)
     local __var=$1 __label=$2 __def=$3 __in
     while true; do
@@ -263,6 +300,16 @@ EOF
     else
         install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 7.${NC}"
     fi
+    echo ""
+    echo -e "${CYAN}--- Panel HTTPS (optional but recommended) ---${NC}"
+    echo -e "The panel currently runs on plain HTTP. If this server has a domain"
+    echo -e "pointing to it, you can get a free Let's Encrypt certificate now:"
+    read -p "Get HTTPS certificate for the panel now? [y/N]: " TLS_WANT
+    if [[ "$TLS_WANT" =~ ^[Yy]$ ]]; then
+        panel_tls_issue || echo -e "${YELLOW}[!] TLS skipped — panel still works on HTTP; retry from menu option 16.${NC}"
+    else
+        echo -e "${CYAN}[*] Skipped — enable later from menu option 16 or web Settings → HTTPS certificate.${NC}"
+    fi
 }
 
 setup_foreign_server_noninteractive() {
@@ -338,6 +385,16 @@ EOF
         echo -e "${CYAN}[*] Skipping panel install (called from panel).${NC}"
     else
         install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 7.${NC}"
+    fi
+    echo ""
+    echo -e "${CYAN}--- Panel HTTPS (optional but recommended) ---${NC}"
+    echo -e "The panel currently runs on plain HTTP. If this server has a domain"
+    echo -e "pointing to it, you can get a free Let's Encrypt certificate now:"
+    read -p "Get HTTPS certificate for the panel now? [y/N]: " TLS_WANT_F
+    if [[ "$TLS_WANT_F" =~ ^[Yy]$ ]]; then
+        panel_tls_issue || echo -e "${YELLOW}[!] TLS skipped — panel still works on HTTP; retry from menu option 16.${NC}"
+    else
+        echo -e "${CYAN}[*] Skipped — enable later from menu option 16 or web Settings → HTTPS certificate.${NC}"
     fi
 }
 
@@ -588,7 +645,7 @@ setup_iran_server() {
 
     prompt_port BIND_PORT "Enter FRP Bind Port" "7000"
 
-    AUTO_TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16 2>/dev/null || openssl rand -hex 8)
+    AUTO_TOKEN=$(gen_token32)
     prompt_token TOKEN "Enter Secret Auth Token" "$AUTO_TOKEN"
 
     # single source of truth: GRE + frps + panel all happen inside
@@ -628,7 +685,7 @@ menu_add_peer() {
     SU_FP=$((7000 + NEXT_ID - 1)); is_valid_port "$SU_FP" || SU_FP=7000
     SU_LG="10.1${NEXT_ID}.0.2"; SU_PG="10.1${NEXT_ID}.0.1"
     prompt_port CPORT "Enter FRP Control Port (unique per peer)" "$SU_FP"
-    AUTO_TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16 2>/dev/null || openssl rand -hex 8)
+    AUTO_TOKEN=$(gen_token32)
     prompt_token TOKEN "Peer token (each peer gets its own)" "$AUTO_TOKEN"
     prompt_ip LGRE "Local GRE IP (unique per peer)" "$SU_LG"
     prompt_ip PGRE "Peer GRE IP" "$SU_PG"
@@ -1145,9 +1202,10 @@ main_menu() {
     echo "13) Add Peer Tunnel (Iran: connect another foreign server)"
     echo "14) List Peer Tunnels"
     echo "15) Remove Peer Tunnel"
+    echo "16) Panel HTTPS (Let's Encrypt certificate)"
     echo "0) Exit"
     echo ""
-    read -p "Select an option [0-15]: " OPTION
+    read -p "Select an option [0-16]: " OPTION
 
     case "$OPTION" in
         1)
@@ -1195,6 +1253,9 @@ main_menu() {
         15)
             menu_remove_peer
             ;;
+        16)
+            panel_tls_issue
+            ;;
         0)
             echo "Exiting..."
             exit 0
@@ -1218,6 +1279,7 @@ Usage:
   bash gre.sh status | remove-tunnel [--force] | show-panel-url
   bash gre.sh add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL]
   bash gre.sh remove-peer --id N [--force] | peer-list | peer-token --id N
+  bash gre.sh panel-tls [domain] [email]   # Let's Encrypt for the web panel
   bash gre.sh optimize | restore | tune-status
 EOF
 }
@@ -1240,7 +1302,7 @@ cli_setup_iran() {
     validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$LOCAL_GRE" || return 1
     is_valid_ip "$PEER_GRE" || { echo -e "${RED}[!] Invalid peer GRE IP: '$PEER_GRE'${NC}"; return 1; }
     if [[ -z "$TOKEN" ]]; then
-        TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16 2>/dev/null || openssl rand -hex 8)
+        TOKEN=$(gen_token32)
         echo -e "${CYAN}[*] Generated token: ${TOKEN}${NC}"
     fi
     if tunnel_present && [[ "$FORCE" -ne 1 ]]; then
@@ -1295,6 +1357,7 @@ if [[ $# -gt 0 ]]; then
             while [[ $# -gt 0 ]]; do case "$1" in --id) ID="$2"; shift 2 ;; *) shift ;; esac; done
             peer_token "$ID" ;;
         status) check_status ;;
+        panel-tls) shift; panel_tls_issue "$@" ;;
         optimize) tune_apply ;;
         restore) tune_restore ;;
         tune-status) tune_status ;;

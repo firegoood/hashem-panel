@@ -576,6 +576,18 @@
           <div class="qs-actions"><button class="hashem-btn hashem-btn-secondary" id="termToggleBtn">Enable terminal</button></div>
           <div class="qs-hint" id="termFlagMsg">Terminal tab is hidden until enabled.</div>
         </div>
+        <div class="tunnel-card">
+          <div class="tc-header"><p class="tc-title">HTTPS certificate</p><span class="status-indicator" id="tlsDot"><span class="dot"></span><span id="tlsDotTxt">—</span></span></div>
+          <div class="qs-hint">Let's Encrypt for this panel (HTTP keeps working on its port). Domain must point to this server + port 80 reachable. Certbot renews automatically; this page shows expiry.</div>
+          <div class="fg"><label for="tlsDomain">Panel domain</label><input class="hashem-input" id="tlsDomain" placeholder="panel.example.com" autocomplete="off" spellcheck="false"></div>
+          <div class="fg"><label for="tlsEmail">Email for expiry notices (optional)</label><input class="hashem-input" id="tlsEmail" placeholder="you@example.com" autocomplete="off" spellcheck="false"></div>
+          <div id="tlsInfo" class="qs-hint">Not checked yet.</div>
+          <div class="qs-actions">
+            <button class="hashem-btn hashem-btn-primary" id="tlsIssueBtn">Get certificate</button>
+            <button class="hashem-btn hashem-btn-secondary" id="tlsRenewBtn">Renew now</button>
+          </div>
+          <div class="qs-hint" id="tlsMsg">HTTPS appears on port 7443 after the first certificate.</div>
+        </div>
       </section>
       <section id="tab-terminal" hidden>
         <div class="tunnel-card">
@@ -1193,7 +1205,7 @@ function doLogin() {
     try {
       await api('/api/login', {username: $('u').value, password: $('p').value});
       $('p').value = ''; $('loginErr').textContent = '';
-      showApp(); refresh(); loadSetupDefaults(); loadVersion(); termFlagRefresh();
+      showApp(); refresh(); loadSetupDefaults(); loadVersion(); termFlagRefresh(); tlsRefresh();
     } catch(e) { $('loginErr').textContent = e.message; }
   })();
 }
@@ -1664,9 +1676,47 @@ $('termSearchInput').addEventListener('keydown', e => { if (e.key === 'Enter') t
 document.querySelectorAll('#termKeys button').forEach(b => b.onclick = () => { termSend({v:1, t:'in', d: b.dataset.k}); termState.term && termState.term.focus(); });
 window.addEventListener('resize', () => { if (!$('tab-terminal').hidden && termState.fit) { try { termState.fit.fit(); termSendResize(); } catch(_){} } });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('termWrap').classList.contains('full')) { $('termWrap').classList.remove('full'); try { termState.fit.fit(); termSendResize(); } catch(_){} } });
+// ---------- panel TLS (Settings: Let's Encrypt via certbot) ----------
+async function tlsRefresh() {
+  try {
+    const s = await api('/api/tls');
+    const dot = $('tlsDot');
+    if (dot) { dot.className = 'status-indicator ' + (s.enabled ? 'active' : (s.days_left != null && s.days_left < 15 ? 'offline' : '')); $('tlsDotTxt').textContent = s.enabled ? (s.days_left != null ? s.days_left + ' days left' : 'enabled') : 'no certificate'; }
+    const info = $('tlsInfo');
+    if (info) info.innerHTML = s.enabled
+      ? 'Domain <b>' + esc(s.domain || '') + '</b> · expires <b>' + esc(s.expiry || '') + '</b>' + (s.days_left != null ? ' (' + esc(String(s.days_left)) + ' days)' : '') + '<br>HTTPS: <b>' + esc(s.https_url || '') + '</b><br>HTTP still works: ' + esc(s.http_url || '')
+      : 'No certificate yet. Enter the domain above — it must resolve to this server and port 80 must be reachable.';
+    const msg = $('tlsMsg');
+    if (msg) msg.textContent = s.enabled ? ('HTTPS serves on port ' + (s.https_port || 7443) + ' alongside HTTP on ' + (s.http_port || 7777) + '.') : 'HTTPS appears on port 7443 after the first certificate.';
+    if (s.enabled && !s.expiring_soon) { /* healthy */ }
+    if (s.enabled && s.expiring_soon) toastWarn('certificate expiring soon', (s.expiry || '') + ' — Renew now or wait for certbot auto-renew.');
+    if (s.domain && !$('tlsDomain').value) $('tlsDomain').value = s.domain;
+  } catch(e) { /* leave placeholder text */ }
+}
+$('tlsIssueBtn').onclick = async () => {
+  const domain = $('tlsDomain').value.trim();
+  if (!domain) { toastWarn('domain required', 'Enter the panel domain first (e.g. panel.example.com).'); return; }
+  if (!await entConfirm('Get HTTPS certificate?', 'Certbot will issue a Let\'s Encrypt certificate for ' + domain + ' (needs port 80 + DNS pointing here). HTTP keeps working.', 'Get certificate')) return;
+  const b = $('tlsIssueBtn'); b.disabled = true; b.textContent = 'Issuing… (up to 60s)';
+  try {
+    const r = await api('/api/tls', {domain, email: $('tlsEmail').value.trim()});
+    toastOk('certificate installed', 'HTTPS: ' + (r.https_url || ''));
+    tlsRefresh();
+  } catch(e) { toastErr('certificate failed', e.message); }
+  b.disabled = false; b.textContent = 'Get certificate';
+};
+$('tlsRenewBtn').onclick = async () => {
+  const b = $('tlsRenewBtn'); b.disabled = true; b.textContent = 'Renewing…';
+  try {
+    const r = await api('/api/tls/renew', {});
+    toastOk('certificate renewed', 'Expires: ' + (r.expiry || ''));
+    tlsRefresh();
+  } catch(e) { toastErr('renew failed', e.message); }
+  b.disabled = false; b.textContent = 'Renew now';
+};
 // boot: if already logged in, status works; else show login
 (async () => {
-  try { await api('/api/status'); showApp(); refresh(); loadSetupDefaults(); loadVersion(); termFlagRefresh(); }
+  try { await api('/api/status'); showApp(); refresh(); loadSetupDefaults(); loadVersion(); termFlagRefresh(); tlsRefresh(); }
   catch(e) { showLogin(); }
 })();
 setInterval(() => { if (!$('app').classList.contains('hidden')) refresh(); }, 15000);

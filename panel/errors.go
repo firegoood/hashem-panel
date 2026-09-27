@@ -89,6 +89,16 @@ var errCatalog = map[string]errInfo{
 	"E-TERM-09": {440, "terminal session reached 30 minute cap (killed)", "Reconnect for a fresh shell."},
 	"E-TERM-10": {400, "no active terminal session", "Nothing to kill — connect first."},
 	"E-TERM-11": {400, "bad terminal flag request", "Send {\"enabled\":true|false}."},
+	// panel TLS (Let's Encrypt)
+	"E-TLS-00": {0, "TLS certificate installed", "Informational: HTTPS is now served alongside HTTP."},
+	"E-TLS-01": {400, "bad TLS request (invalid JSON)", "Reload the page and resubmit the form."},
+	"E-TLS-02": {400, "invalid domain name", "Enter the panel domain exactly (e.g. panel.example.com) — it must point to this server."},
+	"E-TLS-03": {400, "https port must be 1-65535", "Use 7443 (default) or another free port."},
+	"E-TLS-04": {500, "certbot not installed", "Install certbot on this server first (apt install certbot), then retry."},
+	"E-TLS-05": {502, "certificate issue/renew failed", "Port 80 must be reachable and the domain must resolve to this server."},
+	"E-TLS-06": {500, "cannot install certificate", "Disk write failed — check /etc/gre-panel permissions."},
+	"E-TLS-07": {400, "no certificate to renew", "Issue a certificate first from the Settings tab."},
+	"E-TLS-08": {500, "HTTPS listener failed", "Port in use or bad cert — HTTP still works; check the error detail."},
 }
 
 type errEvent struct {

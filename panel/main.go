@@ -31,15 +31,27 @@ type panelConfig struct {
 	// TerminalEnabled gates the Phase 3 interactive terminal tab
 	// (feature flag, default off; user enables after testing).
 	TerminalEnabled bool `json:"terminal_enabled,omitempty"`
+	// TLSPort is the HTTPS listener port (default 7443). HTTP stays on Port.
+	TLSPort int `json:"tls_port,omitempty"`
 }
 
 func termEnabled() bool { return cfg.TerminalEnabled }
+
+// effectiveTLSPort returns the HTTPS port (7443 default when unset).
+func effectiveTLSPort() int {
+	if cfg.TLSPort < 1 || cfg.TLSPort > 65535 {
+		return 7443
+	}
+	return cfg.TLSPort
+}
 
 var (
 	cfg panelConfig
 	// panelVersion is set at release build time:
 	// go build -ldflags "-X main.panelVersion=panel-rN"
 	panelVersion = "dev"
+	// panelMux is shared between the HTTP listener and the HTTPS listener.
+	panelMux *http.ServeMux
 )
 
 func cfgPath() string { return filepath.Join(configDir, "panel.json") }
@@ -114,6 +126,7 @@ func main() {
 
 	base := "/" + cfg.BasePath
 	mux := http.NewServeMux()
+	panelMux = mux
 	mux.HandleFunc("GET "+base+"/", serveIndex)
 	mux.HandleFunc("GET "+base+"/tokens.css", serveAsset("tokens.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET "+base+"/base.css", serveAsset("base.css", "text/css; charset=utf-8"))
@@ -142,9 +155,14 @@ func main() {
 	mux.HandleFunc("POST "+base+"/api/setup", requireAuth(handleSetupPost))
 	mux.HandleFunc("GET "+base+"/api/peers", requireAuth(handlePeersGet))
 	mux.HandleFunc("POST "+base+"/api/peers", requireAuth(handlePeersPost))
+	mux.HandleFunc("GET "+base+"/api/tls", requireAuth(handleTLSGet))
+	mux.HandleFunc("POST "+base+"/api/tls", requireAuth(handleTLSIssue))
+	mux.HandleFunc("POST "+base+"/api/tls/renew", requireAuth(handleTLSRenew))
+
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("gre-panel listening on %s under /%s", addr, cfg.BasePath)
+	go startHTTPSListener()
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 

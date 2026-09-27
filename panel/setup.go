@@ -135,7 +135,7 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 	// so the user picks another port instead of silently breaking a peer.
 	if body.Role == "add-peer" {
 		if body.Autogen || body.Token == "" {
-			body.Token = randomToken(16)
+			body.Token = randomToken(32)
 		}
 		if len(loadPeers()) >= 5 {
 			writeAPIError(w, r, "E-PEER-01", "")
@@ -254,7 +254,7 @@ func runInstaller(b setupRequest, ports []int) (string, []string, error) {
 			"--ports", strings.Join(strs, ","),
 		}
 	} else if b.Role == "iran" {
-		token = randomToken(16)
+		token = randomToken(32)
 		args = []string{"setup-iran",
 			"--local-pub", b.LocalPub, "--remote-pub", b.RemotePub,
 			"--frp-port", strconv.Itoa(b.FrpPort),
