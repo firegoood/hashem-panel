@@ -993,6 +993,51 @@ tune_status() {
     [[ -f /etc/sysctl.d/99-gre-tune.conf ]] && echo "Persisted: yes (/etc/sysctl.d/99-gre-tune.conf)" || echo "Persisted: no"
 }
 
+# free_ram: drop page caches + compact memory + journald cap + ensure 1G swap.
+# Safe on any Ubuntu host: no service is touched, kernel reclaims only
+# discardable cache; swap is created once and reused afterwards.
+free_ram() {
+    echo -e "${CYAN}[*] Freeing RAM (safe: caches only, no service touched)...${NC}"
+    local before
+    before=$(free -m | awk '/^Mem:/{print $7}')
+    # 1. journald cap (the #1 silent RAM eater on Ubuntu: 100M+ in RAM)
+    if [[ -f /etc/systemd/journald.conf ]]; then
+        sed -i 's/^#*SystemMaxUse=.*/SystemMaxUse=32M/' /etc/systemd/journald.conf
+        sed -i 's/^#*RuntimeMaxUse=.*/RuntimeMaxUse=16M/' /etc/systemd/journald.conf
+        grep -q '^SystemMaxUse=32M' /etc/systemd/journald.conf || echo 'SystemMaxUse=32M' >> /etc/systemd/journald.conf
+        grep -q '^RuntimeMaxUse=16M' /etc/systemd/journald.conf || echo 'RuntimeMaxUse=16M' >> /etc/systemd/journald.conf
+        journalctl --vacuum-size=16M >/dev/null 2>&1
+        systemctl restart systemd-journald >/dev/null 2>&1
+        echo -e "${GREEN}[✔️] journald capped at 16M (was the main RAM eater)${NC}"
+    fi
+    # 2. drop page caches + compact
+    sync
+    echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+    echo 1 > /proc/sys/vm/compact_memory 2>/dev/null
+    echo -e "${GREEN}[✔️] page cache dropped + memory compacted${NC}"
+    # 3. ensure 1G swap (safety net for 1GB VPS)
+    if ! swapon --show 2>/dev/null | grep -q '/swapfile'; then
+        echo -e "${CYAN}[*] Creating 1G swapfile...${NC}"
+        if fallocate -l 1G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=1024 2>/dev/null; then
+            chmod 600 /swapfile
+            mkswap /swapfile >/dev/null 2>&1
+            swapon /swapfile >/dev/null 2>&1
+            grep -q '/swapfile' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+            echo -e "${GREEN}[✔️] 1G swap created${NC}"
+        else
+            echo -e "${YELLOW}[!] Could not create swapfile (disk full?)${NC}"
+        fi
+    else
+        echo -e "${GREEN}[✔️] swap already active${NC}"
+    fi
+    sysctl -w vm.swappiness=15 >/dev/null 2>&1
+    echo 'vm.swappiness=15' > /etc/sysctl.d/99-swappiness.conf 2>/dev/null
+    local after
+    after=$(free -m | awk '/^Mem:/{print $7}')
+    echo -e "${GREEN}[✔️] Available RAM: ${before}M → ${after}M${NC}"
+    free -m | head -2
+}
+
 install_panel() {
     echo -e "${CYAN}[*] Installing Hashem web panel...${NC}"
 
@@ -1230,9 +1275,10 @@ main_menu() {
     echo "15) Remove Peer Tunnel"
     echo "16) Panel HTTPS (Let's Encrypt certificate)"
     echo "17) hashem CLI help (non-interactive commands)"
+    echo "18) Free RAM (journald cap 16M + drop cache + 1GB swap)"
     echo "0) Exit"
     echo ""
-    read -p "Select an option [0-17]: " OPTION
+    read -p "Select an option [0-18]: " OPTION
 
     case "$OPTION" in
         1)
@@ -1286,6 +1332,9 @@ main_menu() {
         17)
             usage_cli
             ;;
+        18)
+            free_ram
+            ;;
         0)
             echo "Exiting..."
             exit 0
@@ -1311,6 +1360,7 @@ Usage:
   hashem remove-peer --id N [--force] | peer-list | peer-token --id N
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash gre.sh ...)
   hashem optimize | restore | tune-status
+  hashem free-ram                            # cap journald + drop cache + 1GB swap
 EOF
 }
 
@@ -1393,6 +1443,7 @@ if [[ $# -gt 0 ]]; then
         optimize) tune_apply ;;
         restore) tune_restore ;;
         tune-status) tune_status ;;
+        free-ram|optimize-ram) free_ram ;;
         remove-tunnel)
             if [[ "${2:-}" == "--force" ]]; then remove_tunnel_force; else remove_tunnel; fi ;;
         show-panel-url) show_panel_url ;;

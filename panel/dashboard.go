@@ -174,13 +174,17 @@ func loadAvg() any {
 	return strings.Join(f[:3], " ")
 }
 
+// memInfo reports RAM usage the way operators expect: real process memory
+// plus reclaimable page cache (file cache the kernel frees on demand) is
+// excluded — "used" stays honest while "cache" is shown separately so the
+// dashboard never looks alarming on a healthy machine.
 func memInfo() map[string]any {
-	out := map[string]any{"used": nil, "total": nil, "pct": nil}
+	out := map[string]any{"used": nil, "total": nil, "pct": nil, "cache": nil}
 	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
 		return out
 	}
-	var total, avail uint64
+	var total, avail, cached, buffers, sreclaim uint64
 	for _, line := range strings.Split(string(data), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 2 {
@@ -195,15 +199,23 @@ func memInfo() map[string]any {
 			total = v * 1024
 		case "MemAvailable:":
 			avail = v * 1024
+		case "Cached:":
+			cached = v * 1024
+		case "Buffers:":
+			buffers = v * 1024
+		case "SReclaimable:":
+			sreclaim = v * 1024
 		}
 	}
 	if total == 0 {
 		return out
 	}
+	cache := cached + buffers + sreclaim
 	used := total - avail
 	out["used"] = used
 	out["total"] = total
 	out["pct"] = fmt.Sprintf("%.1f", float64(used)*100/float64(total))
+	out["cache"] = cache
 	return out
 }
 
