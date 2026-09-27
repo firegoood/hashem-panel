@@ -111,6 +111,14 @@
   @media (max-width:640px) { .qs-row { grid-template-columns:1fr; } }
   .fg { display:grid; gap:6px; font-size:var(--fs-small); color:var(--mu); }
   .qs-actions { display:flex; gap:10px; flex-wrap:wrap; }
+  .qs-step[hidden] { display:none; }
+  #iranFields { border:0; padding:0; margin:0; display:grid; gap:10px; min-width:0; }
+  #iranFields[disabled] { opacity:.55; }
+  #iranFields[disabled] input { pointer-events:none; }
+  #setupLockWarn { border-width:2px; }
+  details.qs-adv { border:1px solid var(--ln); border-radius:var(--r-md); padding:10px 12px; background:var(--s2); }
+  details.qs-adv summary { cursor:pointer; font-size:var(--fs-body); font-weight:600; color:var(--tx); }
+  details.qs-adv summary:hover { color:var(--ac); }
   .warnbox { background:var(--wr-soft);
     border:1px solid color-mix(in srgb, var(--wr) 40%, transparent);
     border-radius:var(--r-md); padding:12px 14px; font-size:var(--fs-body); color:var(--tx2);
@@ -407,7 +415,6 @@
       <button class="nav-item on" data-tab="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Dashboard</span></button>
       <div class="nav-sec">Tunnel</div>
       <button class="nav-item" data-tab="tunnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span>Tunnel</span></button>
-      <button class="nav-item hidden" data-tab="add-peer" id="navAddPeer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg><span>Add Peer</span></button>
       <button class="nav-item" data-tab="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span>Setup</span></button>
       <button class="nav-item" data-tab="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Logs</span></button>
       <div class="nav-sec">System</div>
@@ -526,30 +533,6 @@
           <div class="qs-hint" id="tuneHint">Optimize: BBR + 16MB buffers + backlog + forwarding + GRE MTU 1448 + MSS clamp. Backs up current settings first — Restore brings them back.</div>
         </div>
       </section>
-      <section id="tab-add-peer" hidden>
-        <div class="tunnel-card" id="addPeerCard">
-          <div class="tc-header"><p class="tc-title">➕ Connect another foreign server</p><span class="qs-hint" id="peerCountHint"></span></div>
-          <div class="qs-hint" style="border-left:3px solid var(--ac);padding-left:10px">✅ <b>This is the safe way to add a server.</b> It creates a <b>separate</b> tunnel with its own token — existing tunnels keep running untouched. (Re-running <b>Setup</b> instead would replace this server's tunnel and disconnect old Foreign sides.)</div>
-          <div class="qs-body" style="display:grid;gap:10px">
-            <div class="fg"><label for="pName">Name (label for this tunnel)</label><input class="hashem-input" id="pName" placeholder="e.g. germany-1" maxlength="32"></div>
-            <div class="qs-row">
-              <div class="fg"><label for="pRemotePub">Foreign public IP</label><input class="hashem-input" id="pRemotePub" inputmode="decimal" placeholder="e.g. 203.0.113.10"></div>
-              <div class="fg"><label for="pLocalPub">Iran public IP (auto, editable)</label><input class="hashem-input" id="pLocalPub" inputmode="decimal"></div>
-              <div class="fg"><label for="pLocalGre">Iran GRE IP (unique)</label><input class="hashem-input" id="pLocalGre" inputmode="decimal" placeholder="e.g. 10.11.0.2"></div>
-              <div class="fg"><label for="pPeerGre">Foreign GRE IP</label><input class="hashem-input" id="pPeerGre" inputmode="decimal" placeholder="e.g. 10.11.0.1"></div>
-              <div class="fg"><label for="pFrpPort">Control port (unique per peer)</label><input class="hashem-input" id="pFrpPort" inputmode="numeric" placeholder="e.g. 7001"></div>
-              <div class="fg"><label for="pPorts">Reverse ports (comma-separated)</label><input class="hashem-input" id="pPorts" placeholder="443, 2083"></div>
-            </div>
-            <div class="qs-hint">Each peer gets its own token. Ports already used by another tunnel are rejected — pick a different one.</div>
-            <div id="peerWarn" class="warnbox hidden"></div>
-            <div id="peerToken" class="tokenbox hidden"></div>
-            <div class="qs-actions">
-              <button class="hashem-btn hashem-btn-primary" id="addPeerBtn">Add tunnel</button>
-            </div>
-            <pre id="peerOut" class="logs hidden"></pre>
-          </div>
-        </div>
-      </section>
       <section id="tab-setup" hidden>
         <div class="qs" id="setupCard">
           <div class="qs-head">
@@ -571,44 +554,86 @@
             <input type="hidden" id="sRole" value="iran">
             <div class="qs-hint">Pick one. Iran always listens; Foreign always dials.</div>
           </div></div>
-          <div class="qs-step" id="foreignJoinStep" hidden><span class="qs-num">🔗</span><div class="qs-body">
-            <label class="qs-label">Connect this server to Iran</label>
-            <div style="display:grid;gap:10px">
-              <div class="fg"><label for="jToken">Token (from Iran side — 32 chars)</label><input class="hashem-input" id="jToken" autocomplete="off" placeholder="paste the token from Iran"></div>
-              <div class="fg"><label for="jPorts">Reverse ports (comma-separated)</label><input class="hashem-input" id="jPorts" placeholder="443, 2083, 8080"></div>
-              <div class="qs-hint">Leave all fields below empty to auto-join — the panel discovers Iran's settings. Only fill them if auto-join fails.</div>
-              <div id="joinWarn" class="warnbox hidden"></div>
+          <div id="iranWrap">
+            <div class="qs-step"><span class="qs-num">2</span><div class="qs-body">
+              <label class="qs-label">The two ends</label>
+              <fieldset id="iranFields">
+                <div class="qs-row">
+                  <div class="fg"><label for="sLocalPub">Local public IP (auto-detected, editable)</label><input class="hashem-input" id="sLocalPub" inputmode="decimal"></div>
+                  <div class="fg"><label for="sRemotePub">Remote public IP (the other server)</label><input class="hashem-input" id="sRemotePub" inputmode="decimal" placeholder="e.g. 203.0.113.10"></div>
+                  <div class="fg"><label for="sLocalGre">Local GRE IP</label><input class="hashem-input" id="sLocalGre" inputmode="decimal"></div>
+                  <div class="fg"><label for="sPeerGre">Peer GRE IP</label><input class="hashem-input" id="sPeerGre" inputmode="decimal"></div>
+                  <div class="fg"><label for="sFrpPort">Control port</label><input class="hashem-input" id="sFrpPort" inputmode="numeric"></div>
+                </div>
+              </fieldset>
+            </div></div>
+            <div class="qs-step"><span class="qs-num">3</span><div class="qs-body">
+              <label class="qs-label">Token &amp; apply</label>
+              <div id="iranBox"><div class="qs-hint">Token is auto-generated. After setup, copy it to the Foreign side.</div></div>
+              <div id="setupLockWarn" class="warnbox hidden"></div>
+              <div id="setupWarn" class="warnbox hidden"></div>
+              <div id="setupToken" class="tokenbox hidden"></div>
               <div class="qs-actions">
-                <button class="hashem-btn hashem-btn-primary" id="joinBtn">Connect to Iran</button>
+                <button class="hashem-btn hashem-btn-primary" id="setupBtn">Apply setup</button>
+                <button class="hashem-btn hashem-btn-secondary hidden" id="setupUnlockBtn">Unlock to replace</button>
+                <button class="hashem-btn hashem-btn-primary hidden" id="setupAddBtn">Add another server instead</button>
+                <button class="hashem-btn hashem-btn-secondary hidden" id="setupRelockBtn">Keep locked</button>
               </div>
-              <pre id="joinOut" class="logs hidden"></pre>
+              <pre id="setupOut" class="logs hidden"></pre>
+            </div></div>
+          </div>
+          <div id="foreignWrap" hidden>
+            <div class="qs-step"><span class="qs-num">2</span><div class="qs-body">
+              <label class="qs-label">Connect this server to Iran</label>
+              <div style="display:grid;gap:10px">
+                <div class="fg"><label for="jToken">Token (from Iran side — 32 chars)</label><input class="hashem-input" id="jToken" autocomplete="off" placeholder="paste the token from Iran"></div>
+                <div class="fg"><label for="jPorts">Reverse ports (comma-separated)</label><input class="hashem-input" id="jPorts" placeholder="443, 2083, 8080"></div>
+                <div id="joinWarn" class="warnbox hidden"></div>
+                <div class="qs-actions">
+                  <button class="hashem-btn hashem-btn-primary" id="joinBtn">Connect to Iran</button>
+                </div>
+                <pre id="joinOut" class="logs hidden"></pre>
+              </div>
+            </div></div>
+            <div class="qs-step"><span class="qs-num">3</span><div class="qs-body">
+              <label class="qs-label">Advanced (optional)</label>
+              <details class="qs-adv" id="foreignAdv">
+                <summary>Manual addresses &amp; control port</summary>
+                <div class="qs-hint" style="margin:8px 0">Leave everything here empty to auto-join — the panel discovers Iran's settings from the live tunnel. Only fill these in if auto-join fails.</div>
+                <div class="qs-row">
+                  <div class="fg"><label for="fLocalPub">Local public IP</label><input class="hashem-input" id="fLocalPub" inputmode="decimal"></div>
+                  <div class="fg"><label for="fRemotePub">Iran public IP</label><input class="hashem-input" id="fRemotePub" inputmode="decimal" placeholder="e.g. 203.0.113.10"></div>
+                  <div class="fg"><label for="fLocalGre">Local GRE IP</label><input class="hashem-input" id="fLocalGre" inputmode="decimal" placeholder="e.g. 10.10.10.1"></div>
+                  <div class="fg"><label for="fPeerGre">Iran GRE IP</label><input class="hashem-input" id="fPeerGre" inputmode="decimal" placeholder="e.g. 10.10.10.2"></div>
+                  <div class="fg"><label for="fFrpPort">Control port</label><input class="hashem-input" id="fFrpPort" inputmode="numeric" placeholder="7000"></div>
+                </div>
+              </details>
+            </div></div>
+          </div>
+          <div class="qs-step" id="setupAddPeerStep"><span class="qs-num">+</span><div class="qs-body">
+            <label class="qs-label">Add another foreign server (keeps this tunnel)</label>
+            <div class="tunnel-card" id="addPeerCard">
+              <div class="tc-header"><p class="tc-title">➕ Connect another foreign server</p><span class="qs-hint" id="peerCountHint"></span></div>
+              <div class="qs-hint" style="border-left:3px solid var(--ac);padding-left:10px">✅ <b>This is the safe way to add a server.</b> It creates a <b>separate</b> tunnel with its own token — existing tunnels keep running untouched. (Re-running the Iran form above instead would replace this server's tunnel and disconnect old Foreign sides.)</div>
+              <div class="qs-body" style="display:grid;gap:10px">
+                <div class="fg"><label for="pName">Name (label for this tunnel)</label><input class="hashem-input" id="pName" placeholder="e.g. germany-1" maxlength="32"></div>
+                <div class="qs-row">
+                  <div class="fg"><label for="pRemotePub">Foreign public IP</label><input class="hashem-input" id="pRemotePub" inputmode="decimal" placeholder="e.g. 203.0.113.10"></div>
+                  <div class="fg"><label for="pLocalPub">Iran public IP (auto, editable)</label><input class="hashem-input" id="pLocalPub" inputmode="decimal"></div>
+                  <div class="fg"><label for="pLocalGre">Iran GRE IP (unique)</label><input class="hashem-input" id="pLocalGre" inputmode="decimal" placeholder="e.g. 10.11.0.2"></div>
+                  <div class="fg"><label for="pPeerGre">Foreign GRE IP</label><input class="hashem-input" id="pPeerGre" inputmode="decimal" placeholder="e.g. 10.11.0.1"></div>
+                  <div class="fg"><label for="pFrpPort">Control port (unique per peer)</label><input class="hashem-input" id="pFrpPort" inputmode="numeric" placeholder="e.g. 7001"></div>
+                  <div class="fg"><label for="pPorts">Reverse ports (comma-separated)</label><input class="hashem-input" id="pPorts" placeholder="443, 2083"></div>
+                </div>
+                <div class="qs-hint">Each peer gets its own token. Ports already used by another tunnel are rejected — pick a different one.</div>
+                <div id="peerWarn" class="warnbox hidden"></div>
+                <div id="peerToken" class="tokenbox hidden"></div>
+                <div class="qs-actions">
+                  <button class="hashem-btn hashem-btn-primary" id="addPeerBtn">Add tunnel</button>
+                </div>
+                <pre id="peerOut" class="logs hidden"></pre>
+              </div>
             </div>
-          </div></div>
-          <div class="qs-step" id="setupNormalStep"><span class="qs-num">2</span><div class="qs-body">
-            <label class="qs-label">The two ends</label>
-            <div class="qs-row">
-              <div class="fg"><label for="sLocalPub">Local public IP (auto-detected, editable)</label><input class="hashem-input" id="sLocalPub" inputmode="decimal"></div>
-              <div class="fg"><label for="sRemotePub">Remote public IP (the other server)</label><input class="hashem-input" id="sRemotePub" inputmode="decimal" placeholder="e.g. 203.0.113.10"></div>
-              <div class="fg"><label for="sLocalGre">Local GRE IP</label><input class="hashem-input" id="sLocalGre" inputmode="decimal"></div>
-              <div class="fg"><label for="sPeerGre">Peer GRE IP</label><input class="hashem-input" id="sPeerGre" inputmode="decimal"></div>
-              <div class="fg"><label for="sFrpPort">Control port</label><input class="hashem-input" id="sFrpPort" inputmode="numeric"></div>
-            </div>
-          </div></div>
-          <div class="qs-step" id="setupStep3"><span class="qs-num">3</span><div class="qs-body">
-            <label class="qs-label">Token &amp; ports</label>
-            <div id="iranBox"><div class="qs-hint">Token is auto-generated. After setup, copy it to the Foreign side.</div></div>
-            <div id="foreignBox" class="hidden" style="display:grid;gap:10px">
-              <div class="fg"><label for="sToken">Token (from Iran side)</label><input class="hashem-input" id="sToken" autocomplete="off"></div>
-              <div class="fg"><label for="sPorts">Reverse ports (comma-separated)</label><input class="hashem-input" id="sPorts" placeholder="443, 2083, 8080"></div>
-            </div>
-            <div id="setupHaveBox" class="hidden" style="display:grid;gap:8px;margin-top:10px"></div>
-            <div id="setupWarn" class="warnbox hidden"></div>
-            <div id="setupToken" class="tokenbox hidden"></div>
-            <div class="qs-actions">
-              <button class="hashem-btn hashem-btn-primary" id="setupBtn">Apply setup</button>
-              <button class="hashem-btn hashem-btn-danger hidden" id="setupForceBtn">Overwrite anyway</button>
-            </div>
-            <pre id="setupOut" class="logs hidden"></pre>
           </div></div>
         </div>
       </section>
@@ -837,7 +862,8 @@ function skel(n) {
 function goTab(name) {
   if (name === 'terminal' && !$('termNav').classList.contains('hidden') && $('tab-terminal').hidden && !termState.ready) { /* allowed: overlay shows connect */ }
   if (name === 'terminal' && $('termNav').classList.contains('hidden')) return; // flag off: tab doesn't exist
-  ['dashboard','tunnel','add-peer','setup','logs','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
+  if (name === 'add-peer') { goTab('setup'); const c = $('setupAddPeerStep'); if (c && c.scrollIntoView) c.scrollIntoView({behavior: 'smooth', block: 'start'}); return; }
+  ['dashboard','tunnel','setup','logs','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
   document.querySelectorAll('.sidebar-nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   const dr = $('drawerNav');
   if (dr) dr.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
@@ -853,11 +879,9 @@ function drawerSync() {
   const nav = $('drawerNav'); if (!nav) return;
   nav.innerHTML = $('sideNav') ? $('sideNav').innerHTML : '';
   // strip duplicated ids from the clone (single source of truth stays in sidebar)
-  nav.querySelectorAll('#navAddPeer').forEach(b => b.removeAttribute('id'));
   nav.querySelectorAll('[data-tab]').forEach(b => {
     b.onclick = () => { goTab(b.dataset.tab); drawerClose(); };
     if (b.id === 'termNav') b.id = '';
-    if (b.dataset.tab === 'add-peer' && $('navAddPeer') && $('navAddPeer').classList.contains('hidden')) b.classList.add('hidden');
     if (b.querySelector('#updBadge')) b.querySelector('#updBadge').id = 'updBadgeM';
   });
   // hide the terminal entry in the drawer while the flag is off
@@ -923,7 +947,7 @@ function renderPeers(peers) {
   tunPeerCache = peers || null;
   try { renderTunChips(window._lastLocal || null); } catch(_){}
   if (!peers || !peers.length) {
-    box.innerHTML = '<div class="ent-empty" style="grid-column:1/-1"><span class="ent-empty-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span><b>No peer tunnels yet</b>Add one from the "Add Peer" tab.</div>';
+    box.innerHTML = '<div class="ent-empty" style="grid-column:1/-1"><span class="ent-empty-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span><b>No peer tunnels yet</b>Add one from Setup → Add another foreign server.</div>';
     return;
   }
   const stBadge = (ok, label) => `<span class="badge ${ok ? 'ok' : 'err'}"><span class="dot"></span>${esc(label)}</span>`;
@@ -1053,16 +1077,8 @@ async function refresh() {
     updatePeerHints(s);
     if (s.local) {
       const isForeign = /foreign/i.test(s.local.role || '') || (s.local.frp_svc === 'frpc');
-      const navAddPeer = $('navAddPeer');
-      if (navAddPeer) navAddPeer.classList.toggle('hidden', isForeign);
-      const drNav = $('drawerNav');
-      if (drNav) {
-        const dPeer = drNav.querySelector('[data-tab="add-peer"]');
-        if (dPeer) dPeer.classList.toggle('hidden', isForeign);
-      }
-      if (isForeign && !$('tab-add-peer').hidden) {
-        goTab('dashboard');
-      }
+      const ap = $('setupAddPeerStep');
+      if (ap) ap.hidden = isForeign;
     }
   } catch(e) { if (!/session|expired|unauthorized/i.test(e.message)) toastErr('refresh failed', e.message); }
   refreshDash();
@@ -1420,105 +1436,102 @@ async function refreshDash() {
     set('dashChecked', 'last check: ' + (d.checked || '—'));
   } catch(e) { /* keep old values; N/A already default */ }
 }
-// ---- setup form ----
+// ---- setup form (unified Setup tab: step 1 role, steps 2-3 per role, + add-peer card) ----
+let setupExists = false;
+let setupUnlocked = false;
 function setRole(role) {
   $('sRole').value = role;
   const iran = role === 'iran';
-  $('iranBox').classList.toggle('hidden', !iran);
-  $('foreignBox').classList.toggle('hidden', iran);
   $('roleIran').setAttribute('aria-pressed', iran);
   $('roleForeign').setAttribute('aria-pressed', !iran);
-  // role-specific Setup view: foreign JOIN card vs classic 3-step form.
-  // Iran: full classic form, join card hidden. Foreign (fresh): classic form
-  // with foreign fields visible, join card hidden. Foreign (live tunnel):
-  // join card visible, classic form steps hidden (keeps old tunnel safe).
-  const joinVisible = !iran && !$('foreignJoinStep').hidden;
-  $('setupNormalStep').hidden = joinVisible;
-  $('setupStep3') && ($('setupStep3').hidden = joinVisible);
-  if (iran) { $('sLocalGre').value = '10.10.10.2'; $('sPeerGre').value = '10.10.10.1'; }
-  else { $('sLocalGre').value = '10.10.10.1'; $('sPeerGre').value = '10.10.10.2'; }
+  $('iranWrap').hidden = !iran;
+  $('foreignWrap').hidden = iran;
+  // the add-peer card is an Iran-side action: hidden on foreign role
+  // (refresh() re-applies this from live status as well).
+  if ($('setupAddPeerStep')) $('setupAddPeerStep').hidden = !iran;
+  if (iran) { if (!$('sLocalGre').value) $('sLocalGre').value = '10.10.10.2'; if (!$('sPeerGre').value) $('sPeerGre').value = '10.10.10.1'; }
+  else { if (!$('fLocalGre').value) $('fLocalGre').value = '10.10.10.1'; if (!$('fPeerGre').value) $('fPeerGre').value = '10.10.10.2'; }
+  renderSetupLock();
 }
 $('roleIran').onclick = () => setRole('iran');
 $('roleForeign').onclick = () => setRole('foreign');
+// Locked form: when a tunnel exists the Iran fields are disabled and the
+// warnbox explains the two paths. Unlocking is the explicit replace consent
+// (no modal confirm, no second Overwrite button doing the same thing).
+function renderSetupLock() {
+  const iran = $('sRole').value !== 'foreign';
+  const locked = iran && setupExists && !setupUnlocked;
+  const fs = $('iranFields');
+  if (fs) fs.disabled = locked;
+  const lw = $('setupLockWarn');
+  if (lw) {
+    if (locked) {
+      lw.innerHTML = '⛔ A tunnel <b>already exists</b> on this server — the form is <b>locked</b> so it can\'t be replaced by accident. Applying a new setup generates a <b>new token</b> and old Foreign sides disconnect.';
+      lw.classList.remove('hidden');
+    } else lw.classList.add('hidden');
+  }
+  const show = (id, on) => { const el = $(id); if (el) el.classList.toggle('hidden', !on); };
+  if (!iran) { show('setupBtn', false); show('setupUnlockBtn', false); show('setupAddBtn', false); show('setupRelockBtn', false); return; }
+  if (!setupExists) {
+    $('setupBtn').textContent = 'Apply setup';
+    show('setupBtn', true); show('setupUnlockBtn', false); show('setupAddBtn', false); show('setupRelockBtn', false);
+  } else if (locked) {
+    show('setupBtn', false); show('setupUnlockBtn', true); show('setupAddBtn', true); show('setupRelockBtn', false);
+  } else {
+    $('setupBtn').textContent = 'Apply setup (replace)';
+    show('setupBtn', true); show('setupUnlockBtn', false); show('setupAddBtn', false); show('setupRelockBtn', true);
+  }
+}
+$('setupUnlockBtn').onclick = () => { setupUnlocked = true; renderSetupLock(); };
+$('setupRelockBtn').onclick = () => { setupUnlocked = false; renderSetupLock(); };
+$('setupAddBtn').onclick = () => { const c = $('setupAddPeerStep'); if (c && c.scrollIntoView) c.scrollIntoView({behavior: 'smooth', block: 'start'}); };
 async function loadSetupDefaults() {
   try {
     const d = await api('/api/setup');
-    $('sLocalPub').value = d.local_public || '';
+    setupExists = !!d.exists;
+    setupUnlocked = false;
+    if (!$('sLocalPub').value) $('sLocalPub').value = d.local_public || '';
+    if (!$('fLocalPub').value) $('fLocalPub').value = d.local_public || '';
     $('sLocalGre').value = '10.10.10.2'; $('sPeerGre').value = '10.10.10.1';
-    if (d.iran_gre) $('sLocalGre').value = d.iran_gre;
-    if (d.foreign_gre) $('sPeerGre').value = d.foreign_gre;
-    $('sFrpPort').value = d.frp_port || 7000;
+    $('fLocalGre').value = '10.10.10.1'; $('fPeerGre').value = '10.10.10.2';
+    if (d.iran_gre) { $('sLocalGre').value = d.iran_gre; $('fPeerGre').value = d.iran_gre; }
+    if (d.foreign_gre) { $('sPeerGre').value = d.foreign_gre; $('fLocalGre').value = d.foreign_gre; }
+    if (!$('sFrpPort').value) $('sFrpPort').value = d.frp_port || 7000;
+    if (!$('fFrpPort').value) $('fFrpPort').value = d.frp_port || 7000;
     const isForeignHost = d.role_guess && /foreign|frpc/.test(d.role_guess);
-    if (isForeignHost) setRole('foreign');
-    // Foreign hosts with an existing tunnel: hide the classic form entirely and
-    // show the join-by-token card instead (role-specific UI, not a silent actOut).
-    // Classic form would re-run setup-foreign (overwrite guard + stdin TLS prompt);
-    // the join card POSTs role=foreign directly with only token+ports required.
-    if (isForeignHost && d.exists) {
-      $('foreignJoinStep').hidden = false;
-      $('setupNormalStep').hidden = true;
-      const s3 = $('setupStep3'); if (s3) s3.hidden = true;
-    } else {
-      $('foreignJoinStep').hidden = true;
-      $('setupNormalStep').hidden = false;
-      const s3 = $('setupStep3'); if (s3) s3.hidden = false;
-    }
-    // Beginner guard: when a tunnel exists, explain the two paths BEFORE the
-    // user can break the live one — fresh setup (rewrites token, kills peers)
-    // vs adding another foreign server (keeps everything, new tunnel).
-    // This is the exact mistake that kills existing tunnels: re-running Iran
-    // setup regenerates the token, so old foreign sides stop matching.
-    const hb = $('setupHaveBox');
-    if (d.exists) {
-      const w = $('setupWarn');
-      w.innerHTML = '⛔ A tunnel <b>already exists</b> on this server. Pressing <b>Apply setup</b> below will <b>replace it</b> (new token — old Foreign sides disconnect).';
-      w.classList.remove('hidden');
-      $('setupForceBtn').classList.remove('hidden');
-      hb.classList.remove('hidden');
-      hb.innerHTML = '<div class="tokenbox" style="border-style:solid">✅ <b>Want to keep this tunnel and add another Foreign server?</b><br>Don\'t use this form — go to the <b>Tunnel tab → ➕ Connect another foreign server</b>. It creates a separate tunnel with its own token; this one keeps running untouched.</div>';
-    } else {
-      hb.classList.add('hidden');
-      hb.innerHTML = '';
-    }
+    setRole(isForeignHost ? 'foreign' : 'iran');
   } catch(e) {}
 }
-async function doSetup(force) {
-  // Last-chance guard: re-running setup on a live tunnel kills it (new token).
-  // Make the user explicitly confirm they want a REPLACE, and point beginners
-  // at the Tunnel tab when they actually want to ADD a server.
-  if (!force) {
-    try {
-      const d = await api('/api/setup');
-      if (d.exists) {
-        const ok = await entConfirm('Replace the existing tunnel?',
-          'This generates a NEW token and restarts FRP — the current tunnel and all connected Foreign servers disconnect until reconfigured with the new token.\n\nTo KEEP this tunnel and add another server instead, cancel and use Tunnel tab → ➕ Connect another foreign server.',
-          'Replace it');
-        if (!ok) return;
-      }
-    } catch(e) { /* status check failed: fall through to normal flow */ }
-  }
-  const btn = force ? $('setupForceBtn') : $('setupBtn');
+// Iran-only apply: token is auto-generated server-side. When a tunnel exists
+// the form must be unlocked first (the lock IS the replace consent).
+async function doSetup() {
+  if ($('sRole').value === 'foreign') return;
+  if (setupExists && !setupUnlocked) { toastWarn('form is locked', 'unlock to replace'); return; }
+  const btn = $('setupBtn');
   btn.disabled = true;
   const oldTxt = btn.textContent;
   btn.innerHTML = '<span class="ent-spinner"></span> Applying…';
   $('setupToken').classList.add('hidden');
+  $('setupWarn').classList.add('hidden');
   try {
     const body = {
-      role: $('sRole').value,
+      role: 'iran',
       local_public: $('sLocalPub').value.trim(),
       remote_public: $('sRemotePub').value.trim(),
       local_gre: $('sLocalGre').value.trim(),
       peer_gre: $('sPeerGre').value.trim(),
       frp_port: parseInt($('sFrpPort').value, 10),
-      token: $('sToken').value.trim(),
-      ports: $('sPorts').value,
-      force: !!force,
+      token: '',
+      ports: '',
+      force: setupExists,
     };
     let r;
     try {
       r = await api('/api/setup', body);
     } catch(e) {
-      if (/already exists/.test(e.message)) { toastWarn('exists — press Overwrite anyway', e.code ? '[' + e.code + ']' : ''); btn.disabled = false; btn.textContent = oldTxt; return; }
+      const w = $('setupWarn');
+      w.innerHTML = '⚠️ ' + esc(e.message);
+      w.classList.remove('hidden');
       toastErr('setup failed', e.message);
       btn.disabled = false;
       btn.textContent = oldTxt;
@@ -1532,17 +1545,17 @@ async function doSetup(force) {
       t.innerHTML = '🔑 Token (copy to Foreign side): <b>' + esc(r.token) + '</b>';
       t.classList.remove('hidden');
     }
-    toastOk('setup done', $('sRole').value);
-    refresh();
+    toastOk('setup done', 'iran');
+    setupUnlocked = false;
+    refresh(); loadSetupDefaults();
   } catch(e) { toastErr('setup failed', e.message); }
   btn.disabled = false;
   btn.textContent = oldTxt;
+  renderSetupLock();
 }
-$('setupBtn').onclick = () => doSetup(false);
-$('setupForceBtn').onclick = () => doSetup(true);
-// Foreign join-by-token card: connects this foreign server to Iran with only
-// token + ports. GRE IPs / public IPs / control port are discovered from the
-// live tunnel when present, so the dead overwrite path is never touched.
+$('setupBtn').onclick = () => doSetup();
+// Foreign join-by-token: only token + ports on the surface; the step-3
+// <details> advanced fields are the fallback when auto-discovery fails.
 $('joinBtn').onclick = async () => {
   const b = $('joinBtn');
   b.disabled = true;
@@ -1556,19 +1569,20 @@ $('joinBtn').onclick = async () => {
     const ports = $('jPorts').value.trim() || ((st.proxy_ports || []).join(', ') || (st.proxies || []).join(', '));
     if (!token) {
       const w = $('joinWarn');
-      w.innerHTML = '⚠️ Token is required — copy it from the Iran side (peer card → Token).';
+      w.innerHTML = '⚠️ Token is required — copy it from the Iran side (Setup tab → step 3 token box, or Tunnel tab peer card → Token).';
       w.classList.remove('hidden');
       b.disabled = false; b.textContent = oldTxt; return;
     }
-    // discover from live config; fall back to classic form values if present
+    // discover from live config; fall back to advanced fields, then Iran-form values
     const m = (st.gre || {});
+    const adv = id => { const el = $(id); return el ? el.value.trim() : ''; };
     const body = {
       role: 'foreign',
-      local_public: m.local || d.local_public || '',
-      remote_public: m.peer_ip || $('sRemotePub').value.trim(),
-      local_gre: (m.inner || '').split('/')[0] || $('sLocalGre').value.trim(),
-      peer_gre: peerInnerHint(st) || $('sPeerGre').value.trim(),
-      frp_port: st.frp_port || parseInt($('sFrpPort').value, 10) || 7000,
+      local_public: m.local || adv('fLocalPub') || d.local_public || $('sLocalPub').value.trim(),
+      remote_public: m.peer_ip || adv('fRemotePub') || $('sRemotePub').value.trim(),
+      local_gre: (m.inner || '').split('/')[0] || adv('fLocalGre') || $('sLocalGre').value.trim(),
+      peer_gre: peerInnerHint(st) || adv('fPeerGre') || $('sPeerGre').value.trim(),
+      frp_port: st.frp_port || parseInt(adv('fFrpPort') || $('sFrpPort').value, 10) || 7000,
       token, ports, force: true,
     };
     if (!body.ports) {
