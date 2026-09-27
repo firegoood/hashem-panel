@@ -436,9 +436,9 @@ peer_next_id() {
 
 # space-separated "port:peername" of all claimed reverse ports
 peer_ports_used() {
-    peer_require_py || return 1
+    peer_init; peer_require_py || return 1
     PEERS_F="$PEERS_FILE" python3 -c \
-'import json,os; d=json.load(open(os.environ["PEERS_F"])); print(" ".join(f"{p}:{r["name"]}" for r in d.get("peers",[]) for p in r.get("ports",[])))'
+'import json,os; d=json.load(open(os.environ["PEERS_F"])); print(" ".join(str(p) + ":" + str(r.get("name","")) for r in d.get("peers",[]) for p in r.get("ports",[])))'
 }
 
 # $1=id -> compact JSON record or empty
