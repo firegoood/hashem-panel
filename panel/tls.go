@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -229,6 +230,8 @@ func handleTLSRenew(w http.ResponseWriter, r *http.Request) {
 // startHTTPSListener serves the same mux over TLS when a cert exists.
 // Called at boot + after every issue/renew. Restart-safe: stops the
 // previous listener (if any) before binding, so renew doesn't stack.
+// Auto port: if the saved TLS port is busy (e.g. 7443 taken), scans
+// upward and persists the new port so the API/CLI display the real one.
 var httpsSrv *http.Server
 
 func startHTTPSListener() {
@@ -240,6 +243,13 @@ func startHTTPSListener() {
 		httpsSrv = nil
 	}
 	port := effectiveTLSPort()
+	if !portFree(port) {
+		next := pickFreePort(port + 1)
+		log.Printf("panel https port %d busy — auto-switched to %d (saved to panel.json)", port, next)
+		cfg.TLSPort = next
+		saveCfg()
+		port = next
+	}
 	httpsSrv = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: panelMux,

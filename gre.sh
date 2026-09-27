@@ -1091,6 +1091,11 @@ EOF
         echo ""
         echo -e "${CYAN}=== Panel credentials ===${NC}"
         show_panel_url
+        # auto port: if 7777 was busy the binary picked the next free one
+        _APORT=$(grep -o '"port": *[0-9]*' /etc/gre-panel/panel.json 2>/dev/null | grep -o '[0-9]*')
+        if [[ -n "$_APORT" && "$_APORT" != "7777" ]]; then
+            echo -e "${YELLOW}[!] Port 7777 was busy — panel auto-switched to ${_APORT} (saved, survives restarts).${NC}"
+        fi
     else
         echo -e "${RED}[!] Panel failed to start — see: journalctl -u gre-panel${NC}"
         return 1

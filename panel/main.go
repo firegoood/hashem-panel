@@ -12,9 +12,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -55,6 +57,72 @@ var (
 )
 
 func cfgPath() string { return filepath.Join(configDir, "panel.json") }
+
+func saveCfg() { _ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600) }
+
+// ---- auto port: never fail install when the HTTP/TLS port is taken ----
+
+// portFree reports whether TCP :port can be bound right now.
+func portFree(port int) bool {
+	ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
+// pickFreePort scans upward from start for the first bindable TCP port
+// (max 100 tries). Falls back to start so the caller errors naturally.
+func pickFreePort(start int) int {
+	for p := start; p < start+100 && p <= 65535; p++ {
+		if p < 1 {
+			continue
+		}
+		if portFree(p) {
+			return p
+		}
+	}
+	return start
+}
+
+// envPanelPort reads GRE_PANEL_PORT (set by gre.sh or the admin).
+// Returns 0 when unset/invalid.
+func envPanelPort() int {
+	v := strings.TrimSpace(os.Getenv("GRE_PANEL_PORT"))
+	if v == "" {
+		return 0
+	}
+	p, err := strconv.Atoi(v)
+	if err != nil || p < 1 || p > 65535 {
+		log.Printf("ignoring invalid GRE_PANEL_PORT=%q (must be 1-65535)", v)
+		return 0
+	}
+	return p
+}
+
+// ensureFreeHTTPPort guarantees cfg.Port is bindable: env override wins,
+// otherwise the saved port (or 7777 fresh) is kept; when busy we scan
+// upward and persist the new port so show_panel_url/displays stay correct.
+func ensureFreeHTTPPort() {
+	desired := cfg.Port
+	if p := envPanelPort(); p != 0 {
+		desired = p
+	} else if desired < 1 || desired > 65535 {
+		desired = 7777
+	}
+	if portFree(desired) {
+		if cfg.Port != desired {
+			cfg.Port = desired
+			saveCfg()
+		}
+		return
+	}
+	next := pickFreePort(desired + 1)
+	log.Printf("panel port %d busy — auto-switched to %d (saved to panel.json)", desired, next)
+	cfg.Port = next
+	saveCfg()
+}
 
 func loadOrInit() {
 	_ = os.MkdirAll(configDir, 0700)
@@ -120,6 +188,7 @@ func main() {
 		configDir = v
 	}
 	loadOrInit()
+	ensureFreeHTTPPort()
 	if _, err := rand.Read(nonce[:]); err != nil {
 		log.Fatal(err)
 	}
@@ -163,7 +232,20 @@ func main() {
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("gre-panel listening on %s under /%s", addr, cfg.BasePath)
 	go startHTTPSListener()
-	log.Fatal(http.ListenAndServe(addr, mux))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		next := pickFreePort(cfg.Port + 1)
+		log.Printf("panel port %d busy — auto-switched to %d (saved to panel.json)", cfg.Port, next)
+		cfg.Port = next
+		saveCfg()
+		addr = fmt.Sprintf(":%d", cfg.Port)
+		log.Printf("gre-panel listening on %s under /%s", addr, cfg.BasePath)
+		ln, err = net.Listen("tcp", addr)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	log.Fatal(http.Serve(ln, mux))
 }
 
 func serveAsset(name, ctype string) http.HandlerFunc {
