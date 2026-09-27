@@ -61,14 +61,14 @@ type termMsg struct {
 var termMu sync.Mutex
 
 type termSess struct {
-	id        string
-	pty       *os.File
-	cmd       *exec.Cmd
-	conn      *websocket.Conn
-	lastIn    time.Time
-	started   time.Time
-	pending   int
-	closed    chan struct{}
+	id       string
+	pty      *os.File
+	cmd      *exec.Cmd
+	conn     *websocket.Conn
+	lastIn   time.Time
+	started  time.Time
+	pending  int
+	closed   chan struct{}
 	closeOnce sync.Once
 }
 

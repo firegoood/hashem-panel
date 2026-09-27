@@ -206,8 +206,10 @@ func sessionFile() string { return filepath.Join(configDir, "sessions.json") }
 
 // syncPanelScript downloads the latest hashem.sh from main, syntax-checks
 // it with `bash -n`, and installs it where greScriptPath() reads from
-// (next to the running binary on servers).
-// best-effort: never blocks the binary update.
+// (next to the running binary on servers). Best effort: any failure is
+// recorded in the error log and ignored — a stale-but-working script
+// must never block the binary update. No separate error code: check
+// panel-errors.log (source "script-sync").
 func syncPanelScript() {
 	target := greScriptTarget()
 	if target == "" {
@@ -255,38 +257,9 @@ func syncPanelScript() {
 	}
 	_ = os.Remove("/usr/local/bin/gre.sh")
 	_ = os.Symlink("/usr/local/bin/hashem.sh", "/usr/local/bin/gre.sh")
-	syncChaffScript()
-}
-
-// syncChaffScript installs /usr/local/bin/hashem-chaff.sh from the repo.
-func syncChaffScript() {
-	tmp, err := os.CreateTemp("", "hashem-chaff-*.sh")
-	if err != nil {
-		return
-	}
-	tmpPath := tmp.Name()
-	_ = tmp.Close()
-	defer func() { _ = os.Remove(tmpPath) }()
-	if err := downloadFile(chaffScriptURL, mustOpen(tmpPath)); err != nil {
-		recordError("E-UPDATE-06", "script-sync", "chaff download: "+err.Error())
-		return
-	}
-	if out, err := exec.Command("bash", "-n", tmpPath).CombinedOutput(); err != nil {
-		recordError("E-UPDATE-06", "script-sync", "chaff bash -n failed: "+string(out))
-		return
-	}
-	if err := copyFile(tmpPath, "/usr/local/bin/hashem-chaff.sh"); err != nil {
-		recordError("E-UPDATE-06", "script-sync", "chaff install: "+err.Error())
-		return
-	}
-	_ = os.Chmod("/usr/local/bin/hashem-chaff.sh", 0755)
-	_ = os.Remove("/usr/local/bin/gre-chaff.sh")
 }
 
 const scriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem.sh"
-
-// chaffScriptURL ships the standalone chaff generator next to hashem.sh.
-const chaffScriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem-chaff.sh"
 
 // greScriptURL stays as an alias: releases before the rename shipped gre.sh,
 // and external tools may import the name.
@@ -336,8 +309,8 @@ func (s sessionStore) pruneExpired() bool {
 	return changed
 }
 
-// sessionLifetime is 24 hours (absolute expiry from login).
-const sessionLifetime = int64(24 * 3600)
+// sessionLifetime is 30 days; each authenticated request extends it.
+const sessionLifetime = int64(30 * 24 * 3600)
 
 func validSession(token string) bool {
 	if token == "" {
@@ -350,6 +323,9 @@ func validSession(token string) bool {
 	if !ok || exp < time.Now().Unix() {
 		return false
 	}
+	// Sliding expiration: extend on every use.
+	s.Tokens[token] = time.Now().Unix() + sessionLifetime
+	s.save()
 	return true
 }
 

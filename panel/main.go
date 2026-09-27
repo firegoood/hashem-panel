@@ -232,12 +232,7 @@ func main() {
 	mux.HandleFunc("GET "+base+"/api/tls", requireAuth(handleTLSGet))
 	mux.HandleFunc("POST "+base+"/api/tls", requireAuth(handleTLSIssue))
 	mux.HandleFunc("POST "+base+"/api/tls/renew", requireAuth(handleTLSRenew))
-	mux.HandleFunc("GET "+base+"/api/watchdog", requireAuth(handleWatchdogGet))
-	mux.HandleFunc("POST "+base+"/api/watchdog", requireAuth(handleWatchdogPost))
-	mux.HandleFunc("GET "+base+"/api/watchdog/backup-download", requireAuth(handleBackupDownload))
-	mux.HandleFunc("POST "+base+"/api/watchdog/backup-download", requireAuth(handleBackupDownload))
-	mux.HandleFunc("GET "+base+"/api/perf", requireAuth(handlePerfGet))
-	mux.HandleFunc("POST "+base+"/api/perf", requireAuth(handlePerfPost))
+
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("gre-panel listening on %s under /%s", addr, cfg.BasePath)

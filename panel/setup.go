@@ -31,8 +31,7 @@ import (
 const (
 	defaultIranGRE    = "10.10.10.2"
 	defaultForeignGRE = "10.10.10.1"
-	defaultFrpPortMin = 20000
-	defaultFrpPortMax = 60000
+	defaultFrpPort    = 7000
 
 	// bundlePrefix marks a single-string foreign-setup bundle:
 	// hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
@@ -139,7 +138,7 @@ func handleSetupGet(w http.ResponseWriter, r *http.Request) {
 		"local_public": detectPublicIP(),
 		"iran_gre":     defaultIranGRE,
 		"foreign_gre":  defaultForeignGRE,
-		"frp_port":     randomFrpPort(),
+		"frp_port":     defaultFrpPort,
 		"role_guess":   st.Role,
 		"exists":       tunnelExists(),
 	})
@@ -283,7 +282,7 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// overwrite guard: warn first, proceed only with force
+	// overwrite guard (per user decision: warn first, proceed only with force)
 	// add-peer never overwrites: it appends a new tunnel instead.
 	if body.Role != "add-peer" && tunnelExists() && !body.Force {
 		writeAPIError(w, r, "E-PEER-03", "tunnel already exists — resubmit with force:true to overwrite")
@@ -513,15 +512,6 @@ func randomToken(n int) string {
 		b[i] = chars[int(b[i])%len(chars)]
 	}
 	return string(b)
-}
-
-func randomFrpPort() int {
-	var b [2]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return defaultFrpPortMin + (os.Getpid() % (defaultFrpPortMax - defaultFrpPortMin + 1))
-	}
-	val := int(b[0])<<8 | int(b[1])
-	return defaultFrpPortMin + (val % (defaultFrpPortMax - defaultFrpPortMin + 1))
 }
 
 // ---- setup bundle: one readable string with everything foreign needs ----
