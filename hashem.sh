@@ -79,6 +79,16 @@ gen_token32() { # 32-char alphanumeric secret (FRP auth token)
     tr -dc A-Za-z0-9 </dev/urandom | head -c 32 2>/dev/null || openssl rand -hex 16
 }
 
+gen_random_port() { # random port 20000-60000 for FRP
+    if command -v shuf >/dev/null 2>&1; then
+        shuf -i 20000-60000 -n 1
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import random; print(random.randint(20000, 60000))'
+    else
+        awk 'BEGIN{srand(); print int(20000 + rand() * 40001)}'
+    fi
+}
+
 # ---- setup bundle: one readable string with everything foreign needs ----
 # Format: hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
 # PORTS optional, dash-separated (443-2083). Legacy 32-char tokens (no hsh1_
@@ -310,6 +320,252 @@ EOF
     echo -e "${GREEN}[✔️] GRE Tunnel service active with IP ${GRE_INTERNAL_IP}.${NC}"
 }
 
+# ---- Traffic Obfuscation / Chaff Service (idle gap filler) ----
+# Honest notice: This chaff service fills idle gaps to prevent mechanical timing
+# analysis; it does NOT hide traffic volume under load.
+CHAFF_BIN="/usr/local/bin/hashem-chaff.sh"
+
+install_chaff_script() {
+    cat <<'EOF' > "$CHAFF_BIN"
+#!/usr/bin/env bash
+# /usr/local/bin/hashem-chaff.sh - GRE tunnel idle-gap chaff generator
+# Honest notice: This chaff service fills idle gaps to prevent mechanical timing
+# analysis; it does NOT hide traffic volume under load.
+
+PEER_IP="${1:-}"
+if [[ -z "$PEER_IP" ]]; then
+    echo "Usage: $0 <peer_inner_ip> [low|mid]" >&2
+    exit 1
+fi
+
+PROFILE="${2:-${CHAFF_PROFILE:-low}}"
+
+trap 'exit 0' SIGTERM SIGINT
+
+while true; do
+    if [[ "$PROFILE" == "mid" ]]; then
+        # mid: intervals 0.15-1.2s, size 200-1400
+        ms=$(( 150 + RANDOM % 1051 ))
+        sleep_sec=$(printf "%d.%03d" $((ms / 1000)) $((ms % 1000)))
+        size=$(( 200 + RANDOM % 1201 ))
+    else
+        # low (default): intervals 0.4-2.8s, size 64-1200
+        ms=$(( 400 + RANDOM % 2401 ))
+        sleep_sec=$(printf "%d.%03d" $((ms / 1000)) $((ms % 1000)))
+        size=$(( 64 + RANDOM % 1137 ))
+    fi
+
+    sleep "$sleep_sec"
+
+    # 16 random hex bytes (32 hex characters)
+    pattern=$(printf '%04x%04x%04x%04x%04x%04x%04x%04x' $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM)
+
+    ping -c1 -W1 -s "$size" -p "$pattern" "$PEER_IP" >/dev/null 2>&1 || true
+done
+EOF
+    chmod +x "$CHAFF_BIN"
+}
+
+# setup_chaff: $1=ifname_suffix("" for legacy, "-N" for peers) $2=peer_gre_ip
+setup_chaff() {
+    local SUF=$1 PEER_GRE=$2
+    local PROFILE="${CHAFF_PROFILE:-low}"
+    if [[ "$PROFILE" == "off" ]]; then
+        return 0
+    fi
+    is_valid_ip "$PEER_GRE" || return 1
+    install_chaff_script || return 1
+
+    local SVC="gre-chaff"
+    local GRE_IF="$TUNNEL_NAME"
+    if [[ -n "$SUF" ]]; then
+        local ID="${SUF#-}"
+        SVC="gre-chaff-${ID}"
+        GRE_IF="gre-t${ID}"
+    fi
+
+    local AFTER_GRE=""
+    if [[ -f "/etc/systemd/system/${GRE_IF}.service" ]]; then
+        AFTER_GRE=" ${GRE_IF}.service"
+    fi
+
+    cat <<EOF > "/etc/systemd/system/${SVC}.service"
+[Unit]
+Description=GRE Tunnel Chaff Service (idle gap filler)${SUF:+ (peer${SUF#-})}
+After=network.target${AFTER_GRE}
+${AFTER_GRE:+Wants=${GRE_IF}.service}
+
+[Service]
+Type=simple
+User=root
+Restart=always
+RestartSec=3s
+ExecStart=${CHAFF_BIN} ${PEER_GRE} ${PROFILE}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable "${SVC}.service" >/dev/null 2>&1
+    systemctl restart "${SVC}.service" >/dev/null 2>&1 || true
+    echo -e "${GREEN}[✔️] Chaff service ${SVC} configured for peer ${PEER_GRE} (profile: ${PROFILE}).${NC}"
+}
+
+update_chaff_existing_tunnels() {
+    if [[ "${CHAFF_PROFILE:-low}" == "off" ]]; then
+        return 0
+    fi
+    # 1. Multi-peer registry (/etc/gre-panel/peers.json)
+    if [[ -f "$PEERS_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        local PEER_DATA
+        PEER_DATA=$(PEERS_F="$PEERS_FILE" python3 -c '
+import json, os
+try:
+    d = json.load(open(os.environ["PEERS_F"]))
+    for p in d.get("peers", []):
+        suf = "" if p.get("legacy") else f"-{p.get(\"id\", \"\")}"
+        pgre = p.get("peer_gre", "")
+        prof = p.get("chaff_profile", "")
+        if pgre:
+            print(f"{suf}:{pgre}:{prof}")
+except Exception:
+    pass
+' 2>/dev/null)
+        if [[ -n "$PEER_DATA" ]]; then
+            while IFS=':' read -r suf pgre prof; do
+                [[ -n "$pgre" ]] || continue
+                local saved_prof="${CHAFF_PROFILE:-}"
+                [[ -n "$prof" ]] && CHAFF_PROFILE="$prof"
+                setup_chaff "$suf" "$pgre"
+                CHAFF_PROFILE="$saved_prof"
+            done <<< "$PEER_DATA"
+            return 0
+        fi
+    fi
+
+    # 2. Foreign server (/etc/frp/frpc.toml)
+    if [[ -f "${CONFIG_DIR}/frpc.toml" ]]; then
+        local PEER_GRE
+        PEER_GRE=$(grep -E '^[[:space:]]*serverAddr[[:space:]]*=' "${CONFIG_DIR}/frpc.toml" | cut -d'=' -f2 | tr -d ' "' | tr -d " \t\r\n")
+        if is_valid_ip "$PEER_GRE"; then
+            setup_chaff "" "$PEER_GRE"
+            return 0
+        fi
+    fi
+
+    # 3. Legacy Iran server (/etc/systemd/system/gre-tunnel.service or /etc/frp/frps.toml)
+    if [[ -f "/etc/systemd/system/${TUNNEL_NAME}.service" || -f "${CONFIG_DIR}/frps.toml" ]]; then
+        local INNER_IP=""
+        if [[ -f "/etc/systemd/system/${TUNNEL_NAME}.service" ]]; then
+            INNER_IP=$(grep -oE 'addr add [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' "/etc/systemd/system/${TUNNEL_NAME}.service" | awk '{print $3}' | head -1)
+        fi
+        if [[ -z "$INNER_IP" ]] && ip addr show "$TUNNEL_NAME" >/dev/null 2>&1; then
+            INNER_IP=$(ip addr show "$TUNNEL_NAME" 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 | head -1)
+        fi
+        if is_valid_ip "$INNER_IP"; then
+            local last=${INNER_IP##*.}; local prefix=${INNER_IP%.*}
+            if (( last % 2 == 0 )); then last=$((last - 1)); else last=$((last + 1)); fi
+            local P_GRE="${prefix}.${last}"
+            if is_valid_ip "$P_GRE"; then
+                setup_chaff "" "$P_GRE"
+            fi
+        fi
+    fi
+}
+
+cli_chaff() {
+    local ACTION="${1:-status}"
+    case "$ACTION" in
+        on)
+            echo -e "${CYAN}[*] Enabling and starting GRE chaff services...${NC}"
+            local found=0
+            for u in /etc/systemd/system/gre-chaff*.service; do
+                [[ -f "$u" ]] || continue
+                found=1
+                local bname
+                bname=$(basename "$u")
+                systemctl enable "$bname" >/dev/null 2>&1
+                systemctl restart "$bname" >/dev/null 2>&1
+                echo -e "${GREEN}[✔️] Started and enabled ${bname}.${NC}"
+            done
+            if [[ "$found" -eq 0 ]]; then
+                echo -e "${YELLOW}[*] No existing chaff services found — configuring for active tunnels...${NC}"
+                update_chaff_existing_tunnels
+            fi
+            ;;
+        off)
+            echo -e "${CYAN}[*] Stopping and disabling GRE chaff services...${NC}"
+            local found=0
+            for u in /etc/systemd/system/gre-chaff*.service; do
+                [[ -f "$u" ]] || continue
+                found=1
+                local bname
+                bname=$(basename "$u")
+                systemctl stop "$bname" >/dev/null 2>&1
+                systemctl disable "$bname" >/dev/null 2>&1
+                echo -e "${GREEN}[✔️] Stopped and disabled ${bname}.${NC}"
+            done
+            if [[ "$found" -eq 0 ]]; then
+                echo -e "${YELLOW}[*] No chaff services found.${NC}"
+            fi
+            ;;
+        status)
+            echo -e "${CYAN}=== GRE Chaff (Traffic Obfuscation) Status ===${NC}"
+            echo -e "${YELLOW}Notice: Fills idle gaps to break timing analysis; does not hide volume under load.${NC}"
+            local found=0
+            for u in /etc/systemd/system/gre-chaff*.service; do
+                [[ -f "$u" ]] || continue
+                found=1
+                local bname
+                bname=$(basename "$u")
+                local active enabled exec_line peer_ip prof
+                active=$(systemctl is-active "$bname" 2>/dev/null)
+                [[ -z "$active" ]] && active="inactive"
+                enabled=$(systemctl is-enabled "$bname" 2>/dev/null)
+                [[ -z "$enabled" ]] && enabled="disabled"
+                exec_line=$(grep -E '^[[:space:]]*ExecStart[[:space:]]*=' "$u" | head -1)
+                peer_ip=$(echo "$exec_line" | awk '{print $2}')
+                prof=$(echo "$exec_line" | awk '{print $3}')
+                prof=${prof:-low}
+                if [[ "$active" == "active" ]]; then
+                    echo -e "  ${bname}: ${GREEN}ACTIVE${NC} (${enabled}) | peer: ${CYAN}${peer_ip}${NC} | profile: ${YELLOW}${prof}${NC}"
+                else
+                    echo -e "  ${bname}: ${RED}${active}${NC} (${enabled}) | peer: ${CYAN}${peer_ip}${NC} | profile: ${YELLOW}${prof}${NC}"
+                fi
+            done
+            if [[ "$found" -eq 0 ]]; then
+                echo -e "${YELLOW}[*] No chaff services currently installed.${NC}"
+            fi
+            ;;
+        *)
+            echo -e "${RED}[!] Usage: hashem chaff on|off|status${NC}"
+            return 1
+            ;;
+    esac
+}
+
+menu_chaff() {
+    echo -e "\n${YELLOW}=== Traffic Chaff / Obfuscation (Idle-Gap Filler) ===${NC}"
+    echo -e "Honest notice: Fills idle gaps with pseudo-random ICMP packets (random interval,"
+    echo -e "random payload size and pattern) to break mechanical timing analysis."
+    echo -e "It does NOT hide total traffic volume under active load (low overhead ~few KB/s).\n"
+    cli_chaff status
+    echo ""
+    echo "  1) Enable / Start chaff services (on)"
+    echo "  2) Disable / Stop chaff services (off)"
+    echo "  3) Check status"
+    echo "  0) Back to main menu"
+    echo ""
+    read -p "Select an action [0-3]: " CH_OPT
+    case "$CH_OPT" in
+        1) cli_chaff on ;;
+        2) cli_chaff off ;;
+        3) cli_chaff status ;;
+        0) return 0 ;;
+        *) echo -e "${RED}[!] Invalid option.${NC}"; return 1 ;;
+    esac
+}
+
 # ---- SINGLE SOURCE OF TRUTH for install logic ----
 # setup_iran_server_noninteractive / setup_foreign_server_noninteractive do the
 # real work. The interactive menu functions below only prompt + validate, then
@@ -327,7 +583,7 @@ bindAddr = "0.0.0.0"
 bindPort = ${BIND_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
-transport.tls.force = false
+transport.tls.force = true
 transport.maxPoolCount = 50
 EOF
     cat <<EOF > /etc/systemd/system/frps.service
@@ -349,6 +605,7 @@ EOF
     systemctl daemon-reload
     systemctl enable frps >/dev/null 2>&1
     systemctl restart frps
+    setup_chaff "" "$PEER_GRE"
     if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
         ufw allow "${BIND_PORT}/tcp" >/dev/null 2>&1
     fi
@@ -400,6 +657,7 @@ serverPort = ${SERVER_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
 transport.tls.enable = true
+transport.tls.disableCustomTLSFirstByte = true
 transport.poolCount = 10
 
 EOF
@@ -412,6 +670,8 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = ${PORT}
 remotePort = ${PORT}
+transport.useEncryption = true
+transport.useCompression = true
 
 [[proxies]]
 name = "udp_${PORT}"
@@ -419,6 +679,8 @@ type = "udp"
 localIP = "127.0.0.1"
 localPort = ${PORT}
 remotePort = ${PORT}
+transport.useEncryption = true
+transport.useCompression = true
 
 EOF
     done
@@ -441,6 +703,7 @@ EOF
     systemctl daemon-reload
     systemctl enable frpc >/dev/null 2>&1
     systemctl restart frpc
+    setup_chaff "" "$PEER_GRE"
     echo -e "${GREEN}[✔️] FOREIGN setup done: GRE ${IP_FOREIGN} <-> ${IP_IRAN} (${LOCAL_GRE} peer ${PEER_GRE}), frpc → ${PEER_GRE}:${SERVER_PORT}${NC}"
     echo -e "${GREEN}Reverse ports: ${PORTS_CLEANED} (TCP & UDP, TLS)${NC}"
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
@@ -531,7 +794,7 @@ bindAddr = "0.0.0.0"
 bindPort = ${BIND_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
-transport.tls.force = false
+transport.tls.force = true
 transport.maxPoolCount = 50
 EOF
     local SVC="frps${SUF}"
@@ -559,7 +822,7 @@ EOF
 }
 
 # add a peer tunnel on the Iran side.
-# Flags: --name --local-pub --remote-pub --frp-port --token --local-gre --peer-gre --ports "443, 2083" [--bundle hsh1_...] [--force]
+# Flags: --name --local-pub --remote-pub --frp-port --token --local-gre --peer-gre --ports "443, 2083" [--bundle hsh1_...] [--chaff low|mid|off] [--force]
 # --bundle pastes a foreign-setup string: empty flags are filled from it,
 # explicit flags always win.
 cli_add_peer() {
@@ -575,11 +838,16 @@ cli_add_peer() {
             --peer-gre) PEER_GRE="$2"; shift 2 ;;
             --ports) PORTS="$2"; shift 2 ;;
             --bundle) BUNDLE="$2"; shift 2 ;;
+            --chaff) CHAFF_PROFILE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
-            -h|--help) echo 'Usage: hashem.sh add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...] [--force]'; return 0 ;;
+            -h|--help) echo 'Usage: hashem.sh add-peer --local-pub IP --remote-pub IP [--frp-port N] --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...] [--chaff low|mid|off] [--force]'; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
         esac
     done
+    case "${CHAFF_PROFILE:-low}" in
+        low|mid|off) ;;
+        *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to low.${NC}"; CHAFF_PROFILE="low" ;;
+    esac
     if [[ -n "$BUNDLE" ]]; then
         bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad --bundle (want hsh1_<IRAN_PUB>_<PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]).${NC}"; return 1; }
         # add-peer runs on Iran: bundle Iran pub/GRE are OURS, foreign GRE is THEIRS
@@ -590,7 +858,7 @@ cli_add_peer() {
         [[ -z "$TOKEN" ]] && TOKEN=$B_TOKEN
         [[ -z "$PORTS" ]] && PORTS=$B_PORTS
     fi
-    FRP_PORT=${FRP_PORT:-7000}
+    FRP_PORT=${FRP_PORT:-$(gen_random_port)}
     validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$LOCAL_GRE" || return 1
     is_valid_ip "$PEER_GRE" || { echo -e "${RED}[!] Invalid peer GRE IP: '$PEER_GRE'${NC}"; return 1; }
     [[ "$LOCAL_GRE" != "$PEER_GRE" ]] || { echo -e "${RED}[!] Local and peer GRE IPs must differ.${NC}"; return 1; }
@@ -634,6 +902,7 @@ cli_add_peer() {
         setup_gre_systemd "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE"
         peer_write_frps "" "$FRP_PORT" "$TOKEN"
         GRE_IF="$TUNNEL_NAME"; FRPS_SVC="frps"; LEGACY=true
+        setup_chaff "" "$PEER_GRE"
     else
         GRE_IF="gre-t${ID}"; FRPS_SVC="frps-${ID}"; LEGACY=false
         setup_gre_iface "$GRE_IF" "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE"
@@ -641,19 +910,20 @@ cli_add_peer() {
         # point the new unit at the right interface
         sed -i "s/After=network.target/After=network.target ${GRE_IF}.service/" /etc/systemd/system/${FRPS_SVC}.service
         systemctl daemon-reload; systemctl restart "$FRPS_SVC"
+        setup_chaff "-${ID}" "$PEER_GRE"
     fi
     # registry record (ports as JSON array)
     local PORTS_JSON
     PORTS_JSON=$(echo "$CLEANED" | python3 -c 'import json,sys; print(json.dumps([int(x) for x in sys.stdin.read().split()]))')
-    PEERS_F="$PEERS_FILE" python3 - "$ID" "$NAME" "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS_JSON" "$GRE_IF" "$FRPS_SVC" "$LEGACY" <<'PYEOF'
+    PEERS_F="$PEERS_FILE" python3 - "$ID" "$NAME" "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS_JSON" "$GRE_IF" "$FRPS_SVC" "$LEGACY" "${CHAFF_PROFILE:-low}" <<'PYEOF'
 import json, os, sys
 f = os.environ["PEERS_F"]
-iid, name, lip, rip, fport, tok, lgre, pgre, pjson, gif, svc, leg = sys.argv[1:]
+iid, name, lip, rip, fport, tok, lgre, pgre, pjson, gif, svc, leg, prof = sys.argv[1:]
 d = json.load(open(f))
 d.setdefault("peers", []).append({"id": int(iid), "name": name, "local_pub": lip,
   "remote_pub": rip, "frp_port": int(fport), "token": tok, "local_gre": lgre,
   "peer_gre": pgre, "ports": json.loads(pjson), "gre_if": gif, "frps_svc": svc,
-  "legacy": leg == "true"})
+  "legacy": leg == "true", "chaff_profile": prof})
 json.dump(d, open(f, "w"), indent=2)
 PYEOF
     echo -e "${GREEN}[✔️] Peer '${NAME}' (id ${ID}) added: GRE ${LOCAL_PUB} <-> ${REMOTE_PUB} (${LOCAL_GRE} peer ${PEER_GRE} on ${GRE_IF}), ${FRPS_SVC} :${FRP_PORT}${NC}"
@@ -687,9 +957,9 @@ cli_remove_peer() {
     if [[ "$LEG" == "1" ]]; then
         remove_tunnel_force
     else
-        systemctl stop "$SVC" "${GIF}.service" >/dev/null 2>&1
-        systemctl disable "$SVC" "${GIF}.service" >/dev/null 2>&1
-        rm -f "/etc/systemd/system/${SVC}.service" "/etc/systemd/system/${GIF}.service" "/etc/frp/frps-${ID}.toml"
+        systemctl stop "$SVC" "${GIF}.service" "gre-chaff-${ID}.service" >/dev/null 2>&1
+        systemctl disable "$SVC" "${GIF}.service" "gre-chaff-${ID}.service" >/dev/null 2>&1
+        rm -f "/etc/systemd/system/${SVC}.service" "/etc/systemd/system/${GIF}.service" "/etc/frp/frps-${ID}.toml" "/etc/systemd/system/gre-chaff-${ID}.service"
         systemctl daemon-reload; systemctl reset-failed >/dev/null 2>&1 || true
         ip tunnel del "$GIF" >/dev/null 2>&1 || true
     fi
@@ -736,7 +1006,7 @@ setup_iran_server() {
     prompt_ip IP_IRAN "Enter IRAN Server Public IP" "$MY_PUBLIC_IP"
     prompt_ip IP_FOREIGN "Enter FOREIGN Server Public IP" ""
 
-    prompt_port BIND_PORT "Enter FRP Bind Port" "7000"
+    prompt_port BIND_PORT "Enter FRP Bind Port" "$(gen_random_port)"
 
     AUTO_TOKEN=$(gen_token32)
     prompt_token TOKEN "Enter Secret Auth Token" "$AUTO_TOKEN"
@@ -777,7 +1047,7 @@ menu_add_peer() {
     # suggest next free control port + GRE pair
     local NEXT_ID SU_FP SU_LG SU_PG
     NEXT_ID=$(peer_next_id 2>/dev/null || echo 2)
-    SU_FP=$((7000 + NEXT_ID - 1)); is_valid_port "$SU_FP" || SU_FP=7000
+    SU_FP=$(gen_random_port)
     SU_LG="10.1${NEXT_ID}.0.2"; SU_PG="10.1${NEXT_ID}.0.1"
     prompt_port CPORT "Enter FRP Control Port (unique per peer)" "$SU_FP"
     AUTO_TOKEN=$(gen_token32)
@@ -825,7 +1095,7 @@ setup_foreign_server() {
         fi
     fi
     if [[ "$BUNDLE_USED" -ne 1 ]]; then
-        prompt_port SERVER_PORT "Enter FRP Bind Port" "7000"
+        prompt_port SERVER_PORT "Enter FRP Bind Port" "$(gen_random_port)"
         prompt_required TOKEN "Enter Secret Auth Token"
         prompt_ports INPUT_PORTS "Enter Ports to Reverse-Tunnel"
     elif [[ -z "$INPUT_PORTS" ]]; then
@@ -900,7 +1170,7 @@ show_logs() {
 restart_all() {
     echo -e "\n${CYAN}[*] Restarting GRE and FRP services (all tunnels)...${NC}"
     local u
-    for u in /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-tunnel.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service; do
+    for u in /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-tunnel.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/gre-chaff*.service; do
         [[ -f "$u" ]] || continue
         systemctl restart "$(basename "$u")" >/dev/null 2>&1 && echo -e "${GREEN}[✔️] $(basename "$u") restarted.${NC}"
     done
@@ -922,13 +1192,13 @@ uninstall_all() {
 # (/usr/local/bin/hashem + /usr/local/bin/hashem.sh + legacy gre.sh) so
 # `hashem` stops working.
 uninstall_all_force() {
-        # Stop & disable services (legacy + all peers + panel)
-        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-panel >/dev/null 2>&1
-        systemctl stop 'frps@*' 'frpc@*' 'gre-t*.service' >/dev/null 2>&1 || true
-        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-panel >/dev/null 2>&1 || true
+        # Stop & disable services (legacy + all peers + panel + chaff)
+        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff >/dev/null 2>&1
+        systemctl stop 'frps@*' 'frpc@*' 'gre-t*.service' 'gre-chaff*.service' >/dev/null 2>&1 || true
+        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff 'gre-chaff*.service' >/dev/null 2>&1 || true
 
         # Remove systemd files
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc*.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-panel.service
+        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-panel.service /etc/systemd/system/gre-chaff*.service
         systemctl daemon-reload
         systemctl reset-failed >/dev/null 2>&1 || true
 
@@ -942,6 +1212,9 @@ uninstall_all_force() {
         rm -f "${INSTALL_DIR}/frps" "${INSTALL_DIR}/frpc"
         rm -rf "$CONFIG_DIR"
         rm -f "$PEERS_FILE"
+
+        # Remove chaff script
+        rm -f /usr/local/bin/hashem-chaff.sh /usr/local/bin/gre-chaff.sh
 
         # Remove web panel (service + binary + config + helper CLIs)
         rm -f /usr/local/bin/gre-panel /usr/local/bin/grepanel
@@ -968,11 +1241,12 @@ remove_tunnel() {
 # Panel files/services are never touched here.
 remove_tunnel_force() {
         # Stop & disable services
-        systemctl stop frps frpc "${TUNNEL_NAME}.service" >/dev/null 2>&1
-        systemctl disable frps frpc "${TUNNEL_NAME}.service" >/dev/null 2>&1
+        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-chaff >/dev/null 2>&1
+        systemctl stop 'gre-chaff*.service' >/dev/null 2>&1 || true
+        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-chaff 'gre-chaff*.service' >/dev/null 2>&1 || true
 
-        # Remove systemd files (legacy + all peer tunnels)
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service
+        # Remove systemd files (legacy + all peer tunnels + chaff)
+        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-chaff*.service
         systemctl daemon-reload
         systemctl reset-failed >/dev/null 2>&1 || true
 
@@ -1379,6 +1653,9 @@ update_all() {
     cp "$TMP_U/hashem.sh" "$HASHEM_SCRIPT" 2>/dev/null && chmod +x "$HASHEM_SCRIPT" || true
     cp "$TMP_U/hashem.sh" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN" || true
     ln -sf "$HASHEM_SCRIPT" /usr/local/bin/gre.sh 2>/dev/null || true
+    install_chaff_script || true
+    rm -f /usr/local/bin/gre-chaff.sh 2>/dev/null || true
+    update_chaff_existing_tunnels || true
     PANEL_VER=$("$PANEL_BIN" --version 2>/dev/null || echo "unknown")
     echo -e "${GREEN}[✔️] Update complete — script + panel are latest (panel: ${PANEL_VER}). Re-run the script to use the new menu.${NC}"
 }
@@ -1410,6 +1687,7 @@ main_menu() {
     echo " 10) Optimize Tunnel (BBR + buffers + MTU/MSS, with backup)"
     echo " 11) Restore Pre-Optimize Settings"
     echo " 12) Optimization Status"
+    echo " 19) Traffic Chaff / Obfuscation (idle-gap filler: on/off/status)"
     echo ""
     echo -e "${YELLOW}── Panel & System ──${NC}"
     echo " 13) Show Panel URL + Username + Password"
@@ -1420,7 +1698,7 @@ main_menu() {
     echo " 18) Uninstall Everything (tunnel + panel + 'hashem' command)"
     echo "  0) Exit"
     echo ""
-    read -p "Select an option [0-18]: " OPTION
+    read -p "Select an option [0-19]: " OPTION
 
     case "$OPTION" in
         1)
@@ -1477,6 +1755,9 @@ main_menu() {
         18)
             uninstall_all
             ;;
+        19)
+            menu_chaff
+            ;;
         0)
             echo "Exiting..."
             exit 0
@@ -1494,28 +1775,29 @@ check_root
 usage_cli() {
     cat <<EOF
 Usage:
-  hashem                                    # interactive menu (same 0-18 options)
-  hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--force]
-  hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--force]
+  hashem                                    # interactive menu (options 0-19)
+  hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--chaff low|mid|off] [--force]
+  hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--chaff low|mid|off] [--force]
                        # ... or: hashem setup-foreign --bundle hsh1_...  (fills everything; explicit flags win)
   hashem status | remove-tunnel [--force] | show-panel-url
   hashem uninstall [--force]                   # full wipe: tunnel + panel + 'hashem' itself
-  hashem add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...]
+  hashem add-peer --local-pub IP --remote-pub IP [--frp-port N] --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...] [--chaff low|mid|off]
   hashem remove-peer --id N [--force] | peer-list | peer-token --id N
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
+  hashem chaff on|off|status                   # traffic obfuscation (idle-gap filler)
   hashem free-ram                            # cap journald + drop cache + 1GB swap
 
 Setup bundle (one string with everything foreign needs):
   hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
-  e.g. hsh1_85.1.2.3_7000_10.10.10.2_10.10.10.1_AbCdEf1234567890AbCdEf1234567890_443-2083
+  e.g. hsh1_85.1.2.3_34567_10.10.10.2_10.10.10.1_AbCdEf1234567890AbCdEf1234567890_443-2083
   Printed as BUNDLE:... by setup-iran / add-peer / peer-token; paste it as
   --bundle (CLI), the token prompt (menu), or the Foreign token field (panel).
 EOF
 }
 
 cli_setup_iran() {
-    local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="7000" LOCAL_GRE="$IRAN_GRE_IP" PEER_GRE="$FOREIGN_GRE_IP" TOKEN="" FORCE=0
+    local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" LOCAL_GRE="$IRAN_GRE_IP" PEER_GRE="$FOREIGN_GRE_IP" TOKEN="" FORCE=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --local-pub) LOCAL_PUB="$2"; shift 2 ;;
@@ -1524,11 +1806,17 @@ cli_setup_iran() {
             --local-gre) LOCAL_GRE="$2"; shift 2 ;;
             --peer-gre) PEER_GRE="$2"; shift 2 ;;
             --token) TOKEN="$2"; shift 2 ;;
+            --chaff) CHAFF_PROFILE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) usage_cli; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; usage_cli; return 1 ;;
         esac
     done
+    case "${CHAFF_PROFILE:-low}" in
+        low|mid|off) ;;
+        *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to low.${NC}"; CHAFF_PROFILE="low" ;;
+    esac
+    FRP_PORT=${FRP_PORT:-$(gen_random_port)}
     validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$LOCAL_GRE" || return 1
     is_valid_ip "$PEER_GRE" || { echo -e "${RED}[!] Invalid peer GRE IP: '$PEER_GRE'${NC}"; return 1; }
     if [[ -z "$TOKEN" ]]; then
@@ -1555,11 +1843,16 @@ cli_setup_foreign() {
             --token) TOKEN="$2"; shift 2 ;;
             --ports) PORTS="$2"; shift 2 ;;
             --bundle) BUNDLE="$2"; shift 2 ;;
+            --chaff) CHAFF_PROFILE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) usage_cli; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; usage_cli; return 1 ;;
         esac
     done
+    case "${CHAFF_PROFILE:-low}" in
+        low|mid|off) ;;
+        *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to low.${NC}"; CHAFF_PROFILE="low" ;;
+    esac
     if [[ -n "$BUNDLE" ]]; then
         bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad --bundle (want hsh1_<IRAN_PUB>_<PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]).${NC}"; return 1; }
         [[ -z "$TOKEN" ]] && TOKEN=$B_TOKEN
@@ -1574,7 +1867,7 @@ cli_setup_foreign() {
     fi
     # --bundle replaces --token as the required secret
     [[ -z "$TOKEN" && -n "$BUNDLE" ]] && TOKEN=$B_TOKEN
-    FRP_PORT=${FRP_PORT:-7000}
+    FRP_PORT=${FRP_PORT:-$(gen_random_port)}
     LOCAL_GRE=${LOCAL_GRE:-$FOREIGN_GRE_DEF}
     PEER_GRE=${PEER_GRE:-$IRAN_GRE_DEF}
     validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$LOCAL_GRE" || return 1
@@ -1603,6 +1896,7 @@ if [[ $# -gt 0 ]]; then
         peer-list) peer_list ;;
         logs) show_logs ;;
         restart) restart_all ;;
+        chaff) shift; cli_chaff "$@" ;;
         peer-token)
             shift; ID=""
             while [[ $# -gt 0 ]]; do case "$1" in --id) ID="$2"; shift 2 ;; *) shift ;; esac; done

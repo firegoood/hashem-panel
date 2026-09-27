@@ -34,6 +34,7 @@ jobs:
         run: |
           mkdir -p panel/dist
           cp hashem.sh panel/dist/hashem.sh
+          cp hashem-chaff.sh panel/dist/hashem-chaff.sh
           cp panel/grepanel panel/dist/grepanel
           ls -la panel/dist/
 
@@ -47,4 +48,5 @@ jobs:
             panel/gre-panel-linux-amd64
             panel/gre-panel-linux-arm64
             panel/dist/hashem.sh
+            panel/dist/hashem-chaff.sh
             panel/dist/grepanel

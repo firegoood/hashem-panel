@@ -257,9 +257,41 @@ func syncPanelScript() {
 	}
 	_ = os.Remove("/usr/local/bin/gre.sh")
 	_ = os.Symlink("/usr/local/bin/hashem.sh", "/usr/local/bin/gre.sh")
+	syncChaffScript()
+}
+
+// syncChaffScript installs /usr/local/bin/hashem-chaff.sh from the repo so
+// servers updated via the panel also get the chaff generator. Best-effort:
+// failures are logged to panel-errors.log, never block the panel update.
+func syncChaffScript() {
+	tmp, err := os.CreateTemp("", "hashem-chaff-*.sh")
+	if err != nil {
+		return
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := downloadFile(chaffScriptURL, mustOpen(tmpPath)); err != nil {
+		recordError("E-UPDATE-06", "script-sync", "chaff download: "+err.Error())
+		return
+	}
+	if out, err := exec.Command("bash", "-n", tmpPath).CombinedOutput(); err != nil {
+		recordError("E-UPDATE-06", "script-sync", "chaff bash -n failed: "+string(out))
+		return
+	}
+	if err := copyFile(tmpPath, "/usr/local/bin/hashem-chaff.sh"); err != nil {
+		recordError("E-UPDATE-06", "script-sync", "chaff install: "+err.Error())
+		return
+	}
+	_ = os.Chmod("/usr/local/bin/hashem-chaff.sh", 0755)
+	_ = os.Remove("/usr/local/bin/gre-chaff.sh")
 }
 
 const scriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem.sh"
+
+// chaffScriptURL ships the standalone chaff generator next to hashem.sh;
+// syncPanelScript installs it so update_all works on servers too.
+const chaffScriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem-chaff.sh"
 
 // greScriptURL stays as an alias: releases before the rename shipped gre.sh,
 // and external tools may import the name.

@@ -48,7 +48,7 @@ var errCatalog = map[string]errInfo{
 	"E-SETUP-04": {400, "invalid remote public IP", "Enter the other side's public IPv4 exactly."},
 	"E-SETUP-05": {400, "invalid local GRE IP", "Use the suggested 10.x address or another private IPv4."},
 	"E-SETUP-06": {400, "invalid peer GRE IP", "Use the suggested 10.x address or another private IPv4."},
-	"E-SETUP-07": {400, "frp port must be 1-65535", "Use 7000 for the first tunnel, 7001+ for the next ones."},
+	"E-SETUP-07": {400, "frp port must be 1-65535", "Use any free port 1-65535 (default is random 20000-60000)."},
 	"E-SETUP-08": {400, "token from Iran side is required", "Copy the token shown on the Iran panel into this form — or paste the whole hsh1_... bundle (it fills every field)."},
 	"E-SETUP-09": {400, "token too long (max 128, bundles longer than 256 rejected)", "Paste the token/bundle as-is; do not add extra text."},
 	"E-SETUP-10": {400, "at least one reverse port is required (e.g. 443, 2083)", "Add the ports clients will connect to."},

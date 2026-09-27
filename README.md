@@ -59,6 +59,15 @@ Users ──► IRAN (public ports here) ══ GRE + FRP ══► FOREIGN (ser
 - Every port = `tcp` + `udp` proxy with the same number on Iran
 - Each panel manages **only its own side** (no remote control)
 
+### 🛡️ Traffic Obfuscation
+
+Lightweight camouflage around the existing GRE+FRP architecture:
+
+- **Random FRP Port**: New setups choose a random control port (`20000–60000`) instead of `7000`. Existing setups keep their port on update.
+- **Forced TLS & TLS Mimic**: Server enforces TLS (`transport.tls.force = true`), and client sets `transport.tls.disableCustomTLSFirstByte = true` to mimic standard TLS handshakes.
+- **Proxy Encryption & Compression**: Every TCP and UDP proxy enables `transport.useEncryption = true` and `transport.useCompression = true`.
+- **Idle-Gap Chaff Service (`hashem-chaff`)**: Runs low-overhead pseudo-random ICMP pings (random interval, size, and 16 hex pad bytes) across the GRE tunnel. Fills idle gaps to break mechanical timing analysis; does not hide volume under heavy load (~few KB/s overhead).
+
 ---
 
 ## ⚡ Quick install
@@ -79,7 +88,7 @@ sudo bash hashem.sh
 
 ### Setup flow (single `hsh1_...` bundle)
 
-1. **Iran first:** option `1` — Iran + foreign public IPs, FRP port (default `7000`). The panel and the script print a **setup bundle** like `hsh1_85.1.2.3_7000_10.10.10.2_10.10.10.1_<token>_443-2083` (IP + control port + GRE pair + token + ports in one pasteable string).
+1. **Iran first:** option `1` — Iran + foreign public IPs, FRP port (random default `20000-60000`). The panel and the script print a **setup bundle** like `hsh1_85.1.2.3_34567_10.10.10.2_10.10.10.1_<token>_443-2083` (IP + control port + GRE pair + token + ports in one pasteable string).
 2. **Foreign next:** option `2` — paste the bundle (fills everything incl. ports) **or** enter Iran IP + port + legacy 32-char token + ports (`443, 2083, 8080`) manually.
 3. **Check:** option `6` — GRE status, inner ping, FRP service state.
 4. Panel installs automatically; credentials print at the end (also option `13` anytime).
@@ -93,7 +102,7 @@ sudo bash hashem.sh
 After install, just type in SSH:
 
 ```bash
-hashem            # full interactive menu, grouped: Setup · Peers · Monitor · Tune · Panel & System (0-18)
+hashem            # full interactive menu, grouped: Setup · Peers · Monitor · Tune · Panel & System (0-19)
 ```
 
 Non-interactive (same flags as `hashem.sh`):
@@ -101,15 +110,16 @@ Non-interactive (same flags as `hashem.sh`):
 ```bash
 hashem status | logs | restart | show-panel-url
 hashem update                                   # latest script + latest prebuilt panel
-hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--token T] [--force]
-hashem setup-foreign --bundle hsh1_... [--force]   # one paste fills everything; explicit flags win
-hashem setup-foreign --local-pub IP --remote-pub IP --token T --ports "443, 2083" [--force]
-hashem add-peer --bundle hsh1_... [--name LABEL]   # or full flags below
-hashem add-peer --local-pub IP --remote-pub IP --frp-port N --token T \
-  --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL]
+hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--token T] [--chaff low|mid|off] [--force]
+hashem setup-foreign --bundle hsh1_... [--chaff low|mid|off] [--force]   # one paste fills everything; explicit flags win
+hashem setup-foreign --local-pub IP --remote-pub IP --token T --ports "443, 2083" [--chaff low|mid|off] [--force]
+hashem add-peer --bundle hsh1_... [--name LABEL] [--chaff low|mid|off]   # or full flags below
+hashem add-peer --local-pub IP --remote-pub IP [--frp-port N] --token T \
+  --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--chaff low|mid|off]
 hashem remove-peer --id N [--force] | peer-list | peer-token --id N
 hashem panel-tls [domain] [email]     # Let's Encrypt for the web panel
 hashem optimize | restore | tune-status
+hashem chaff on | off | status        # traffic chaff / idle-gap filler control
 ```
 
 `grepanel` (panel service control) still works side by side:
@@ -168,6 +178,7 @@ After login you can re-run the whole tunnel setup from the browser — same logi
 | 10 | Tune | Optimize tunnel (BBR + buffers + MTU/MSS, with backup) |
 | 11 | Tune | Restore pre-optimize settings |
 | 12 | Tune | Optimization status |
+| 19 | Tune | Traffic chaff / obfuscation (idle-gap filler: on / off / status) |
 | 13 | Panel & System | Show panel URL + username + password |
 | 14 | Panel & System | Panel HTTPS (Let's Encrypt certificate) |
 | 15 | Panel & System | Update all (latest script + latest prebuilt panel) |
