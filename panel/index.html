@@ -287,13 +287,6 @@
   .drawer-nav .nav-sec { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
     color:var(--mu); padding:10px 12px 4px; }
   .drawer-nav .nav-item { width:100%; }
-  .nav-caret { margin-left:auto; font-size:10px; color:var(--mu); transition:transform .2s; }
-  .nav-group.open .nav-caret { transform:rotate(180deg); }
-  .nav-sub { display:none; flex-direction:column; gap:2px; padding:2px 0 2px 34px; }
-  .nav-group.open .nav-sub { display:flex; }
-  .nav-sub button { border:0; background:transparent; color:var(--mu); font-size:13px; font-weight:500;
-    cursor:pointer; text-align:left; padding:7px 10px; border-radius:8px; }
-  .nav-sub button:hover { background:var(--sunk); color:var(--tx); }
   /* per-tunnel health chips shown under the Status card */
   .tun-chip { display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:10px;
     border:1px solid var(--ln); background:var(--sunk); font-size:13px; font-weight:600;
@@ -413,14 +406,8 @@
       <div class="nav-sec">Overview</div>
       <button class="nav-item on" data-tab="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Dashboard</span></button>
       <div class="nav-sec">Tunnel</div>
-      <div class="nav-group" id="tunnelGroup">
-      <button class="nav-item" data-tab="tunnel" id="tunnelNavBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span>Tunnel</span><span class="nav-caret">▾</span></button>
-      <div class="nav-sub">
-        <button data-goto="tunnelStatusCard">Status</button>
-        <button data-goto="peerCards">Peers</button>
-        <button data-goto="addPeerCard">Add new</button>
-      </div>
-      </div>
+      <button class="nav-item" data-tab="tunnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span>Tunnel</span></button>
+      <button class="nav-item hidden" data-tab="add-peer" id="navAddPeer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg><span>Add Peer</span></button>
       <button class="nav-item" data-tab="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span>Setup</span></button>
       <button class="nav-item" data-tab="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Logs</span></button>
       <div class="nav-sec">System</div>
@@ -526,7 +513,7 @@
           <div id="tunnel"></div>
           <div id="tunChips" aria-label="Per-tunnel health"></div>
           <div class="ent-sec-label" style="margin-top:6px">Peer tunnels</div>
-          <div id="peerCards" style="display:grid;gap:10px"></div>
+          <div id="peerCards" class="det-grid"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
             <button class="hashem-btn hashem-btn-secondary" data-act="ping">Ping peer</button>
             <button class="hashem-btn hashem-btn-secondary" data-act="restart-gre">Restart GRE</button>
@@ -539,6 +526,8 @@
           <pre id="actOut" class="logs hidden" style="margin-top:4px"></pre>
           <div class="qs-hint" id="tuneHint">Optimize: BBR + 16MB buffers + backlog + forwarding + GRE MTU 1448 + MSS clamp. Backs up current settings first — Restore brings them back.</div>
         </div>
+      </section>
+      <section id="tab-add-peer" hidden>
         <div class="tunnel-card" id="addPeerCard">
           <div class="tc-header"><p class="tc-title">➕ Connect another foreign server</p><span class="qs-hint" id="peerCountHint"></span></div>
           <div class="qs-hint" style="border-left:3px solid var(--ac);padding-left:10px">✅ <b>This is the safe way to add a server.</b> It creates a <b>separate</b> tunnel with its own token — existing tunnels keep running untouched. (Re-running <b>Setup</b> instead would replace this server's tunnel and disconnect old Foreign sides.)</div>
@@ -836,7 +825,7 @@ function skel(n) {
 function goTab(name) {
   if (name === 'terminal' && !$('termNav').classList.contains('hidden') && $('tab-terminal').hidden && !termState.ready) { /* allowed: overlay shows connect */ }
   if (name === 'terminal' && $('termNav').classList.contains('hidden')) return; // flag off: tab doesn't exist
-  ['dashboard','tunnel','setup','logs','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
+  ['dashboard','tunnel','add-peer','setup','logs','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
   document.querySelectorAll('.sidebar-nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   const dr = $('drawerNav');
   if (dr) dr.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
@@ -844,29 +833,20 @@ function goTab(name) {
   if (name === 'logs') { refreshLogPeers(); loadLogs(); loadErrors(); armLogFollow(); }
   if (name === 'terminal') termOnShow();
 }
-document.querySelectorAll('[data-tab]').forEach(b => { if (b.id !== 'tunnelNavBtn') b.onclick = () => goTab(b.dataset.tab); });
+document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => goTab(b.dataset.tab); });
 // mobile drawer: clones the sidebar nav so phone users get a hamburger
-// menu instead of the cramped tab strip. The Tunnel entry expands inline:
-// Status / Peers / Add new scroll inside the Tunnel tab. Synced with the
-// sidebar on terminal-flag and update-badge changes.
+// menu instead of the cramped tab strip. Synced with the
+// sidebar on terminal-flag, add-peer visibility and update-badge changes.
 function drawerSync() {
   const nav = $('drawerNav'); if (!nav) return;
   nav.innerHTML = $('sideNav') ? $('sideNav').innerHTML : '';
   // strip duplicated ids from the clone (single source of truth stays in sidebar)
-  nav.querySelectorAll('#tunnelNavBtn').forEach(b => b.removeAttribute('id'));
-  nav.querySelectorAll('#tunnelGroup').forEach(g => g.removeAttribute('id'));
+  nav.querySelectorAll('#navAddPeer').forEach(b => b.removeAttribute('id'));
   nav.querySelectorAll('[data-tab]').forEach(b => {
-    if (b.dataset.tab === 'tunnel') {
-      b.onclick = () => { goTab('tunnel'); toggleTunnelGroup(true); };
-    } else {
-      b.onclick = () => { goTab(b.dataset.tab); drawerClose(); };
-    }
+    b.onclick = () => { goTab(b.dataset.tab); drawerClose(); };
     if (b.id === 'termNav') b.id = '';
+    if (b.dataset.tab === 'add-peer' && $('navAddPeer') && $('navAddPeer').classList.contains('hidden')) b.classList.add('hidden');
     if (b.querySelector('#updBadge')) b.querySelector('#updBadge').id = 'updBadgeM';
-  });
-  // drawer copy of the tunnel sub-nav
-  nav.querySelectorAll('[data-goto]').forEach(b => {
-    b.onclick = () => { goTab('tunnel'); drawerClose(); scrollToTun(b.dataset.goto); };
   });
   // hide the terminal entry in the drawer while the flag is off
   const t = nav.querySelector('[data-tab="terminal"]');
@@ -879,42 +859,6 @@ function drawerSync() {
 }
 function drawerOpen() { drawerSync(); $('drawer').classList.add('open'); $('drawerOv').classList.add('open'); }
 function drawerClose() { $('drawer').classList.remove('open'); $('drawerOv').classList.remove('open'); }
-// sidebar + drawer: expand/collapse the Tunnel sub-nav (Status/Peers/Add new)
-function toggleTunnelGroup(force) {
-  ['tunnelGroup'].forEach(id => {
-    const g = document.getElementById(id);
-    if (!g) return;
-    const want = force === true ? true : force === false ? false : !g.classList.contains('open');
-    g.classList.toggle('open', want);
-  });
-  const nav = $('drawerNav');
-  if (nav) nav.querySelectorAll('.nav-group').forEach(g => {
-    const want = force === true ? true : force === false ? false : !g.classList.contains('open');
-    g.classList.toggle('open', want);
-  });
-}
-// scroll inside the Tunnel tab: 'tunnelStatusCard' | 'peerCards' | 'addPeerCard'
-function scrollToTun(id) {
-  setTimeout(() => {
-    let el = document.getElementById(id);
-    if (id === 'peerCards' && el) {
-      const first = el.querySelector('tbody tr') || el;
-      el = first;
-    }
-    if (el && el.scrollIntoView) el.scrollIntoView({behavior: 'smooth', block: 'start'});
-  }, 60);
-}
-document.querySelectorAll('#sideNav [data-goto]').forEach(b => b.onclick = () => { goTab('tunnel'); scrollToTun(b.dataset.goto); });
-$('tunnelNavBtn').onclick = e => {
-  // first click opens the tab, second toggles the sub-nav
-  if ($('tab-tunnel').hidden || !document.getElementById('tunnelGroup').classList.contains('open')) {
-    goTab('tunnel');
-    toggleTunnelGroup(true);
-    e.stopPropagation();
-  } else {
-    toggleTunnelGroup();
-  }
-};
 $('menuBtn').onclick = drawerOpen;
 $('drawerX').onclick = drawerClose;
 $('drawerOv').onclick = drawerClose;
@@ -967,37 +911,60 @@ function renderPeers(peers) {
   tunPeerCache = peers || null;
   try { renderTunChips(window._lastLocal || null); } catch(_){}
   if (!peers || !peers.length) {
-    box.innerHTML = '<div class="ent-empty"><span class="ent-empty-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span><b>No peer tunnels yet</b>Add one below — each foreign server gets its own card here.</div>';
+    box.innerHTML = '<div class="ent-empty" style="grid-column:1/-1"><span class="ent-empty-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span><b>No peer tunnels yet</b>Add one from the "Add Peer" tab.</div>';
     return;
   }
   const stBadge = (ok, label) => `<span class="badge ${ok ? 'ok' : 'err'}"><span class="dot"></span>${esc(label)}</span>`;
-  box.innerHTML = '<div class="ent-tbl-wrap" tabindex="0"><table class="ent-tbl"><thead><tr>'
-    + '<th>Tunnel</th><th class="mono">Foreign IP</th><th class="mono">GRE inner</th><th>GRE</th><th class="mono">FRP</th><th class="mono">Ports</th>'
-    + '<th class="num">Ping</th><th class="num">Traffic</th><th>Actions</th>'
-    + '</tr></thead><tbody>' + peers.map(p => {
+  box.innerHTML = peers.map(p => {
     const up = !!(p.gre_up || p.frp_up);
     const nm = p.name || ('peer-' + p.id);
     const traffic = (p.rx != null && p.tx != null)
       ? ('↓ ' + fmtBytes(p.rx) + ' · ↑ ' + fmtBytes(p.tx))
       : 'N/A';
-    return `<tr>
-      <td><span class="ent-st ${up ? 'on' : 'off'}"><i></i>${esc(nm)} <span class="qs-hint">#${p.id}</span></span></td>
-      <td class="mono">${esc(p.remote_pub || '?')}</td>
-      <td class="mono">${esc(p.local_gre || '?')} ⇄ ${esc(p.peer_gre || '?')}</td>
-      <td>${stBadge(p.gre_up, p.gre_up ? (p.gre_if || 'up') : 'down')}</td>
-      <td class="mono">${esc(p.frps_svc || '')} :${esc(String(p.frp_port || '?'))} ${stBadge(p.frp_up, p.frp_up ? 'up' : 'down')}</td>
-      <td class="mono">${esc((p.ports || []).join(', ') || '—')}</td>
-      <td class="num">${stBadge(p.ping_ok, p.ping_ms || 'no answer')}</td>
-      <td class="num mono">${esc(traffic)}</td>
-      <td><div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 10px;font-size:12px" onclick="peerAct('ping', ${p.id})">Ping</button>
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 10px;font-size:12px" onclick="peerAct('restart-gre', ${p.id})">GRE</button>
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 10px;font-size:12px" onclick="peerAct('restart-frps', ${p.id})">frps</button>
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 10px;font-size:12px" onclick="showPeerToken(${p.id}, '${esc(nm)}')">Token</button>
-        <button class="hashem-btn hashem-btn-danger" style="height:30px;padding:0 10px;font-size:12px" onclick="removePeer(${p.id}, '${esc(nm)}')">Remove</button>
-      </div></td>
-    </tr>`;
-  }).join('') + '</tbody></table></div>';
+    return `<div class="tunnel-card peer-card" style="grid-column:1/-1;padding:16px;display:flex;flex-direction:column;gap:12px">
+      <div class="tc-header" style="flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="status-indicator ${up ? 'active' : 'offline'}"><span class="dot"></span></span>
+          <b style="font-size:16px;color:var(--tx)">${esc(nm)}</b>
+          <span class="qs-hint mono">#${p.id}</span>
+          <span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${up ? 'active' : 'down'}</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto">
+          <button class="hashem-btn hashem-btn-secondary" style="height:28px;padding:0 10px;font-size:12px" onclick="peerAct('ping', ${p.id})">Ping</button>
+          <button class="hashem-btn hashem-btn-secondary" style="height:28px;padding:0 10px;font-size:12px" onclick="showPeerToken(${p.id}, '${esc(nm)}')">🔑 Token</button>
+          <button class="hashem-btn hashem-btn-secondary" style="height:28px;padding:0 10px;font-size:12px" onclick="peerAct('restart-frps', ${p.id})">Restart</button>
+          <button class="hashem-btn hashem-btn-danger" style="height:28px;padding:0 10px;font-size:12px" onclick="removePeer(${p.id}, '${esc(nm)}')">Remove</button>
+        </div>
+      </div>
+      <div class="det-grid">
+        <div class="det-card">
+          <div class="det-card-head">${ICO_SRV} <span>Foreign Server</span></div>
+          <div class="det-row"><span class="det-k">Foreign IP</span><span class="det-v mono">${esc(p.remote_pub || '—')}<button type="button" class="det-copy" data-copy="${esc(p.remote_pub || '')}" title="Copy">⧉</button></span></div>
+          <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc((p.ports || []).join(', ') || '—')}</span></div>
+        </div>
+        <div class="det-card">
+          <div class="det-card-head">${ICO_GRE} <span>GRE Tunnel</span></div>
+          <div class="det-row"><span class="det-k">Interface</span><span class="det-v">${stBadge(p.gre_up, p.gre_if || 'gre-t' + p.id)}</span></div>
+          <div class="det-row"><span class="det-k">GRE Inner</span><span class="det-v mono">${esc(p.local_gre || '?')} ⇄ ${esc(p.peer_gre || '?')}</span></div>
+          <div class="det-row"><span class="det-k">Ping / Latency</span><span class="det-v">${stBadge(p.ping_ok, p.ping_ms || 'no answer')}</span></div>
+        </div>
+        <div class="det-card">
+          <div class="det-card-head">${ICO_FRP} <span>FRP & Traffic</span></div>
+          <div class="det-row"><span class="det-k">Service</span><span class="det-v">${stBadge(p.frp_up, p.frps_svc || 'frps')}</span></div>
+          <div class="det-row"><span class="det-k">Control Port</span><span class="det-v mono">${esc(String(p.frp_port || '—'))}</span></div>
+          <div class="det-row"><span class="det-k">Traffic</span><span class="det-v mono">${esc(traffic)}</span></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-copy]').forEach(b => {
+    b.onclick = () => {
+      const v = b.dataset.copy;
+      (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject())
+        .then(() => { b.textContent = '✓'; b.classList.add('ok'); setTimeout(() => { b.textContent = '⧉'; b.classList.remove('ok'); }, 1200); })
+        .catch(() => toastWarn('copy failed', v));
+    };
+  });
 }
 function renderTunnel(st) {
   $('roleLine').textContent = esc(st.role || 'unknown role');
@@ -1055,9 +1022,9 @@ function renderTunChips(st) {
   ).join('');
   box.querySelectorAll('[data-chip]').forEach(b => b.onclick = () => {
     const key = b.dataset.chip;
-    const rows = document.querySelectorAll('#peerCards tbody tr');
+    const cards = document.querySelectorAll('#peerCards .peer-card');
     const idx = key === 'base' ? -1 : chips.findIndex(c => c.key === key) - (chips.length - (tunPeerCache || []).length);
-    const target = key === 'base' ? $('tunnelStatusCard') : (rows[idx] || $('peerCards'));
+    const target = key === 'base' ? $('tunnelStatusCard') : (cards[idx] || $('peerCards'));
     if (target && target.scrollIntoView) target.scrollIntoView({behavior: 'smooth', block: 'start'});
   });
 }
@@ -1069,6 +1036,19 @@ async function refresh() {
     renderTunnel(s.local);
     renderPeers(s.peers);
     updatePeerHints(s);
+    if (s.local) {
+      const isForeign = /foreign/i.test(s.local.role || '') || (s.local.frp_svc === 'frpc');
+      const navAddPeer = $('navAddPeer');
+      if (navAddPeer) navAddPeer.classList.toggle('hidden', isForeign);
+      const drNav = $('drawerNav');
+      if (drNav) {
+        const dPeer = drNav.querySelector('[data-tab="add-peer"]');
+        if (dPeer) dPeer.classList.toggle('hidden', isForeign);
+      }
+      if (isForeign && !$('tab-add-peer').hidden) {
+        goTab('dashboard');
+      }
+    }
   } catch(e) { if (!/session|expired|unauthorized/i.test(e.message)) toastErr('refresh failed', e.message); }
   refreshDash();
 }
@@ -1251,20 +1231,28 @@ function drawChart(hist, isDown) {
   }
   const line = (key, color, glow, fill) => {
     ctx.beginPath();
-    // midpoint quadratic smoothing: curve passes near (not through spikes),
-    // so sharp V-shaped joints become soft rounded bends.
-    let started = false, lastX = 0, lastY = 0, si = -1;
-    series.forEach((p, i) => {
-      if (!p) { started = false; return; }
-      const x = X(i), y = Y(p[key]);
-      if (!started) { ctx.moveTo(x, y); started = true; }
-      else {
-        const mx = (lastX + x) / 2, my = (lastY + y) / 2;
-        ctx.quadraticCurveTo(lastX, lastY, mx, my);
+    // ultra-smooth: Catmull-Rom -> cubic bezier through every point kept,
+    // with short spikes pre-flattened so curves stay silky and wobble-free.
+    const seq = series.map((p, i) => p ? {x: X(i), y: Y(p[key])} : null).filter(Boolean);
+    if (seq.length === 1) { ctx.moveTo(seq[0].x, seq[0].y); ctx.lineTo(seq[0].x + 0.01, seq[0].y); }
+    else if (seq.length > 1) {
+      // de-spike: clamp any single-sample jump to 1.6x of neighbours
+      for (let i = 1; i < seq.length - 1; i++) {
+        const prev = seq[i-1].y, cur = seq[i].y, next = seq[i+1].y;
+        const base = (prev + next) / 2, span = Math.abs(next - prev);
+        const dev = Math.abs(cur - base), lim = Math.max(ih * 0.05, span * 1.5 + ih * 0.01);
+        if (dev > lim) seq[i].y = base + (cur > base ? lim : -lim);
       }
-      lastX = x; lastY = y; si = i;
-    });
-    if (si >= 0) ctx.lineTo(lastX, lastY);
+      ctx.moveTo(seq[0].x, seq[0].y);
+      for (let i = 0; i < seq.length - 1; i++) {
+        const p0 = seq[Math.max(0, i - 1)], p1 = seq[i], p2 = seq[i + 1], p3 = seq[Math.min(seq.length - 1, i + 2)];
+        const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+        const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+        ctx.bezierCurveTo(c1x, c1y, c2x, c2y, p2.x, p2.y);
+      }
+    }
+    var lastPt = seq[seq.length - 1] || {x: X(series.length - 1), y: padT + ih};
+    var lastX = lastPt.x, lastY = lastPt.y;
     ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 8; }
     ctx.stroke(); ctx.shadowBlur = 0;
