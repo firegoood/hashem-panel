@@ -234,6 +234,36 @@
   .dash-rows { display:grid; gap:4px; font-size:var(--fs-body); color:var(--tx2); }
   .dash-rows .dr { display:flex; justify-content:space-between; gap:8px; }
   .dash-rows .k { color:var(--mu); }
+  /* premium details: 3-column categorized glass cards (server / GRE / FRP) */
+  .det-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:10px; }
+  @media (max-width:900px) { .det-grid { grid-template-columns:1fr; } }
+  .det-card { border-radius:14px; padding:14px 15px; display:flex; flex-direction:column; gap:10px;
+    background:linear-gradient(180deg, color-mix(in srgb, var(--sunk) 70%, transparent), var(--sunk));
+    border:1px solid var(--ln); box-shadow:inset 0 1px 0 rgba(255,255,255,.05); transition:border-color .2s ease; }
+  .det-card:hover { border-color:var(--ln2); }
+  .det-head { display:flex; align-items:center; gap:8px; font-size:11.5px; font-weight:700;
+    letter-spacing:.07em; text-transform:uppercase; color:var(--mu); }
+  .det-ico { width:26px; height:26px; border-radius:8px; display:grid; place-items:center; flex:none;
+    background:var(--ac-soft); border:1px solid color-mix(in srgb, var(--ac) 22%, transparent); color:var(--ac); }
+  .det-ico svg { width:14px; height:14px; }
+  .det-rows { display:grid; gap:8px; }
+  .det-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .det-k { font-size:12px; color:var(--dim); font-weight:500; }
+  .det-v { font-size:13px; color:var(--tx); font-weight:600; font-variant-numeric:tabular-nums;
+    display:flex; align-items:center; gap:6px; min-width:0; }
+  .det-v.mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size:12.5px; background:var(--s2); border:1px solid var(--ln);
+    padding:3px 9px; border-radius:8px; letter-spacing:-.01em; }
+  .det-copy { border:1px solid var(--ln); background:var(--s2); color:var(--mu); border-radius:7px;
+    font-size:11px; font-weight:700; padding:3px 8px; cursor:pointer; transition:all .15s ease; }
+  .det-copy:hover { color:var(--tx); border-color:var(--ac); }
+  .det-copy.ok { color:var(--ok); border-color:color-mix(in srgb, var(--ok) 50%, transparent); }
+  .det-head-live { display:flex; align-items:center; gap:8px; }
+  .det-pulse { width:8px; height:8px; border-radius:50%; background:var(--ok); flex:none;
+    box-shadow:0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); animation:detPing 2s infinite; }
+  @keyframes detPing { 0% { box-shadow:0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); }
+    70% { box-shadow:0 0 0 7px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
+  .det-checked { font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; }
   .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:99;
     background:var(--s2); color:var(--tx); border:1px solid var(--ln2);
     padding:10px 16px; border-radius:10px; box-shadow:var(--lift); }
@@ -479,7 +509,16 @@
             <div class="kpi-val" id="kpiUp">N/A</div>
             <div class="kpi-sub" id="kpiUpSub">—</div>
           </div>
-          <div class="tunnel-card dash-span"><div class="tc-header"><p class="tc-title">Details</p><span class="qs-hint" id="dashChecked">—</span></div><div class="dash-rows" id="dashDetails">N/A</div></div>
+          <div class="tunnel-card dash-span">
+            <div class="tc-header">
+              <div class="det-head-live">
+                <span class="det-pulse"></span>
+                <p class="tc-title">Details</p>
+              </div>
+              <span class="det-checked" id="dashChecked">—</span>
+            </div>
+            <div class="det-grid" id="dashDetails"></div>
+          </div>
         </div>
       </section>
       <section id="tab-tunnel" hidden>
@@ -1343,10 +1382,31 @@ async function refreshDash() {
     const u = d.uptime || {};
     set('kpiUp', fmtSecs(u.system));
     set('kpiUpSub', 'panel ' + fmtSecs(u.panel) + ' · ' + (d.conns != null ? d.conns + ' conns' : 'conns N/A'));
-    setHTML('dashDetails', dr('Public IP', d.local_pub) + dr('GRE local', g.local) + dr('GRE peer', g.peer)
-      + dr('GRE inner', g.inner) + dr('FRP service', f.up ? f.svc : 'down') + dr('FRP port', f.port)
-      + dr('Proxies', (f.proxies || []).join(', ') || '—') + dr('Role', d.role)
-      + (u.frp_since ? dr('FRP since', u.frp_since) : ''));
+    // premium details: 3 categorized glass cards with badges + copy buttons.
+    // dval() = plain text cell, dmono(ip) = mono pill + one-click copy,
+    // dbadge() = status pill (ok/err/warn/neutral).
+    const dval = v => `<span class="det-v">${esc(v ?? NA)}</span>`;
+    const dmono = v => (!v || v === NA)
+      ? `<span class="det-v">—</span>`
+      : `<span style="display:flex;align-items:center;gap:6px;min-width:0"><span class="det-v mono">${esc(v)}</span><button class="det-copy" data-copy="${esc(v)}" title="Copy">⧉</button></span>`;
+    const dbadge = (txt, cls) => `<span class="det-v"><span class="badge ${cls || ''}"><span class="dot"></span>${esc(txt)}</span></span>`;
+    const detCard = (icon, title, rows) =>
+      `<div class="det-card"><div class="det-head"><span class="det-ico">${icon}</span>${esc(title)}</div><div class="det-rows">${rows}</div></div>`;
+    const detRow = (k, cell) => `<div class="det-row"><span class="det-k">${esc(k)}</span>${cell}</div>`;
+    const ICO_SRV = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><circle cx="7" cy="7.5" r="1" fill="currentColor"/><circle cx="7" cy="16.5" r="1" fill="currentColor"/></svg>';
+    const ICO_GRE = '<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
+    const ICO_FRP = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
+    const frpBadge = f.up ? dbadge(f.svc || 'running', 'ok') : dbadge('down', 'err');
+    const roleBadge = d.role === 'iran' ? dbadge('🇮🇷 Iran', 'ok') : d.role === 'foreign' ? dbadge('🌍 Foreign', '') : dval(d.role);
+    setHTML('dashDetails',
+      detCard(ICO_SRV, 'Server', detRow('Public IP', dmono(d.local_pub)) + detRow('Role', roleBadge) + detRow('Proxies', dval((f.proxies || []).join(', ') || '—')))
+      + detCard(ICO_GRE, 'GRE Tunnel', detRow('Local', dmono(g.local)) + detRow('Peer', dmono(g.peer)) + detRow('Inner', dmono(g.inner)))
+      + detCard(ICO_FRP, 'FRP Service', detRow('Status', frpBadge) + detRow('Port', (f.port && f.port !== NA) ? dmono(String(f.port)) : dval('—')) + (u.frp_since ? detRow('Since', dval(u.frp_since)) : '')));
+    // one-click copy for IP/port pills
+    document.querySelectorAll('#dashDetails [data-copy]').forEach(b => { if (!b.dataset.cpBound) { b.dataset.cpBound = '1';
+      b.onclick = () => { const v = b.dataset.copy; (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject())
+        .then(() => { b.textContent = '✓'; b.classList.add('ok'); setTimeout(() => { b.textContent = '⧉'; b.classList.remove('ok'); }, 1200); })
+        .catch(() => toastWarn('copy failed', v)); }; } });
     set('dashChecked', 'last check: ' + (d.checked || '—'));
   } catch(e) { /* keep old values; N/A already default */ }
 }
