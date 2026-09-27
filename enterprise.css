@@ -1,0 +1,180 @@
+/* Hashem Panel — Enterprise Network Dashboard Design System (Phase 1)
+ * Additive only: no existing selector is redefined here, only new .ent-*
+ * components + page density helpers. Works on both dark/light themes
+ * via the tokens in tokens.css.
+ */
+
+/* ---------- page density ---------- */
+.ent-page { max-width: var(--ent-w-page); }
+.ent-grid { display: grid; gap: var(--ent-gap); }
+.ent-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ent-gap); }
+@media (max-width: 760px) { .ent-grid-2 { grid-template-columns: 1fr; } }
+.ent-sec-label {
+  font-size: var(--ent-tbl-head-fs); font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--dim);
+}
+.ent-dense .trow { padding: 7px 0; }
+.ent-dense .kpi-val { font-size: var(--ent-kpi-val); }
+
+/* ---------- tables (peers, errors, future analytics) ---------- */
+.ent-tbl-wrap {
+  border: 1px solid var(--ln); border-radius: var(--r-md);
+  overflow: auto; background: var(--s1); max-width: 100%;
+}
+table.ent-tbl { width: 100%; border-collapse: collapse; font-size: var(--ent-tbl-fs); }
+.ent-tbl thead th {
+  position: sticky; top: 0; z-index: 1; background: var(--s2);
+  font-size: var(--ent-tbl-head-fs); font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--mu); text-align: left;
+  padding: 9px 12px; border-bottom: 1px solid var(--ln2); white-space: nowrap;
+}
+.ent-tbl tbody td {
+  padding: 9px 12px; border-bottom: 1px solid var(--ln); color: var(--tx2);
+  vertical-align: middle; white-space: nowrap;
+}
+.ent-tbl tbody tr:last-child td { border-bottom: 0; }
+.ent-tbl tbody tr:hover td { background: var(--sunk); }
+.ent-tbl td.num, .ent-tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ent-tbl td.mono, .ent-tbl th.mono { font-family: var(--font-mono); font-size: var(--ent-code-fs); }
+.ent-tbl .rowlink { cursor: pointer; }
+.ent-tbl-wrap:focus-visible { outline: 2px solid var(--ent-focus); outline-offset: 2px; }
+
+/* ---------- status indicators (extended) ---------- */
+.ent-st { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-small); font-weight: 600; white-space: nowrap; }
+.ent-st i { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--dim); }
+.ent-st.on { color: var(--ok); } .ent-st.on i { background: var(--ok); box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 65%, transparent); animation: entPulse 2s ease-in-out infinite; }
+.ent-st.off { color: var(--dim); } .ent-st.off i { background: var(--dim); }
+.ent-st.warn { color: var(--wr); } .ent-st.warn i { background: var(--wr); }
+.ent-st.err { color: var(--er); } .ent-st.err i { background: var(--er); box-shadow: 0 0 8px color-mix(in srgb, var(--er) 55%, transparent); }
+.ent-st.info { color: var(--info); } .ent-st.info i { background: var(--info); }
+@keyframes entPulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .ent-st.on i { animation: none; } }
+
+/* ---------- modal (future confirm/edit dialogs) ---------- */
+.ent-modal-ov {
+  position: fixed; inset: 0; z-index: 120; display: grid; place-items: center;
+  padding: 20px; background: var(--ent-modal-bg);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.ent-modal {
+  width: min(94vw, 520px); max-height: 88dvh; overflow: auto;
+  background: var(--s1); border: 1px solid var(--ln2); border-radius: var(--r-lg);
+  box-shadow: var(--lift); animation: entPop .22s var(--spring) both;
+}
+@keyframes entPop { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+.ent-modal-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--ln); }
+.ent-modal-h b { color: var(--tx); font-size: var(--fs-h4); }
+.ent-modal-b { padding: 16px; display: grid; gap: 12px; }
+.ent-modal-f { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding: 14px 16px; border-top: 1px solid var(--ln); }
+.ent-x { width: 32px; height: 32px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--mu); cursor: pointer; font-size: 16px; line-height: 1; }
+.ent-x:hover { background: var(--sunk); color: var(--tx); }
+
+/* ---------- toasts (typed; existing #toast keeps working) ---------- */
+#entToasts { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 130; display: grid; gap: 8px; width: var(--ent-toast-w); }
+.ent-toast {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: color-mix(in srgb, var(--s2) 92%, transparent);
+  border: 1px solid var(--ln2); border-radius: 12px; padding: 11px 14px;
+  box-shadow: var(--lift); font-size: var(--fs-body); color: var(--tx);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  animation: entSlideIn .25s var(--spring) both;
+}
+@keyframes entSlideIn { from { opacity: 0; transform: translateY(8px); } }
+.ent-toast i { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; background: var(--info); }
+.ent-toast.ok i { background: var(--ok); } .ent-toast.err i { background: var(--er); }
+.ent-toast.warn i { background: var(--wr); } .ent-toast.info i { background: var(--info); }
+.ent-toast small { display: block; color: var(--dim); font-size: var(--fs-small); }
+@media (prefers-reduced-motion: reduce) { .ent-toast, .ent-modal { animation: none; } }
+
+/* ---------- empty / loading states ---------- */
+.ent-empty {
+  border: 1.5px dashed var(--ln2); border-radius: var(--r-md);
+  padding: 26px 18px; text-align: center; display: grid; gap: 6px; justify-items: center;
+  color: var(--dim); font-size: var(--fs-body); background: var(--sunk);
+}
+.ent-empty b { color: var(--tx2); font-size: var(--fs-h4); }
+.ent-empty .ent-empty-ic {
+  width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+  background: var(--s2); border: 1px solid var(--ln); color: var(--mu);
+}
+.ent-empty .ent-empty-ic svg { width: 18px; height: 18px; }
+.ent-skel { position: relative; overflow: hidden; background: var(--sunk); border-radius: 8px; min-height: 14px; }
+.ent-skel::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--tx) 9%, transparent), transparent);
+  animation: entShimmer 1.4s ease-in-out infinite;
+}
+@keyframes entShimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.ent-spinner {
+  width: 16px; height: 16px; border-radius: 50%; flex: none;
+  border: 2px solid var(--ln2); border-top-color: var(--ac);
+  animation: entSpin .8s linear infinite;
+}
+@keyframes entSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ent-skel::after, .ent-spinner { animation: none; } }
+
+/* ---------- tunnel topology strip (future analyzer Viz) ---------- */
+.ent-topo { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
+.ent-topo-node {
+  background: var(--s2); border: 1px solid var(--ln2); border-radius: 10px;
+  padding: 8px 12px; min-width: 110px; display: grid; gap: 2px;
+}
+.ent-topo-node b { color: var(--tx); font-size: var(--fs-small); }
+.ent-topo-node span { color: var(--dim); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; }
+.ent-topo-link { display: flex; align-items: center; padding: 0 6px; color: var(--dim); min-width: 64px; flex: 1; }
+.ent-topo-link svg { width: 100%; height: 22px; }
+.ent-topo-link.up { color: var(--ok); }
+.ent-topo-link.down { color: var(--dim); }
+.ent-topo-link.up line, .ent-topo-link.up path { stroke-dasharray: 5 4; animation: entDash 1.2s linear infinite; }
+@keyframes entDash { to { stroke-dashoffset: -9; } }
+@media (prefers-reduced-motion: reduce) { .ent-topo-link.up line, .ent-topo-link.up path { animation: none; } }
+
+/* ---------- chart standard (canvas helpers) ---------- */
+.ent-chart-tip {
+  position: absolute; pointer-events: none; z-index: 5;
+  background: var(--s2); border: 1px solid var(--ln2); border-radius: 8px;
+  padding: 6px 10px; font-size: var(--fs-small); color: var(--tx2);
+  box-shadow: var(--lift); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.ent-chart-wrap { position: relative; }
+.ent-chart-axis { font-size: 11px; fill: var(--ent-chart-axis); font-family: var(--font-sans); }
+
+/* ---------- enterprise forms (denser labels) ---------- */
+.ent-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mu); }
+.ent-req::after { content: " *"; color: var(--er); }
+.ent-help { font-size: var(--fs-small); color: var(--dim); }
+.ent-err-text { font-size: var(--fs-small); color: var(--er); }
+
+/* ---------- light-theme tuning ---------- */
+body[data-t="light"] .ent-tbl thead th { background: var(--s3); }
+body[data-t="light"] .ent-empty { background: rgba(0,0,0,.025); }
+body[data-t="light"] .ent-topo-node { background: var(--s1); }
+
+/* ---------- code / log text ---------- */
+.ent-code { font-family: var(--font-mono); font-size: var(--ent-code-fs); font-variant-numeric: tabular-nums; }
+
+/* ---------- interactive terminal (Phase 3) ---------- */
+.term-live { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 65%, transparent); animation: entPulse 2s ease-in-out infinite; }
+.term-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.term-toolbar .hashem-btn { height: 32px; padding: 0 12px; font-size: 12.5px; }
+.term-search { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.term-search .hashem-input { flex: 1; min-width: 160px; }
+.term-wrap { position: relative; border: 1px solid var(--ln2); border-radius: var(--r-md); background: #0a0e17; min-height: 420px; height: 52dvh; overflow: hidden; }
+.term-wrap.full { position: fixed; inset: 12px; z-index: 140; height: auto; }
+.term-wrap #termBox, .term-wrap .xterm { height: 100%; }
+.term-wrap #termBox { padding: 8px; }
+.term-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(6,9,15,.72); backdrop-filter: blur(3px); }
+.term-overlay-card { display: grid; gap: 10px; justify-items: center; text-align: center; background: var(--s1); border: 1px solid var(--ln2); border-radius: var(--r-lg); padding: 22px 26px; max-width: min(92%, 380px); }
+.term-overlay-card b { color: var(--tx); font-size: var(--fs-h4); }
+.term-keys { display: flex; gap: 6px; flex-wrap: wrap; }
+.term-keys button { border: 1px solid var(--ln2); background: var(--s2); color: var(--tx2); border-radius: 8px; padding: 7px 11px; font-size: 12px; font-family: var(--font-mono); cursor: pointer; }
+.term-keys button:hover { border-color: var(--ac); color: var(--tx); }
+.term-keys button:active { transform: translateY(1px); }
+.term-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+.term-quick button { border: 1px dashed var(--ac); background: color-mix(in srgb, var(--ac) 10%, transparent); color: var(--tx); border-radius: 8px; padding: 7px 11px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.term-quick button:hover { background: color-mix(in srgb, var(--ac) 22%, transparent); }
+.term-quick button:active { transform: translateY(1px); }
+@media (max-width: 760px) {
+  .term-wrap { min-height: 340px; height: 56dvh; }
+  .term-keys button { padding: 10px 14px; font-size: 13px; }
+}

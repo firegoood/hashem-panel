@@ -1,286 +1,64 @@
-<div align="center">
+# Hashem Panel
 
-# Hashem Panel 🇮🇷 ↔ 🌍
+Web control panel for the GRE+FRP tunnel stack (login inspired by Hashem panel).
+Single Go binary, no dependencies. Install on **both** servers — each panel
+configures only its own side, and shows the other side via Peer link.
 
-**GRE Layer-3 tunnel + encrypted TLS FRP reverse relay — with a premium web panel.**
+## Features
 
-[![Latest Release](https://img.shields.io/github/release/pdnczone/hashem-panel?display_name=tag)](https://github.com/pdnczone/hashem-panel/releases/latest)
-[![Build Panel](https://github.com/pdnczone/hashem-panel/actions/workflows/build-panel.yml/badge.svg)](https://github.com/pdnczone/hashem-panel/actions/workflows/build-panel.yml)
-[![Platform](https://img.shields.io/badge/platform-linux%20amd64%20%7C%20arm64-blue)](https://github.com/pdnczone/hashem-panel)
-[![Website](https://img.shields.io/badge/website-pdnczone.ir-38bdf8)](https://pdnczone.ir)
-[![Telegram](https://img.shields.io/badge/telegram-@pdnczone-229ED9)](https://t.me/pdnczone)
-[![YouTube](https://img.shields.io/badge/youtube-@pdnczone-FF0000)](https://youtube.com/@pdnczone)
+- **Setup tunnel from web** — pick a role per server:
+  - 🇮🇷 Iran: GRE + frps (token auto-generated, shown for copy)
+  - 🌍 Foreign: GRE + frpc (token entered manually, ports like `443, 2083`)
+- Auto-detected local public IP (editable), editable GRE inner IPs
+  (default `10.10.10.2` / `10.10.10.1`), editable FRP port (default 7000)
+- frps/frpc auto-download if missing, TLS on, TCP+UDP per port
+- Auto ping test after setup + step-by-step log
+- Overwrite guard: warns if a tunnel already exists, needs explicit confirm
+- Tunnel status (GRE/FRP/ping), restart actions, live logs, peer view
 
-[🌐 Website](https://pdnczone.ir) · [✈️ Telegram](https://t.me/pdnczone) · [▶️ YouTube](https://youtube.com/@pdnczone)
-
-_Iran's IP stays behind the tunnel — foreign-server ports become reachable through Iran's public IP._
-
-> **خلاصه فارسی:** تونل لایه ۳ GRE + ریورس رمزنگاری‌شده FRP با پنل وب حرفه‌ای. با یک خط نصب کن، گزینه `1` روی ایران و گزینه `2` روی سرور خارج. پنل وب خودکار نصب می‌شه و آخر نصب لینک + یوزر + پسورد رو نشون می‌ده. بعدش همه‌چیز هم از ترمینال (`hashem`) هم از مرورگر قابل مدیریته.
-
-</div>
-
----
-
-## ✨ Features
-
-- 🚀 **One-line install** — prebuilt panel binary from GitHub releases, no Go needed on servers
-- 🖥️ **Premium web panel** — 9 tabs: Dashboard · Tunnel · Setup · Logs · Performance · Watchdog · Update · Settings · Terminal
-- ⌨️ **`hashem` CLI** — one command in SSH opens the full tunnel menu (options 0–22)
-- 🌐 **Multi-peer** — up to 5 foreign servers on one Iran, each with its own token + card in the Tunnel tab
-- 📦 **Setup bundle** — one `hsh1_...` string carries IP + control port + GRE pair + token + ports; paste it on Foreign and everything auto-fills (legacy 32-char tokens still work)
-- 🐕 **Watchdog & Telegram alerts** — checks GRE ping and FRP status every 1 min, alerts after 2 consecutive fails with auto-restart attempt, route direct or via tunnel (SOCKS5), recovery notifications with downtime duration
-- 💾 **Encrypted scheduled backups** — OpenSSL AES-256-CBC encrypted backups of FRP configs, panel state, peers, and systemd units keyed from panel password, user-picked schedule (every N hours or daily at HH:MM), one-click download & restore
-- 🗑️ **Per-peer remove that works** — inline two-step confirm (arm 5s + Undo) inside each card; falls back to direct removal on servers with a stale installer
-- 🃏 **Dashboard-style cards** — Main tunnel card (gold accent) + per-peer cards (Foreign/IP, GRE, FRP & traffic) in Tunnel, peer summary rows in Dashboard that jump to the full card
-- 🔒 **Panel HTTPS** — Let's Encrypt from Settings or terminal, HTTP + HTTPS side by side, auto-renew
-- 💻 **Interactive terminal** — real root shell in the browser (xterm.js + WebSocket + PTY), feature-flagged, audit-logged
-- 🧾 **Useful logs + error codes** — every failure maps to a stable `E-XXXX` code with hints, surfaced in Logs → Panel errors
-- 📊 **Premium charts** — total-traffic chart with 24H / 7D / 30D ranges
-- ⚡ **Optimize tunnel** — BBR + buffers + MTU/MSS tuning with backup & restore
-- 🛡️ **DPI shield** — iptables rate-limiting protection against active DPI probing and connection floods on reverse proxy ports with systemd persistence
-- 🔄 **Safe updates** — script + panel update with config backup and rollback
-
-### 🐕 Watchdog & Encrypted Backup
-
-- **Watchdog**: Checks peer GRE ping (1x, -W2) and FRP service status every 1 minute via `hashem-watchdog.timer` or panel background poll. When down for 2 consecutive checks (2 minutes), fires a Telegram alert (`🔴 Tunnel DOWN...`) and triggers a safe restart of GRE & FRP services. On recovery, sends `🟢 Tunnel RECOVERED (was down Xm)`.
-- **Telegram Routing**: Delivery route can be set to **Direct** (HTTPS) or **Via Tunnel** (SOCKS5 through tunnel proxy port) for filtered Iran environments. Bot tokens are masked in API and logs (`123456...7890`).
-- **Encrypted Backups**: Archives all `/etc/frp/*.toml` files, panel settings, peers registry, and systemd service units into an encrypted tarball using `openssl enc -aes-256-cbc -pbkdf2` keyed by `/etc/gre-panel/panel.pass`. Supports on-demand backups, automated schedules (every N hours or daily at HH:MM), automatic pruning (keep 7), web downloads, and safe restores.
-
----
-
-## 🏗️ Architecture
-
-```
-Users ──► IRAN (public ports here) ══ GRE + FRP ══► FOREIGN (service runs here)
-          frps listens :7000/:443…              frpc dials via 10.10.10.2
-          GRE 10.10.10.2/30                     GRE 10.10.10.1/30
-```
-
-| Part | Iran server | Foreign server |
-|------|-------------|----------------|
-| GRE | `10.10.10.2/30` (`gre-tunnel`, systemd) | `10.10.10.1/30` (`gre-tunnel`, systemd) |
-| FRP | `frps` (server, TLS) | `frpc` (client, connects to `10.10.10.2` **inside** the tunnel) |
-| Peers 2–5 | `frps-N` + `gre-tN` per peer | own `frpc` per peer |
-| Services | `systemd`, auto-start on boot | `systemd`, auto-start on boot |
-| Web panel | `gre-panel` on `:7777/<secret>` (+ `:7443` with cert) | same, its own side only |
-
-- Auto arch detect (`amd64` / `arm64`), FRP download, `ip_forward` + TCPMSS clamp
-- Every port = `tcp` + `udp` proxy with the same number on Iran
-- Each panel manages **only its own side** (no remote control)
-
-### 🛡️ Traffic Obfuscation
-
-Lightweight camouflage around the existing GRE+FRP architecture:
-
-- **Random FRP Port**: New setups choose a random control port (`20000–60000`) instead of `7000`. Existing setups keep their port on update.
-- **Forced TLS & TLS Mimic**: Server enforces TLS (`transport.tls.force = true`), and client sets `transport.tls.disableCustomTLSFirstByte = true` to mimic standard TLS handshakes.
-- **Proxy Encryption & Compression**: User-toggleable per proxy (`transport.useEncryption` & `transport.useCompression`). Default is off for speed.
-- **Idle-Gap Chaff Service (`hashem-chaff`)**: Runs low-overhead pseudo-random ICMP pings (random interval, size, and 16 hex pad bytes) across the GRE tunnel. Fills idle gaps to break mechanical timing analysis; does not hide volume under heavy load (~few KB/s overhead).
-
-### ⚡ Performance & Obfuscation Toggles
-
-On 1-vCPU VPS boxes, multi-layered crypto plus compressing incompressible (already-encrypted, e.g. VLESS or Trojan) traffic can severely degrade CPU performance and throughput. Hashem Panel provides persistent, user-controllable toggles stored in `/etc/gre-panel/perf.json` (mode `0600`) with **speed-first defaults**:
-
-| Setting | Default | Description | Impact & Speed-First Recommendation |
-|---|---|---|---|
-| `proxy_encryption` | `false` (Off) | FRP layer-2 proxy encryption (`transport.useEncryption = true`) | Keep **Off** when routing encrypted protocols (VLESS, Trojan, VMess) to prevent redundant crypto cycles. |
-| `proxy_compression` | `false` (Off) | Snappy proxy compression (`transport.useCompression = true`) | Keep **Off** on incompressible streams; compressing encrypted data wastes CPU without reducing bandwidth. |
-| `force_tls` | `true` (On) | Forced TLS on frps + `disableCustomTLSFirstByte = true` on frpc | Enforces TLS handshake and mimics standard web TLS handshakes. |
-| `chaff_profile` | `low` | Idle-gap chaff generator profile (`off`, `low`, `mid`) | `low` adds negligible ping overhead (~few KB/s) to mask idle timing gaps; choose `off` to disable. |
-| `dpi_enabled` | `true` | iptables hashlimit flood shield on reverse ports | Protects reverse ports against high-frequency scanner probing. Auto-enabled on new setups. |
-| `dpi_rate` | `300/min` | Rate limit threshold for reverse proxy ports | Raised from 30/min to 300/min to prevent throttling legitimate client handshakes. |
-| `dpi_burst` | `100` | Burst allowance for reverse proxy ports | Allows sudden bursts of connections during page loads without packet drops. |
-
-> **Speed-First Note:** For typical VPN/proxy setups on small VPS instances, leaving `proxy_encryption` and `proxy_compression` **OFF** delivers maximum throughput and lowest latency. Configure them via the web panel's **Performance** tab or with the CLI (`hashem perf enc on|off`, `hashem perf comp on|off`, `hashem perf apply`).
-
----
-
-## ⚡ Quick install
-
-One-liner (run on **both** servers):
+## One-line install (recommended)
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/pdnczone/hashem-panel/main/install.sh)
 ```
 
-Manual:
+Then pick **7) Install Web Panel** — it builds the Go binary, installs the
+`gre-panel` systemd service and prints the panel URL + password.
+Option **8) Show Panel URL** reprints the URL anytime.
+
+After install, control it from SSH with:
 
 ```bash
-git clone https://github.com/pdnczone/hashem-panel.git
-cd hashem-panel
-sudo bash hashem.sh
+grepanel status     # panel + tunnel state
+grepanel url        # print panel URL
+grepanel logs       # panel logs
+grepanel restart    # restart panel
+grepanel password   # reset password (prints new one)
+grepanel uninstall  # remove panel (keeps /etc/gre-panel config)
 ```
 
-### Setup flow (single `hsh1_...` bundle)
-
-1. **Iran first:** option `1` — Iran + foreign public IPs, FRP port (random default `20000-60000`). The panel and the script print a **setup bundle** like `hsh1_85.1.2.3_34567_10.10.10.2_10.10.10.1_<token>_443-2083` (IP + control port + GRE pair + token + ports in one pasteable string).
-2. **Foreign next:** option `2` — paste the bundle (fills everything incl. ports) **or** enter Iran IP + port + legacy 32-char token + ports (`443, 2083, 8080`) manually.
-3. **Check:** option `6` — GRE status, inner ping, FRP service state.
-4. Panel installs automatically; credentials print at the end (also option `13` anytime).
-
-> **فارسی:** اول روی ایران گزینه `1` (باندل `hsh1_...` رو کپی کن — همه‌چیز توشه)، بعد روی خارج گزینه `2` (باندل رو paste کن، همه فیلدها خودش پر می‌شه). تست با گزینه `6`. پنل وب خودکار نصب می‌شه.
-
----
-
-## ⌨️ `hashem` command
-
-After install, just type in SSH:
+## Manual build & run
 
 ```bash
-hashem            # full interactive menu, grouped: Setup · Peers · Monitor · Tune · Panel & System (0-21)
+cd panel
+go build -o gre-panel .
+sudo ./gre-panel            # listens on :7777 under a secret path
+sudo GRE_PANEL_DIR=/etc/gre-panel ./gre-panel
 ```
 
-Non-interactive (same flags as `hashem.sh`):
+First start prints an 8-digit password (`admin` user). Change it from Settings.
+For tests/dev: `GRE_PANEL_PASSWORD=... ./gre-panel` sets a fixed password.
 
-```bash
-hashem status | logs | restart | show-panel-url
-hashem update                                   # latest script + latest prebuilt panel
-hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--token T] [--chaff low|mid|off] [--force]
-hashem setup-foreign --bundle hsh1_... [--chaff low|mid|off] [--force]   # one paste fills everything; explicit flags win
-hashem setup-foreign --local-pub IP --remote-pub IP --token T --ports "443, 2083" [--chaff low|mid|off] [--force]
-hashem add-peer --bundle hsh1_... [--name LABEL] [--chaff low|mid|off]   # or full flags below
-hashem add-peer --local-pub IP --remote-pub IP [--frp-port N] --token T \
-  --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--chaff low|mid|off]
-hashem remove-peer --id N [--force] | peer-list | peer-token --id N
-hashem panel-tls [domain] [email]     # Let's Encrypt for the web panel
-hashem optimize | restore | tune-status
-hashem chaff on | off | status        # traffic chaff / idle-gap filler control
-hashem dpi-shield on | off | status   # rate-limit reverse ports against DPI flood
-hashem watchdog on | off | status | test | tick
-hashem backup now [--keep N] | restore <file> | schedule [--every N|--daily HH:MM|--off] | status
-hashem tgsend "msg"                   # send Telegram alert manually
-```
+Get the URL: `sudo cat /etc/gre-panel/panel.json` → open
+`http://<server-ip>:7777/<base_path>`.
 
-`grepanel` (panel service control) still works side by side:
+## Tunnel setup walkthrough
 
-```bash
-grepanel status | logs | restart | url | password | uninstall
-```
-
----
-
-## 🖥️ Web panel
-
-After setup it auto-installs and prints:
-
-```
-Panel URL:  http://<server-ip>:7777/<secret-path>
-Username:   admin
-Password:   8-digit number
-```
-
-| Tab | What it does |
-|-----|--------------|
-| Dashboard | Traffic chart (24H/7D/30D), KPIs, Details (Server/GRE/FRP) + **Peer Tunnels summary** — click a row to jump to its full card |
-| Tunnel | **Main tunnel card** (gold accent) + per-peer cards (Foreign + Iran IP, GRE pair, control port, traffic, copy buttons), Ping/Bundle/Restart/Remove per card, inline two-step Remove |
-| Setup | Quick Setup 1-2-3 + `hsh1_...` bundle box (one paste configures Foreign), add-peer, overwrite-guarded, port-clash warnings |
-| Logs | Per-peer FRP logs, live tail, panel errors with `E-XXXX` codes |
-| Watchdog | Status hero (Online/Offline, consec fails), Telegram alert config (direct or via tunnel socks), OpenSSL AES-256-CBC backup manager (create, schedule, download, restore), event log |
-| Update | One-click update to the latest `panel-rN` release |
-| Settings | Password, panel HTTPS (Let's Encrypt), terminal flag |
-| Terminal | Real root shell (enable in Settings first), quick `hashem` buttons |
-
-After login you can re-run the whole tunnel setup from the browser — same logic as the script, step-by-step log included. Dark/light switch in the sidebar.
-
-### Screenshots
-
-![Dashboard — KPIs, traffic chart, Details + Peer Tunnels summary](docs/dashboard.png)
-
-![Dashboard Details + Peer Tunnels summary rows](docs/dashboard-details.png)
-
-![Tunnel — Main card + per-peer cards with Ping/Bundle/Restart/Remove](docs/tunnel.png)
-
----
-
-## 📋 Menu reference
-
-| Option | Group | What it does |
-|--------|-------|--------------|
-| 1 | Setup | Setup IRAN (GRE + `frps`) + auto-install panel |
-| 2 | Setup | Setup FOREIGN (GRE + `frpc` reverse) + auto-install panel |
-| 3 | Peers | Add peer tunnel (Iran: another foreign server) |
-| 4 | Peers | List peer tunnels |
-| 5 | Peers | Remove peer tunnel |
-| 6 | Monitor | Status + GRE ping test |
-| 7 | Monitor | Live FRP logs |
-| 8 | Monitor | Restart tunnel services |
-| 9 | Monitor | Remove tunnel (GRE + FRP gone, **panel stays**) |
-| 10 | Tune | Optimize tunnel (BBR + buffers + MTU/MSS, with backup) |
-| 11 | Tune | Restore pre-optimize settings |
-| 12 | Tune | Optimization status |
-| 19 | Tune | Traffic chaff / obfuscation (idle-gap filler: on / off / status) |
-| 20 | Tune | Watchdog & Backup (Telegram alerts, route direct/tunnel, encrypted scheduled backups) |
-| 21 | Tune | DPI shield (rate-limit reverse ports against flood: on / off / status) |
-| 22 | Tune | Performance & Obfuscation Toggles (proxy crypto/comp, forced TLS, DPI rate) |
-| 13 | Panel & System | Show panel URL + username + password |
-| 14 | Panel & System | Panel HTTPS (Let's Encrypt certificate) |
-| 15 | Panel & System | Update all (latest script + latest prebuilt panel) |
-| 16 | Panel & System | Free RAM (journald cap + drop cache + 1GB swap) |
-| 17 | Panel & System | CLI help (non-interactive commands) |
-| 18 | Panel & System | Uninstall everything (services + interface + binaries) |
-| 0 | — | Exit |
-
----
-
-## 🔧 Troubleshooting
-
-| Symptom | Likely cause → fix |
-|---------|-------------------|
-| `Panel URL` empty / 404 | Secret path rotated after reinstall → option `13` prints the current one |
-| `E-AUTH-01` right after login | Stale session cookie — hard refresh and log in again |
-| `frpc dial 127.0.0.1:443 refused` | Nothing listens on 443 on foreign — point frpc at the real local port |
-| `port unavailable` (e.g. 8080) | Something already listens there (`ss -tlnp \| grep 8080`) — pick another port or stop it |
-| FRP up but service unreachable | Check `4` (logs), `3` (GRE ping), token match on both sides, GRE proto 47 open |
-| Old binary after option `15` | GitHub `latest` redirect cache — re-run `15`; it verifies ELF before installing |
-
-Requirements: Linux + `systemd`, `root`, GRE (protocol 47) open between servers.
-
----
-
-## 🔐 Security note
-
-⚠️ The panel password is also saved in plaintext at `/etc/gre-panel/panel.pass` (mode `600`) so option `13` can show it — convenient, not maximally secure. Anyone with root on the server can read it.
-
-- Change it anytime: panel **Settings** tab, `grepanel password`, or option `13` auto-regenerates if missing.
-- Panel listens on `:7777` (and `:7443` with a cert) — restrict with firewall to your IP if exposed.
-- Enable HTTPS (option `16` or Settings → Panel HTTPS) on any panel reachable from the internet.
-
-> **فارسی:** پسورد پنل به‌صورت متنی در `panel.pass` ذخیره می‌شه تا گزینه `8` نشونش بده (انتخاب آگاهانه برای راحتی). هر وقت خواستی از تب Settings عوضش کن، سرتیفیکیت بگیر و پورت پنل رو با فایروال محدود کن.
-
----
-
-## 📁 Repo layout
-
-```
-hashem.sh               # everything: setup iran/foreign, peers, status, logs, update, panel, TLS (`hashem` = same file, installed)
-install.sh              # one-liner entry → hashem.sh
-panel/                  # Go single-binary web panel
-  main.go               # routes, HTTP+HTTPS listeners, feature flags
-  terminal.go           # xterm.js + WebSocket + PTY interactive shell
-  tls.go                # Let's Encrypt issue/renew + HTTPS serve
-  setup.go / tunnel.go  # setup + peers API, status, logs
-  dashboard.go / errors.go  # metrics, E-XXXX catalog
-  index.html            # all 7 tabs (vanilla JS + enterprise DS)
-  grepanel              # server-side panel service control (delegates tune/peer cmds to hashem.sh)
-  README.md             # panel walkthrough
-.github/workflows/     # build-panel.yml → prebuilt panel-rN releases
-spoof_test.py           # spoof test helper (direct vs tunneled)
-```
-
----
-
-## 🤝 Contributing
-
-PRs and issues are welcome. For big features, open an issue first so we agree on the design before code.
-
-### 👥 Contributors
-
-- **PDNC** — [@pdnczone](https://github.com/pdnczone) · [🌐 pdnczone.ir](https://pdnczone.ir) · [✈️ Telegram](https://t.me/pdnczone) · [▶️ YouTube](https://youtube.com/@pdnczone)
-
----
-
-## 🔗 Links
-
-- 🌐 Website: [pdnczone.ir](https://pdnczone.ir)
-- ✈️ Telegram: [@pdnczone](https://t.me/pdnczone)
-- ▶️ YouTube: [@pdnczone](https://youtube.com/@pdnczone)
+1. Install the panel on **both** servers, open each URL, log in.
+2. On the **Iran** panel → Setup: role Iran, check local public IP,
+   enter Foreign public IP, Apply → **copy the shown token**.
+3. On the **Foreign** panel → Setup: role Foreign, check local public IP,
+   enter Iran public IP, paste token, enter reverse ports (e.g. `443, 2083`),
+   Apply → wait for GRE ping OK in the step log.
+4. Optional → Peer card: link the panels (use GRE inner IPs,
+   e.g. `http://10.10.10.1:7777/<secret>`) to see both sides in one place.
