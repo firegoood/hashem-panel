@@ -8,6 +8,12 @@ package main
 //
 // Iran side: GRE + frps (token auto-generated, shown for copy to Foreign).
 // Foreign side: GRE + frpc (token entered manually, ports like "443, 2083").
+//
+// Setup bundle: the Iran side also returns a single readable string holding
+// everything the foreign side needs:
+//   hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
+// Pasting it into the foreign token field auto-fills the rest (explicit
+// fields always win). Legacy 32-char tokens (no hsh1_ prefix) keep working.
 
 import (
 	"crypto/rand"
@@ -26,6 +32,10 @@ const (
 	defaultIranGRE    = "10.10.10.2"
 	defaultForeignGRE = "10.10.10.1"
 	defaultFrpPort    = 7000
+
+	// bundlePrefix marks a single-string foreign-setup bundle:
+	// hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
+	bundlePrefix = "hsh1_"
 )
 
 // ---- gre.sh location ----
@@ -176,6 +186,18 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// bundle paste: a foreign-setup string in the token field auto-fills
+	// whatever the user left empty (explicit fields always win).
+	// Malformed bundles fail fast with E-SETUP-08, before field checks.
+	if body.Role == "foreign" && isBundle(body.Token) {
+		b, err := ParseBundle(body.Token)
+		if err != nil {
+			writeAPIError(w, r, "E-SETUP-08", "bad setup bundle: "+err.Error())
+			return
+		}
+		applyBundle(&body, b)
+	}
+
 	// validation (mirrors gre.sh prompt_* / validate_setup_common rules)
 	if body.Role != "iran" && body.Role != "foreign" && body.Role != "add-peer" {
 		writeAPIError(w, r, "E-SETUP-02", "")
@@ -208,7 +230,11 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, r, "E-SETUP-08", "")
 			return
 		}
-		if len(body.Token) > 128 {
+		if !isBundle(body.Token) && len(body.Token) > 128 {
+			writeAPIError(w, r, "E-SETUP-09", "")
+			return
+		}
+		if isBundle(body.Token) && len(body.Token) > 256 {
 			writeAPIError(w, r, "E-SETUP-09", "")
 			return
 		}
@@ -237,7 +263,7 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 	// run the shared installer: GRE_SKIP_PANEL=1 because the panel is already
 	// running here — reinstalling/downloading it mid-request would be slow and
 	// could restart this very process.
-	token, steps, err := runInstaller(body, ports)
+	token, bundle, steps, err := runInstaller(body, ports)
 	if err != nil {
 		steps = append(steps, "FAILED: "+err.Error())
 		code := "E-INSTALL-02"
@@ -255,16 +281,21 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 	if token != "" {
 		out["token"] = token
 	}
+	if bundle != "" {
+		out["bundle"] = bundle
+	}
 	writeJSON(w, out)
 }
 
 // runInstaller shells out to gre.sh setup-iran|setup-foreign with the same
 // flags the CLI uses, so menu / CLI / panel execute identical steps.
-// Returns the generated Iran token ("", steps, nil) for foreign.
-func runInstaller(b setupRequest, ports []int) (string, []string, error) {
+// Returns the Iran-side token + foreign-setup bundle (bundle holds the
+// token plus all addresses/ports, so one paste configures foreign).
+// ("", "", steps, nil) for foreign (nothing generated there).
+func runInstaller(b setupRequest, ports []int) (string, string, []string, error) {
 	script, err := greScriptPath()
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	// Self-healing: if add-peer is invoked on a host whose gre.sh is
 	// an old version (lacking the "add-peer" CLI verb), auto-sync the
@@ -340,12 +371,12 @@ func runInstaller(b setupRequest, ports []int) (string, []string, error) {
 		if b.Role == "add-peer" && strings.Contains(strings.Join(steps, "\n"), "Unknown command") {
 			errText += " — panel gre.sh is an old version: run Update to latest, or re-run install.sh on this host"
 		}
-		return "", steps, fmt.Errorf("gre.sh %s failed: %s", args[0], errText)
+		return "", "", steps, fmt.Errorf("gre.sh %s failed: %s", args[0], errText)
 	}
 	if b.Role == "iran" || b.Role == "add-peer" {
-		return token, steps, nil
+		return token, MakeBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, token, ports), steps, nil
 	}
-	return "", steps, nil
+	return "", "", steps, nil
 }
 
 // ---- peers API: list tunnels + token lookup ----
@@ -369,7 +400,22 @@ func handlePeersGet(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, r, "E-PEER-04", strings.TrimSpace(string(out)))
 			return
 		}
-		writeJSON(w, map[string]string{"id": idStr, "token": strings.TrimSpace(string(out))})
+		resp := map[string]string{"id": idStr}
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		resp["token"] = strings.TrimSpace(lines[0])
+		for _, ln := range lines[1:] {
+			if b, ok := strings.CutPrefix(strings.TrimSpace(ln), "BUNDLE:"); ok {
+				resp["bundle"] = strings.TrimSpace(b)
+			}
+		}
+		if _, ok := resp["bundle"]; !ok {
+			// old gre.sh prints token only: rebuild the bundle from the
+			// registry record (live Iran pub + port fill the rest).
+			if p := findPeer(id); p != nil {
+				resp["bundle"] = MakeBundle(p.LocalPub, p.FrpPort, p.LocalGre, p.PeerGre, resp["token"], p.Ports)
+			}
+		}
+		writeJSON(w, resp)
 		return
 	}
 	peers := livePeers()
@@ -437,4 +483,104 @@ func randomToken(n int) string {
 		b[i] = chars[int(b[i])%len(chars)]
 	}
 	return string(b)
+}
+
+// ---- setup bundle: one readable string with everything foreign needs ----
+
+// setupBundle is a parsed
+// hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
+type setupBundle struct {
+	IranPub    string
+	FrpPort    int
+	IranGre    string
+	ForeignGre string
+	Token      string
+	Ports      []int
+}
+
+// MakeBundle builds the single foreign-setup string. Ports may be empty
+// (base setup-iran omits them); when present they join with '-'.
+func MakeBundle(iranPub string, frpPort int, iranGre, foreignGre, token string, ports []int) string {
+	s := bundlePrefix + iranPub + "_" + strconv.Itoa(frpPort) + "_" + iranGre + "_" + foreignGre + "_" + token
+	if len(ports) > 0 {
+		strs := make([]string, len(ports))
+		for i, p := range ports {
+			strs[i] = strconv.Itoa(p)
+		}
+		s += "_" + strings.Join(strs, "-")
+	}
+	return s
+}
+
+// ParseBundle validates a bundle pasted into the foreign token field.
+// The 7th _<PORTS> part is optional; '-' and ',' both split ports.
+// Legacy 32-char tokens are NOT bundles — isBundle() guards that first.
+func ParseBundle(s string) (setupBundle, error) {
+	var b setupBundle
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, bundlePrefix) {
+		return b, fmt.Errorf("not a bundle (must start with hsh1_)")
+	}
+	rest := strings.TrimPrefix(s, bundlePrefix)
+	parts := strings.Split(rest, "_")
+	if len(parts) != 5 && len(parts) != 6 {
+		return b, fmt.Errorf("bundle must have 5 or 6 underscore parts (got %d)", len(parts))
+	}
+	iranPub, portS, iranGre, foreignGre, token := parts[0], parts[1], parts[2], parts[3], parts[4]
+	if net.ParseIP(iranPub) == nil || !isV4(iranPub) {
+		return b, fmt.Errorf("bad Iran public IP in bundle: %q", iranPub)
+	}
+	port, err := strconv.Atoi(portS)
+	if err != nil || port < 1 || port > 65535 {
+		return b, fmt.Errorf("bad control port in bundle: %q", portS)
+	}
+	if net.ParseIP(iranGre) == nil || !isV4(iranGre) {
+		return b, fmt.Errorf("bad Iran GRE IP in bundle: %q", iranGre)
+	}
+	if net.ParseIP(foreignGre) == nil || !isV4(foreignGre) {
+		return b, fmt.Errorf("bad foreign GRE IP in bundle: %q", foreignGre)
+	}
+	if len(token) == 0 || len(token) > 128 {
+		return b, fmt.Errorf("bad token in bundle (length 1-128)")
+	}
+	b = setupBundle{IranPub: iranPub, FrpPort: port, IranGre: iranGre, ForeignGre: foreignGre, Token: token}
+	if len(parts) == 6 {
+		ports := parsePorts(strings.ReplaceAll(parts[5], "-", ","))
+		if len(ports) == 0 {
+			return b, fmt.Errorf("bad ports in bundle: %q", parts[5])
+		}
+		b.Ports = ports
+	}
+	return b, nil
+}
+
+// isBundle reports whether a token field holds a foreign-setup bundle
+// (vs a legacy 32-char token, which must keep working as-is).
+func isBundle(s string) bool { return strings.HasPrefix(strings.TrimSpace(s), bundlePrefix) }
+
+// applyBundle fills empty foreign/add-peer fields from a parsed bundle.
+// Explicit fields always win. Mapping (foreign side view): bundle's Iran
+// public IP is OUR remote; bundle's foreign GRE is OUR local GRE;
+// bundle's Iran GRE is OUR peer GRE.
+func applyBundle(body *setupRequest, b setupBundle) {
+	if body.RemotePub == "" {
+		body.RemotePub = b.IranPub
+	}
+	if body.LocalGre == "" {
+		body.LocalGre = b.ForeignGre
+	}
+	if body.PeerGre == "" {
+		body.PeerGre = b.IranGre
+	}
+	if body.FrpPort == 0 {
+		body.FrpPort = b.FrpPort
+	}
+	if body.Ports == "" && len(b.Ports) > 0 {
+		strs := make([]string, len(b.Ports))
+		for i, p := range b.Ports {
+			strs[i] = strconv.Itoa(p)
+		}
+		body.Ports = strings.Join(strs, ", ")
+	}
+	body.Token = b.Token
 }

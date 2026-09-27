@@ -569,10 +569,11 @@
             </div></div>
             <div class="qs-step"><span class="qs-num">3</span><div class="qs-body">
               <label class="qs-label">Token &amp; apply</label>
-              <div id="iranBox"><div class="qs-hint">Token is auto-generated. After setup, copy it to the Foreign side.</div></div>
+              <div id="iranBox"><div class="qs-hint">Token is auto-generated. After setup, copy the bundle below to the Foreign side — one paste fills everything there.</div></div>
               <div id="setupLockWarn" class="warnbox hidden"></div>
               <div id="setupWarn" class="warnbox hidden"></div>
               <div id="setupToken" class="tokenbox hidden"></div>
+              <div id="setupBundle" class="tokenbox hidden"></div>
               <div class="qs-actions">
                 <button class="hashem-btn hashem-btn-primary" id="setupBtn">Apply setup</button>
                 <button class="hashem-btn hashem-btn-secondary hidden" id="setupUnlockBtn">Unlock to replace</button>
@@ -586,8 +587,9 @@
             <div class="qs-step"><span class="qs-num">2</span><div class="qs-body">
               <label class="qs-label">Connect this server to Iran</label>
               <div style="display:grid;gap:10px">
-                <div class="fg"><label for="jToken">Token (from Iran side — 32 chars)</label><input class="hashem-input" id="jToken" autocomplete="off" placeholder="paste the token from Iran"></div>
-                <div class="fg"><label for="jPorts">Reverse ports (comma-separated)</label><input class="hashem-input" id="jPorts" placeholder="443, 2083, 8080"></div>
+                <div class="fg"><label for="jToken">Setup bundle or token (from Iran side)</label><input class="hashem-input" id="jToken" autocomplete="off" placeholder="paste the hsh1_... bundle from Iran (or a legacy token)"></div>
+                <div class="fg"><label for="jPorts">Reverse ports (comma-separated)</label><input class="hashem-input" id="jPorts" placeholder="auto-filled from bundle, or 443, 2083"></div>
+                <div class="qs-hint" id="joinBundleHint">Paste the bundle → ports + advanced fields auto-fill. A legacy 32-char token works too — then fill ports + advanced manually.</div>
                 <div id="joinWarn" class="warnbox hidden"></div>
                 <div class="qs-actions">
                   <button class="hashem-btn hashem-btn-primary" id="joinBtn">Connect to Iran</button>
@@ -936,9 +938,10 @@ async function removePeer(peerId, name) {
 async function showPeerToken(peerId, name) {
   try {
     const r = await api('/api/peers?id=' + peerId);
-    toastOk(`token for '${name}'`, String(r.token || '') + ' (also in logs)');
+    const show = r.bundle || r.token || '';
+    toastOk(`bundle for '${name}'`, show + ' (also in logs)');
     $('actOut').classList.remove('hidden');
-    $('actOut').textContent = `Token for '${name}': ${r.token}\nForeign side: frpc with this token + the peer's ports.`;
+    $('actOut').textContent = `Bundle for '${name}': ${show}\nForeign side: paste it into the token field (fills everything). Legacy token: ${r.token || '—'}`;
   } catch(e) { toastErr('token lookup failed', e.message); }
 }
 function renderPeers(peers) {
@@ -967,7 +970,7 @@ function renderPeers(peers) {
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto">
           <button class="hashem-btn hashem-btn-secondary" style="height:28px;padding:0 10px;font-size:12px" onclick="peerAct('ping', ${p.id})">Ping</button>
-          <button class="hashem-btn hashem-btn-secondary" style="height:28px;padding:0 10px;font-size:12px" onclick="showPeerToken(${p.id}, '${esc(nm)}')">🔑 Token</button>
+          <button class="hashem-btn hashem-btn-secondary" style="height:28px;padding:0 10px;font-size:12px" onclick="showPeerToken(${p.id}, '${esc(nm)}')">📦 Bundle</button>
           <button class="hashem-btn hashem-btn-secondary" style="height:28px;padding:0 10px;font-size:12px" onclick="peerAct('restart-frps', ${p.id})">Restart</button>
           <button class="hashem-btn hashem-btn-danger" style="height:28px;padding:0 10px;font-size:12px" onclick="removePeer(${p.id}, '${esc(nm)}')">Remove</button>
         </div>
@@ -1145,9 +1148,10 @@ $('addPeerBtn').onclick = async () => {
     const out = $('peerOut');
     out.classList.remove('hidden');
     out.textContent = (r.steps || []).join('\n');
-    if (r.token) {
+    if (r.bundle || r.token) {
       const t = $('peerToken');
-      t.innerHTML = '🔑 Token (enter on the Foreign side with ports <b>' + esc($('pPorts').value) + '</b>): <b>' + esc(r.token) + '</b>';
+      const show = r.bundle || r.token;
+      t.innerHTML = '📦 Bundle (paste on the Foreign side — fills everything): <b>' + esc(show) + '</b>';
       t.classList.remove('hidden');
     }
     toastOk('tunnel added', $('pName').value.trim() || 'peer');
@@ -1540,9 +1544,16 @@ async function doSetup() {
     const out = $('setupOut');
     out.classList.remove('hidden');
     out.textContent = (r.steps || []).join('\n');
+    $('setupToken').classList.add('hidden');
+    $('setupBundle').classList.add('hidden');
+    if (r.bundle) {
+      const bb = $('setupBundle');
+      bb.innerHTML = '📦 Setup bundle (paste on the Foreign side — fills everything): <b>' + esc(r.bundle) + '</b>';
+      bb.classList.remove('hidden');
+    }
     if (r.token) {
       const t = $('setupToken');
-      t.innerHTML = '🔑 Token (copy to Foreign side): <b>' + esc(r.token) + '</b>';
+      t.innerHTML = '🔑 Token (legacy 32-char, for old panels): <b>' + esc(r.token) + '</b>';
       t.classList.remove('hidden');
     }
     toastOk('setup done', 'iran');
@@ -1554,8 +1565,53 @@ async function doSetup() {
   renderSetupLock();
 }
 $('setupBtn').onclick = () => doSetup();
-// Foreign join-by-token: only token + ports on the surface; the step-3
-// <details> advanced fields are the fallback when auto-discovery fails.
+// Foreign join: bundle-first UX. Pasting hsh1_... into the token field
+// auto-fills ports + the step-3 advanced fields (same rules as the Go
+// side); legacy 32-char tokens keep the manual path. The backend re-parses
+// the bundle too, so manual edits after paste stay safe.
+// only token + ports on the surface; the step-3 <details> advanced fields
+// are the fallback when auto-discovery fails.
+function parseBundleClient(s) {
+  s = (s || '').trim();
+  if (!s.startsWith('hsh1_')) return null;
+  const parts = s.slice(5).split('_');
+  if (parts.length !== 5 && parts.length !== 6) return {error: 'bundle must have 5 or 6 underscore parts'};
+  const [iranPub, portS, iranGre, foreignGre, token] = parts;
+  const v4 = ip => /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) && ip.split('.').every(o => +o <= 255);
+  if (!v4(iranPub)) return {error: 'bad Iran public IP in bundle'};
+  const port = parseInt(portS, 10);
+  if (!/^\d+$/.test(portS) || port < 1 || port > 65535) return {error: 'bad control port in bundle'};
+  if (!v4(iranGre)) return {error: 'bad Iran GRE IP in bundle'};
+  if (!v4(foreignGre)) return {error: 'bad foreign GRE IP in bundle'};
+  if (!token || token.length > 128) return {error: 'bad token in bundle'};
+  let ports = [];
+  if (parts.length === 6) {
+    ports = parts[5].split(/[-,]/).map(x => parseInt(x.trim(), 10)).filter(p => p >= 1 && p <= 65535);
+    if (!ports.length) return {error: 'bad ports in bundle'};
+  }
+  return {iranPub, port, iranGre, foreignGre, token, ports};
+}
+// pasting a bundle auto-fills ports + advanced fields (explicit edits win)
+$('jToken').addEventListener('input', () => {
+  const w = $('joinWarn');
+  const raw = $('jToken').value.trim();
+  if (!raw.startsWith('hsh1_')) return; // legacy token: manual path
+  const b = parseBundleClient(raw);
+  if (!b || b.error) {
+    w.innerHTML = '⚠️ ' + esc(b ? b.error : 'bad bundle') + ' — check the paste, or use a legacy token + manual fields.';
+    w.classList.remove('hidden');
+    return;
+  }
+  w.classList.add('hidden');
+  if (!$('jPorts').value.trim() && b.ports.length) $('jPorts').value = b.ports.join(', ');
+  const set = (id, v) => { const el = $(id); if (el && !el.value.trim()) el.value = v; };
+  set('fRemotePub', b.iranPub);
+  set('fLocalGre', b.foreignGre);
+  set('fPeerGre', b.iranGre);
+  set('fFrpPort', String(b.port));
+  const adv = $('foreignAdv');
+  if (adv && !adv.open) adv.open = true;
+});
 $('joinBtn').onclick = async () => {
   const b = $('joinBtn');
   b.disabled = true;
@@ -1565,24 +1621,38 @@ $('joinBtn').onclick = async () => {
   try {
     const st = await api('/api/status').then(s => s.local || {}).catch(() => ({}));
     const d = await api('/api/setup').catch(() => ({}));
-    const token = $('jToken').value.trim();
+    const rawToken = $('jToken').value.trim();
+    // bundle paste: strip to the inner token for the API, but keep bundle
+    // values as the first fallback (advanced fields already auto-filled).
+    let token = rawToken, bundle = null;
+    if (rawToken.startsWith('hsh1_')) {
+      bundle = parseBundleClient(rawToken);
+      if (!bundle || bundle.error) {
+        const w = $('joinWarn');
+        w.innerHTML = '⚠️ ' + esc(bundle ? bundle.error : 'bad bundle') + ' — check the paste, or use a legacy token + manual fields.';
+        w.classList.remove('hidden');
+        b.disabled = false; b.textContent = oldTxt; return;
+      }
+      token = bundle.token;
+      if (!$('jPorts').value.trim() && bundle.ports.length) $('jPorts').value = bundle.ports.join(', ');
+    }
     const ports = $('jPorts').value.trim() || ((st.proxy_ports || []).join(', ') || (st.proxies || []).join(', '));
     if (!token) {
       const w = $('joinWarn');
-      w.innerHTML = '⚠️ Token is required — copy it from the Iran side (Setup tab → step 3 token box, or Tunnel tab peer card → Token).';
+      w.innerHTML = '⚠️ Token is required — paste the bundle or token from the Iran side (Setup tab → step 3 bundle box, or Tunnel tab peer card → Token).';
       w.classList.remove('hidden');
       b.disabled = false; b.textContent = oldTxt; return;
     }
-    // discover from live config; fall back to advanced fields, then Iran-form values
+    // discover from live config; fall back to bundle, then advanced fields, then Iran-form values
     const m = (st.gre || {});
     const adv = id => { const el = $(id); return el ? el.value.trim() : ''; };
     const body = {
       role: 'foreign',
-      local_public: m.local || adv('fLocalPub') || d.local_public || $('sLocalPub').value.trim(),
-      remote_public: m.peer_ip || adv('fRemotePub') || $('sRemotePub').value.trim(),
-      local_gre: (m.inner || '').split('/')[0] || adv('fLocalGre') || $('sLocalGre').value.trim(),
-      peer_gre: peerInnerHint(st) || adv('fPeerGre') || $('sPeerGre').value.trim(),
-      frp_port: st.frp_port || parseInt(adv('fFrpPort') || $('sFrpPort').value, 10) || 7000,
+      local_public: m.local || adv('fLocalPub') || d.local_public || '',
+      remote_public: m.peer_ip || adv('fRemotePub') || (bundle ? bundle.iranPub : '') || $('sRemotePub').value.trim(),
+      local_gre: (m.inner || '').split('/')[0] || adv('fLocalGre') || (bundle ? bundle.foreignGre : '') || $('sLocalGre').value.trim(),
+      peer_gre: peerInnerHint(st) || adv('fPeerGre') || (bundle ? bundle.iranGre : '') || $('sPeerGre').value.trim(),
+      frp_port: st.frp_port || parseInt(adv('fFrpPort') || (bundle ? String(bundle.port) : '') || $('sFrpPort').value, 10) || 7000,
       token, ports, force: true,
     };
     if (!body.ports) {

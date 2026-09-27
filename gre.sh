@@ -72,6 +72,50 @@ panel_tls_issue() { # $1=domain [$2=email] — certbot standalone on :80 + insta
 gen_token32() { # 32-char alphanumeric secret (FRP auth token)
     tr -dc A-Za-z0-9 </dev/urandom | head -c 32 2>/dev/null || openssl rand -hex 16
 }
+
+# ---- setup bundle: one readable string with everything foreign needs ----
+# Format: hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
+# PORTS optional, dash-separated (443-2083). Legacy 32-char tokens (no hsh1_
+# prefix) keep working everywhere — bundle_parse rejects them, callers fall
+# back to manual fields.
+BUNDLE_PREFIX="hsh1_"
+bundle_make() { # $1=iran_pub $2=frp_port $3=iran_gre $4=foreign_gre $5=token [$6="p1 p2"]
+    local IRAN_PUB=$1 FRP_PORT=$2 IRAN_GRE=$3 FOREIGN_GRE=$4 TOKEN=$5 PORTS_SP=${6:-}
+    local PORTS_DASH=""
+    if [[ -n "$PORTS_SP" ]]; then
+        PORTS_DASH=$(echo "$PORTS_SP" | xargs | tr ' ' '-')
+    fi
+    if [[ -n "$PORTS_DASH" ]]; then
+        echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}_${PORTS_DASH}"
+    else
+        echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}"
+    fi
+}
+# bundle_parse $1: sets B_IRAN_PUB B_FRP_PORT B_IRAN_GRE B_FOREIGN_GRE B_TOKEN
+# B_PORTS (space-separated, may be empty). Returns 0 on valid bundle.
+bundle_parse() {
+    B_IRAN_PUB=""; B_FRP_PORT=""; B_IRAN_GRE=""; B_FOREIGN_GRE=""; B_TOKEN=""; B_PORTS=""
+    local IN=$1 rest a b c d e f
+    [[ "$IN" == ${BUNDLE_PREFIX}* ]] || return 1
+    rest=${IN#${BUNDLE_PREFIX}}
+    IFS=_ read -r a b c d e f <<<"$rest"
+    [[ -n "$a" && -n "$b" && -n "$c" && -n "$d" && -n "$e" ]] || return 1
+    is_valid_ip "$a" || return 1
+    is_valid_port "$b" || return 1
+    is_valid_ip "$c" || return 1
+    is_valid_ip "$d" || return 1
+    [[ ${#e} -ge 1 && ${#e} -le 128 ]] || return 1
+    local CLEANED="" p
+    if [[ -n "${f:-}" ]]; then
+        for p in $(echo "$f" | tr -- '-,' '  '); do
+            is_valid_port "$p" && CLEANED="$CLEANED $((10#$p))"
+        done
+        CLEANED=$(echo "$CLEANED" | xargs)
+        [[ -n "$CLEANED" ]] || return 1
+    fi
+    B_IRAN_PUB=$a; B_FRP_PORT=$((10#$b)); B_IRAN_GRE=$c; B_FOREIGN_GRE=$d; B_TOKEN=$e; B_PORTS=$CLEANED
+    return 0
+}
 prompt_ip() { # $1=varname $2=label $3=default (empty = required)
     local __var=$1 __label=$2 __def=$3 __in
     while true; do
@@ -304,6 +348,7 @@ EOF
     fi
     echo -e "${GREEN}[✔️] IRAN setup done: GRE ${IP_IRAN} <-> ${IP_FOREIGN} (${LOCAL_GRE} peer ${PEER_GRE}), frps :${BIND_PORT}${NC}"
     echo -e "${YELLOW}Token: ${TOKEN} (copy to the FOREIGN side)${NC}"
+    echo -e "BUNDLE:$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN")"
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
         echo -e "${CYAN}[*] Skipping panel install (called from panel).${NC}"
     else
@@ -457,6 +502,19 @@ peer_token() {
     rec=$(peer_get "$ID")
     [[ -n "$rec" ]] || { echo -e "${RED}[!] No peer with id $ID.${NC}"; return 1; }
     echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
+    # second line: full foreign-setup bundle (token + addresses + ports).
+    # First-line token output stays unchanged for scripts.
+    local B_TOK LIP RIP FP LGRE PGRE PTS
+    B_TOK=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+    LIP=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("local_pub",""))')
+    RIP=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("remote_pub",""))')
+    FP=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("frp_port",""))')
+    LGRE=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("local_gre",""))')
+    PGRE=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("peer_gre",""))')
+    PTS=$(echo "$rec" | python3 -c 'import json,sys; print(" ".join(str(x) for x in json.load(sys.stdin).get("ports",[])))')
+    if is_valid_ip "$LIP" && is_valid_port "$FP" && is_valid_ip "$LGRE" && is_valid_ip "$PGRE"; then
+        echo "BUNDLE:$(bundle_make "$LIP" "$FP" "$LGRE" "$PGRE" "$B_TOK" "$PTS")"
+    fi
 }
 
 # write one frps instance: $1=suffix("" for legacy, "-N" for peers) $2=bind_port $3=token
@@ -495,9 +553,11 @@ EOF
 }
 
 # add a peer tunnel on the Iran side.
-# Flags: --name --local-pub --remote-pub --frp-port --token --local-gre --peer-gre --ports "443, 2083" [--force]
+# Flags: --name --local-pub --remote-pub --frp-port --token --local-gre --peer-gre --ports "443, 2083" [--bundle hsh1_...] [--force]
+# --bundle pastes a foreign-setup string: empty flags are filled from it,
+# explicit flags always win.
 cli_add_peer() {
-    local NAME="" LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="7000" TOKEN="" LOCAL_GRE="" PEER_GRE="" PORTS="" FORCE=0
+    local NAME="" LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" TOKEN="" LOCAL_GRE="" PEER_GRE="" PORTS="" FORCE=0 BUNDLE=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --name) NAME="$2"; shift 2 ;;
@@ -508,11 +568,23 @@ cli_add_peer() {
             --local-gre) LOCAL_GRE="$2"; shift 2 ;;
             --peer-gre) PEER_GRE="$2"; shift 2 ;;
             --ports) PORTS="$2"; shift 2 ;;
+            --bundle) BUNDLE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
-            -h|--help) echo 'Usage: gre.sh add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--force]'; return 0 ;;
+            -h|--help) echo 'Usage: gre.sh add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...] [--force]'; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
         esac
     done
+    if [[ -n "$BUNDLE" ]]; then
+        bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad --bundle (want hsh1_<IRAN_PUB>_<PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]).${NC}"; return 1; }
+        # add-peer runs on Iran: bundle Iran pub/GRE are OURS, foreign GRE is THEIRS
+        [[ -z "$LOCAL_PUB" ]] && LOCAL_PUB=$B_IRAN_PUB
+        [[ -z "$FRP_PORT" ]] && FRP_PORT=$B_FRP_PORT
+        [[ -z "$LOCAL_GRE" ]] && LOCAL_GRE=$B_IRAN_GRE
+        [[ -z "$PEER_GRE" ]] && PEER_GRE=$B_FOREIGN_GRE
+        [[ -z "$TOKEN" ]] && TOKEN=$B_TOKEN
+        [[ -z "$PORTS" ]] && PORTS=$B_PORTS
+    fi
+    FRP_PORT=${FRP_PORT:-7000}
     validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$LOCAL_GRE" || return 1
     is_valid_ip "$PEER_GRE" || { echo -e "${RED}[!] Invalid peer GRE IP: '$PEER_GRE'${NC}"; return 1; }
     [[ "$LOCAL_GRE" != "$PEER_GRE" ]] || { echo -e "${RED}[!] Local and peer GRE IPs must differ.${NC}"; return 1; }
@@ -580,6 +652,7 @@ json.dump(d, open(f, "w"), indent=2)
 PYEOF
     echo -e "${GREEN}[✔️] Peer '${NAME}' (id ${ID}) added: GRE ${LOCAL_PUB} <-> ${REMOTE_PUB} (${LOCAL_GRE} peer ${PEER_GRE} on ${GRE_IF}), ${FRPS_SVC} :${FRP_PORT}${NC}"
     echo -e "${YELLOW}Token for '${NAME}': ${TOKEN} (enter it on the FOREIGN side with ports: ${CLEANED})${NC}"
+    echo -e "BUNDLE:$(bundle_make "$LOCAL_PUB" "$FRP_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN" "$CLEANED")"
     echo -e "${CYAN}Foreign side: frpc server ${LOCAL_GRE}:${FRP_PORT}${NC}"
 }
 
@@ -670,7 +743,9 @@ setup_iran_server() {
     echo -e "IRAN GRE Internal IP: ${CYAN}${IRAN_GRE_IP}${NC}"
     echo -e "FRP Bind Port:        ${CYAN}${BIND_PORT}${NC}"
     echo -e "Secret Token:         ${CYAN}${TOKEN}${NC}"
+    echo -e "Setup Bundle:         ${CYAN}$(bundle_make "$IP_IRAN" "$BIND_PORT" "$IRAN_GRE_IP" "$FOREIGN_GRE_IP" "$TOKEN")${NC}"
     echo -e "\n${YELLOW}>>> Now run this script on FOREIGN server and provide:${NC}"
+    echo -e "Paste the ${CYAN}Setup Bundle${NC} above (has IP + port + GRE + token) — or manually:"
     echo -e "1. IRAN Public IP: ${CYAN}${IP_IRAN}${NC}"
     echo -e "2. Port:           ${CYAN}${BIND_PORT}${NC}"
     echo -e "3. Token:          ${CYAN}${TOKEN}${NC}"
@@ -726,21 +801,40 @@ setup_foreign_server() {
     [[ -z "$MY_PUBLIC_IP" ]] && MY_PUBLIC_IP=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
     prompt_ip IP_FOREIGN "Enter FOREIGN Server Public IP" "$MY_PUBLIC_IP"
     prompt_ip IP_IRAN "Enter IRAN Server Public IP" ""
-
-    prompt_port SERVER_PORT "Enter FRP Bind Port" "7000"
-    prompt_required TOKEN "Enter Secret Auth Token"
-    prompt_ports INPUT_PORTS "Enter Ports to Reverse-Tunnel"
+    # bundle shortcut: paste hsh1_... -> everything auto-fills, rest is skipped
+    local BUNDLE_IN=""
+    read -p "Setup bundle from Iran (hsh1_...) [Enter to fill fields manually]: " BUNDLE_IN
+    local SERVER_PORT TOKEN INPUT_PORTS BUNDLE_USED=0 LOCAL_GRE_SET="$FOREIGN_GRE_IP" PEER_GRE_SET="$IRAN_GRE_IP"
+    if [[ -n "$BUNDLE_IN" ]]; then
+        if bundle_parse "$BUNDLE_IN"; then
+            IP_IRAN=$B_IRAN_PUB; IP_FOREIGN=${MY_PUBLIC_IP:-$IP_FOREIGN}
+            SERVER_PORT=$B_FRP_PORT; TOKEN=$B_TOKEN
+            LOCAL_GRE_SET=$B_FOREIGN_GRE; PEER_GRE_SET=$B_IRAN_GRE
+            INPUT_PORTS=$(echo "$B_PORTS" | tr ' ' ',')
+            BUNDLE_USED=1
+            echo -e "${GREEN}[✔️] Bundle applied: Iran ${IP_IRAN}:${SERVER_PORT}, token set, ports: ${INPUT_PORTS:-— (enter below)}${NC}"
+        else
+            echo -e "${RED}[!] Bad bundle — falling back to manual fields.${NC}"
+        fi
+    fi
+    if [[ "$BUNDLE_USED" -ne 1 ]]; then
+        prompt_port SERVER_PORT "Enter FRP Bind Port" "7000"
+        prompt_required TOKEN "Enter Secret Auth Token"
+        prompt_ports INPUT_PORTS "Enter Ports to Reverse-Tunnel"
+    elif [[ -z "$INPUT_PORTS" ]]; then
+        prompt_ports INPUT_PORTS "Enter Ports to Reverse-Tunnel"
+    fi
 
     # single source of truth: GRE + ping + frpc + panel all happen inside
     # (frpc reaches Iran's GRE internal IP through the GRE tunnel)
     PORTS_CLEANED=$(echo "$INPUT_PORTS" | tr ',' ' ')
-    _setup_foreign_full "$IP_FOREIGN" "$IP_IRAN" "$SERVER_PORT" "$TOKEN" "$FOREIGN_GRE_IP" "$IRAN_GRE_IP" "$PORTS_CLEANED"
+    _setup_foreign_full "$IP_FOREIGN" "$IP_IRAN" "$SERVER_PORT" "$TOKEN" "$LOCAL_GRE_SET" "$PEER_GRE_SET" "$PORTS_CLEANED"
 
     echo -e "\n${GREEN}=================================================================${NC}"
     echo -e "${GREEN}[✔️] FOREIGN SERVER CONFIGURATION COMPLETE!${NC}"
     echo -e "GRE Public Link:      ${CYAN}${IP_FOREIGN} <--> ${IP_IRAN}${NC}"
-    echo -e "FOREIGN GRE IP:       ${CYAN}${FOREIGN_GRE_IP}${NC}"
-    echo -e "FRP Connecting to:    ${CYAN}${IRAN_GRE_IP}:${SERVER_PORT}${NC} (Inside GRE Tunnel)"
+    echo -e "FOREIGN GRE IP:       ${CYAN}${LOCAL_GRE_SET}${NC}"
+    echo -e "FRP Connecting to:    ${CYAN}${PEER_GRE_SET}:${SERVER_PORT}${NC} (Inside GRE Tunnel)"
     echo -e "Reverse Ports:        ${CYAN}${PORTS_CLEANED}${NC} (TCP & UDP)"
     echo -e "FRP TLS Encryption:   ${GREEN}Enabled${NC}"
     echo -e "${GREEN}=================================================================${NC}\n"
@@ -1376,13 +1470,20 @@ Usage:
   hashem                                    # interactive menu (same 0-17 options)
   hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--force]
   hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--force]
+                       # ... or: hashem setup-foreign --bundle hsh1_...  (fills everything; explicit flags win)
   hashem status | remove-tunnel [--force] | show-panel-url
   hashem uninstall [--force]                   # full wipe: tunnel + panel + 'hashem' itself
-  hashem add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL]
+  hashem add-peer --local-pub IP --remote-pub IP --frp-port N --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...]
   hashem remove-peer --id N [--force] | peer-list | peer-token --id N
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash gre.sh ...)
   hashem optimize | restore | tune-status
   hashem free-ram                            # cap journald + drop cache + 1GB swap
+
+Setup bundle (one string with everything foreign needs):
+  hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
+  e.g. hsh1_85.1.2.3_7000_10.10.10.2_10.10.10.1_AbCdEf1234567890AbCdEf1234567890_443-2083
+  Printed as BUNDLE:... by setup-iran / add-peer / peer-token; paste it as
+  --bundle (CLI), the token prompt (menu), or the Foreign token field (panel).
 EOF
 }
 
@@ -1415,7 +1516,8 @@ cli_setup_iran() {
 }
 
 cli_setup_foreign() {
-    local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="7000" LOCAL_GRE="$FOREIGN_GRE_IP" PEER_GRE="$IRAN_GRE_IP" TOKEN="" PORTS="" FORCE=0
+    local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" LOCAL_GRE="" PEER_GRE="" TOKEN="" PORTS="" FORCE=0 BUNDLE=""
+    local FOREIGN_GRE_DEF="$FOREIGN_GRE_IP" IRAN_GRE_DEF="$IRAN_GRE_IP"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --local-pub) LOCAL_PUB="$2"; shift 2 ;;
@@ -1425,11 +1527,29 @@ cli_setup_foreign() {
             --peer-gre) PEER_GRE="$2"; shift 2 ;;
             --token) TOKEN="$2"; shift 2 ;;
             --ports) PORTS="$2"; shift 2 ;;
+            --bundle) BUNDLE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) usage_cli; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; usage_cli; return 1 ;;
         esac
     done
+    if [[ -n "$BUNDLE" ]]; then
+        bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad --bundle (want hsh1_<IRAN_PUB>_<PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]).${NC}"; return 1; }
+        [[ -z "$TOKEN" ]] && TOKEN=$B_TOKEN
+        # setup-foreign runs on Foreign: bundle Iran pub is OUR remote,
+        # bundle foreign GRE is OUR local, bundle Iran GRE is OUR peer.
+        [[ -z "$REMOTE_PUB" ]] && REMOTE_PUB=$B_IRAN_PUB
+        [[ -z "$FRP_PORT" ]] && FRP_PORT=$B_FRP_PORT
+        [[ -z "$LOCAL_GRE" ]] && LOCAL_GRE=$B_FOREIGN_GRE
+        [[ -z "$PEER_GRE" ]] && PEER_GRE=$B_IRAN_GRE
+        [[ -z "$PORTS" ]] && PORTS=$B_PORTS
+        echo -e "${CYAN}[*] Bundle applied: fields auto-filled (explicit flags kept).${NC}"
+    fi
+    # --bundle replaces --token as the required secret
+    [[ -z "$TOKEN" && -n "$BUNDLE" ]] && TOKEN=$B_TOKEN
+    FRP_PORT=${FRP_PORT:-7000}
+    LOCAL_GRE=${LOCAL_GRE:-$FOREIGN_GRE_DEF}
+    PEER_GRE=${PEER_GRE:-$IRAN_GRE_DEF}
     validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$LOCAL_GRE" || return 1
     is_valid_ip "$PEER_GRE" || { echo -e "${RED}[!] Invalid peer GRE IP: '$PEER_GRE'${NC}"; return 1; }
     [[ -n "$TOKEN" ]] || { echo -e "${RED}[!] --token is required (copy it from the Iran side).${NC}"; return 1; }
