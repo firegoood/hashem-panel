@@ -288,13 +288,13 @@ func runInstaller(b setupRequest, ports []int) (string, []string, error) {
 			steps = append(steps, line)
 		}
 	}
-	if b.Role == "iran" {
+	if b.Role == "iran" || b.Role == "add-peer" {
 		steps = append([]string{"token generated (copy to Foreign side)"}, steps...)
 	}
 	if runErr != nil {
 		return "", steps, fmt.Errorf("gre.sh %s failed: %w", args[0], runErr)
 	}
-	if b.Role == "iran" {
+	if b.Role == "iran" || b.Role == "add-peer" {
 		return token, steps, nil
 	}
 	return "", steps, nil
