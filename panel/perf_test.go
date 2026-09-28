@@ -28,20 +28,20 @@ func TestPerfDefaultsAndLoadSave(t *testing.T) {
 	if def.ProxyCompression != false {
 		t.Fatalf("expected proxy_compression=false by default, got %v", def.ProxyCompression)
 	}
-	if def.ForceTLS != true {
-		t.Fatalf("expected force_tls=true by default, got %v", def.ForceTLS)
+	if def.ForceTLS != false {
+		t.Fatalf("expected force_tls=false by default, got %v", def.ForceTLS)
 	}
-	if def.ChaffProfile != "low" {
-		t.Fatalf("expected chaff_profile=low by default, got %s", def.ChaffProfile)
+	if def.ChaffProfile != "off" {
+		t.Fatalf("expected chaff_profile=off by default, got %s", def.ChaffProfile)
 	}
 	if def.DPIEnabled != false {
 		t.Fatalf("expected dpi_enabled=false by default, got %v", def.DPIEnabled)
 	}
-	if def.DPIRate != "300/min" {
-		t.Fatalf("expected dpi_rate=300/min by default, got %s", def.DPIRate)
+	if def.DPIRate != "60/sec" {
+		t.Fatalf("expected dpi_rate=60/sec by default, got %s", def.DPIRate)
 	}
-	if def.DPIBurst != 100 {
-		t.Fatalf("expected dpi_burst=100 by default, got %d", def.DPIBurst)
+	if def.DPIBurst != 120 {
+		t.Fatalf("expected dpi_burst=120 by default, got %d", def.DPIBurst)
 	}
 
 	// 2. Save custom config and verify file mode + values
@@ -82,16 +82,16 @@ func TestPerfDefaultsAndLoadSave(t *testing.T) {
 	if !partial.ProxyEncryption {
 		t.Fatalf("expected proxy_encryption=true")
 	}
-	if !partial.ForceTLS {
-		t.Fatalf("expected force_tls to retain default true when omitted")
+	if partial.ForceTLS {
+		t.Fatalf("expected force_tls to retain default false when omitted")
 	}
-	if partial.ChaffProfile != "low" {
-		t.Fatalf("expected chaff_profile to retain default low when omitted")
+	if partial.ChaffProfile != "off" {
+		t.Fatalf("expected chaff_profile to retain default off when omitted")
 	}
 	if partial.DPIEnabled {
 		t.Fatalf("expected dpi_enabled to retain default false when omitted")
 	}
-	if partial.DPIRate != "300/min" || partial.DPIBurst != 100 {
+	if partial.DPIRate != "60/sec" || partial.DPIBurst != 120 {
 		t.Fatalf("expected default rate and burst, got %s, %d", partial.DPIRate, partial.DPIBurst)
 	}
 }

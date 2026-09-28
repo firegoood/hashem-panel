@@ -843,7 +843,7 @@
               <button class="hashem-btn hashem-btn-primary" id="perfApplyTopBtn">Apply &amp; Restart</button>
             </div>
           </div>
-          <div class="qs-hint">Speed-first toggles for 1-vCPU VPS. Toggle proxy crypto/compression and forced TLS to reduce crypto bottlenecks. Changes to FRP configs require Apply &amp; restart.</div>
+          <div class="qs-hint">Speed-first controls for wire-speed streaming. Keep proxy encryption, compression, and forced TLS OFF for already-encrypted streams (VLESS, Reality, Trojan) to eliminate latency and CPU bottlenecks.</div>
           <div class="wd-hero-grid">
             <div class="wd-stat-box">
               <span class="wd-stat-label">FRP Crypto &amp; TLS</span>
@@ -858,7 +858,7 @@
             <div class="wd-stat-box">
               <span class="wd-stat-label">DPI Shield</span>
               <div class="wd-stat-val" id="perfDpiVal">—</div>
-              <span class="wd-stat-sub" id="perfDpiRateSub">300/min (burst 100)</span>
+              <span class="wd-stat-sub" id="perfDpiRateSub">60/sec (burst 120)</span>
             </div>
           </div>
         </div>
@@ -892,7 +892,7 @@
               <input type="checkbox" id="perfTlsCheck" style="margin-top:3px;accent-color:var(--ac);width:16px;height:16px">
               <div>
                 <b style="color:var(--tx)">Forced TLS (transport.tls.force &amp; disableCustomTLSFirstByte)</b>
-                <div class="qs-hint" style="margin-top:2px">Server forces TLS handshake; client strips custom FRP TLS header to mimic standard web TLS handshakes. Default is ON.</div>
+                <div class="qs-hint" style="margin-top:2px">Strips custom FRP TLS header. Keep OFF (recommended) inside GRE tunnel to prevent handshake mismatches between servers.</div>
               </div>
             </label>
           </div>
@@ -900,6 +900,7 @@
           <div class="qs-actions" style="margin-top:16px">
             <button class="hashem-btn hashem-btn-primary" id="perfApplyBtn">Apply &amp; restart tunnels</button>
             <button class="hashem-btn hashem-btn-secondary" id="perfSaveOnlyBtn">Save Settings</button>
+            <button class="hashem-btn hashem-btn-danger" id="perfResetBtn" title="Reset all performance & obfuscation settings to clean wire-speed defaults">🛡️ Reset to Safe Defaults</button>
           </div>
           <div class="qs-hint" id="perfApplyMsg"></div>
         </div>
@@ -922,7 +923,7 @@
               <button class="hashem-btn hashem-btn-secondary" id="perfSaveChaffBtn">Update Chaff</button>
               <span class="status-indicator" id="perfChaffLiveInd"><span class="dot"></span><span id="perfChaffLiveTxt">—</span></span>
             </div>
-            <div class="ent-help">Idle-gap filler creates random dummy pings across the GRE tunnel. Low profile uses negligible bandwidth (~few KB/s).</div>
+            <div class="ent-help">Idle-gap filler creates random dummy pings across the GRE tunnel. Default is OFF.</div>
           </div>
 
           <div class="fg" style="margin-top:16px">
@@ -930,9 +931,9 @@
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
               <span class="status-indicator" id="perfDpiLiveInd"><span class="dot"></span><span id="perfDpiLiveTxt">—</span></span>
               <button class="hashem-btn hashem-btn-secondary" id="perfDpiToggleBtn">Toggle DPI Shield</button>
-              <span class="badge" id="perfDpiRateBadge">300/min (burst 100)</span>
+              <span class="badge" id="perfDpiRateBadge">60/sec (burst 120)</span>
             </div>
-            <div class="ent-help" id="perfDpiHelp">Uses iptables hashlimit to protect reverse ports against high-rate active probing while allowing normal user traffic.</div>
+            <div class="ent-help" id="perfDpiHelp">Uses iptables hashlimit per source IP to protect reverse ports against aggressive port scanners without throttling normal user connections. Default is OFF.</div>
           </div>
         </div>
 
@@ -3121,7 +3122,7 @@ window.addEventListener('resize', () => {
   const c = $('trafficChart'); if (c && c._hist && !$('tab-dashboard').hidden) { drawChart(c._hist, c._isDown); }
 });
 // ---------- Performance & Obfuscation (tab-perf) ----------
-let perfState = { proxy_encryption: false, proxy_compression: false, force_tls: true, chaff_profile: 'low', dpi_enabled: true };
+let perfState = { proxy_encryption: false, proxy_compression: false, force_tls: false, chaff_profile: 'off', dpi_enabled: false };
 
 async function loadPerf() {
   try {
@@ -3140,19 +3141,19 @@ async function loadPerf() {
     if (cSub) cSub.textContent = `Enc: ${s.proxy_encryption ? 'On' : 'Off'} · Comp: ${s.proxy_compression ? 'On' : 'Off'}`;
 
     const chVal = $('perfChaffVal');
-    if (chVal) chVal.textContent = s.chaff_profile ? s.chaff_profile.toUpperCase() : 'LOW';
+    if (chVal) chVal.textContent = s.chaff_profile ? s.chaff_profile.toUpperCase() : 'OFF';
     const chSub = $('perfChaffSub');
     if (chSub) chSub.textContent = s.chaff_active ? '● Running' : '○ Inactive';
 
     const dVal = $('perfDpiVal');
     if (dVal) dVal.textContent = s.dpi_active ? 'Active' : (s.dpi_enabled ? 'Enabled' : 'Disabled');
     const dSub = $('perfDpiRateSub');
-    if (dSub) dSub.textContent = `${s.dpi_rate || '300/min'} (burst ${s.dpi_burst || 100})`;
+    if (dSub) dSub.textContent = `${s.dpi_rate || '60/sec'} (burst ${s.dpi_burst || 120})`;
 
     // Checkboxes
     if ($('perfEncCheck')) $('perfEncCheck').checked = !!s.proxy_encryption;
     if ($('perfCompCheck')) $('perfCompCheck').checked = !!s.proxy_compression;
-    if ($('perfTlsCheck')) $('perfTlsCheck').checked = s.force_tls !== false;
+    if ($('perfTlsCheck')) $('perfTlsCheck').checked = !!s.force_tls;
 
     // Role badge
     if ($('perfRoleBadge')) {
@@ -3162,7 +3163,7 @@ async function loadPerf() {
     }
 
     // Chaff selector & live status
-    if ($('perfChaffSelect')) $('perfChaffSelect').value = s.chaff_profile || 'low';
+    if ($('perfChaffSelect')) $('perfChaffSelect').value = s.chaff_profile || 'off';
     const chInd = $('perfChaffLiveInd');
     if (chInd) {
       chInd.className = 'status-indicator ' + (s.chaff_active ? 'active' : 'offline');
@@ -3269,6 +3270,24 @@ if (perfDpiToggleBtn) {
       toastErr('DPI shield error', e.message);
     } finally {
       perfDpiToggleBtn.disabled = false;
+    }
+  };
+}
+
+const perfResetBtn = $('perfResetBtn');
+if (perfResetBtn) {
+  perfResetBtn.onclick = async () => {
+    const ok = await entConfirm('Reset Performance Settings', 'This will disable DPI shield, stop chaff pings, disable extra proxy encryption/compression, and restart tunnels in clean wire-speed mode. Continue?', 'Reset to Safe Defaults');
+    if (!ok) return;
+    perfResetBtn.disabled = true;
+    try {
+      const res = await api('/api/perf', { action: 'reset' });
+      toastOk('Settings Reset', res.detail || 'Restored clean wire-speed settings.');
+      await loadPerf();
+    } catch (e) {
+      toastErr('Reset failed', e.message);
+    } finally {
+      perfResetBtn.disabled = false;
     }
   };
 }

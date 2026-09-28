@@ -56,11 +56,11 @@ func defaultPerfConfig() perfConfig {
 	return perfConfig{
 		ProxyEncryption:  false,
 		ProxyCompression: false,
-		ForceTLS:         true,
-		ChaffProfile:     "low",
+		ForceTLS:         false,
+		ChaffProfile:     "off",
 		DPIEnabled:       false,
-		DPIRate:          "300/min",
-		DPIBurst:         100,
+		DPIRate:          "60/sec",
+		DPIBurst:         120,
 	}
 }
 
@@ -362,6 +362,21 @@ func handlePerfPost(w http.ResponseWriter, r *http.Request) {
 		}
 		recordError("E-PERF-00", "perf", "DPI shield set to "+action)
 		writeJSON(w, map[string]string{"status": "ok", "detail": out})
+
+	case "reset":
+		c = defaultPerfConfig()
+		if err := savePerfConfig(c); err != nil {
+			writeAPIError(w, r, "E-PERF-02", "failed to save config: "+err.Error())
+			return
+		}
+		out, err := runPerfCmd("perf", "reset")
+		if err != nil {
+			recordError("E-PERF-03", "perf", "Reset failed: "+out)
+			writeAPIError(w, r, "E-PERF-03", out)
+			return
+		}
+		recordError("E-PERF-00", "perf", "Performance settings reset to safe defaults")
+		writeJSON(w, map[string]string{"status": "ok", "detail": "Settings reset to safe wire-speed defaults."})
 
 	default:
 		writeAPIError(w, r, "E-PERF-01", "unknown action: "+body.Action)

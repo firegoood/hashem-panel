@@ -39,11 +39,11 @@ init_perf_json() {
 {
   "proxy_encryption": false,
   "proxy_compression": false,
-  "force_tls": true,
-  "chaff_profile": "low",
+  "force_tls": false,
+  "chaff_profile": "off",
   "dpi_enabled": false,
-  "dpi_rate": "300/min",
-  "dpi_burst": 100
+  "dpi_rate": "60/sec",
+  "dpi_burst": 120
 }
 EOF
         chmod 600 "$PERF_FILE" 2>/dev/null || true
@@ -102,15 +102,15 @@ perf_get_tls() {
 import json
 try:
     with open("'"$PERF_FILE"'") as f:
-        print(1 if json.load(f).get("force_tls", True) else 0)
+        print(1 if json.load(f).get("force_tls", False) else 0)
 except Exception:
-    print(1)
+    print(0)
 ' 2>/dev/null && return 0
     elif [[ -f "$PERF_FILE" ]]; then
-        grep -q '"force_tls"[[:space:]]*:[[:space:]]*false' "$PERF_FILE" && echo 0 || echo 1
+        grep -q '"force_tls"[[:space:]]*:[[:space:]]*true' "$PERF_FILE" && echo 1 || echo 0
         return 0
     fi
-    echo 1
+    echo 0
 }
 
 perf_get_chaff() {
@@ -123,30 +123,34 @@ perf_get_chaff() {
 import json
 try:
     with open("'"$PERF_FILE"'") as f:
-        p = json.load(f).get("chaff_profile", "low")
-        print(p if p in ("off", "low", "mid") else "low")
+        p = json.load(f).get("chaff_profile", "off")
+        print(p if p in ("off", "low", "mid") else "off")
 except Exception:
-    print("low")
+    print("off")
 ' 2>/dev/null && return 0
     fi
-    echo "low"
+    echo "off"
 }
 
 perf_get_dpi_enabled() {
+    if [[ -n "${PERF_DPI:-}" ]]; then
+        [[ "$PERF_DPI" == "1" || "$PERF_DPI" == "true" ]] && echo 1 || echo 0
+        return 0
+    fi
     if [[ -f "$PERF_FILE" ]] && command -v python3 >/dev/null 2>&1; then
         python3 -c '
 import json
 try:
     with open("'"$PERF_FILE"'") as f:
-        print(1 if json.load(f).get("dpi_enabled", True) else 0)
+        print(1 if json.load(f).get("dpi_enabled", False) else 0)
 except Exception:
-    print(1)
+    print(0)
 ' 2>/dev/null && return 0
     elif [[ -f "$PERF_FILE" ]]; then
-        grep -q '"dpi_enabled"[[:space:]]*:[[:space:]]*false' "$PERF_FILE" && echo 0 || echo 1
+        grep -q '"dpi_enabled"[[:space:]]*:[[:space:]]*true' "$PERF_FILE" && echo 1 || echo 0
         return 0
     fi
-    echo 1
+    echo 0
 }
 
 perf_get_dpi_rate() {
@@ -155,13 +159,13 @@ perf_get_dpi_rate() {
 import json
 try:
     with open("'"$PERF_FILE"'") as f:
-        r = json.load(f).get("dpi_rate", "300/min")
-        print(r if r else "300/min")
+        r = json.load(f).get("dpi_rate", "60/sec")
+        print(r if r else "60/sec")
 except Exception:
-    print("300/min")
+    print("60/sec")
 ' 2>/dev/null && return 0
     fi
-    echo "300/min"
+    echo "60/sec"
 }
 
 perf_get_dpi_burst() {
@@ -170,13 +174,13 @@ perf_get_dpi_burst() {
 import json
 try:
     with open("'"$PERF_FILE"'") as f:
-        b = json.load(f).get("dpi_burst", 100)
-        print(int(b) if int(b) > 0 else 100)
+        b = json.load(f).get("dpi_burst", 120)
+        print(int(b) if int(b) > 0 else 120)
 except Exception:
-    print(100)
+    print(120)
 ' 2>/dev/null && return 0
     fi
-    echo 100
+    echo 120
 }
 
 perf_set_val() {
@@ -1152,16 +1156,20 @@ dpi_shield_on() {
     iptables -A HASHEM-DPI -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
         iptables -A HASHEM-DPI -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 
-    # 3. Rate-limit ONLY new incoming connection handshakes (SYN packets) to mitigate scanner flood attacks
+    # 3. Kernel SYN flood hardening (syncookies absorb connection spikes without dropping legitimate handshakes)
+    sysctl -w net.ipv4.tcp_syncookies=1 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_max_syn_backlog=8192 >/dev/null 2>&1 || true
+
+    # 4. Anti-scanner flood defense per source IP (protects against high-rate port scanners without dropping normal users)
     local port
-    local DPI_RATE=$(perf_get_dpi_rate)
-    local DPI_BURST=$(perf_get_dpi_burst)
     for port in "${REVERSE_PORTS[@]}"; do
-        iptables -A HASHEM-DPI -p tcp --dport "$port" --syn -m limit --limit "$DPI_RATE" --limit-burst "$DPI_BURST" -j ACCEPT
-        iptables -A HASHEM-DPI -p tcp --dport "$port" --syn -j DROP
+        # Use hashlimit per source IP if supported (blocks abusive scanners > 60/sec from one IP, never drops normal clients)
+        if ! iptables -A HASHEM-DPI -p tcp --dport "$port" --syn -m hashlimit --hashlimit-name "hsh_${port}" --hashlimit-mode srcip --hashlimit-above 60/sec --hashlimit-burst 120 -j DROP 2>/dev/null; then
+            iptables -A HASHEM-DPI -p tcp --dport "$port" --syn -j ACCEPT 2>/dev/null || true
+        fi
     done
 
-    # 4. If UFW is active, also ensure reverse ports are allowed so UFW does not block them
+    # 5. If UFW is active, also ensure reverse ports are allowed so UFW does not block them
     if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
         for port in "${REVERSE_PORTS[@]}"; do
             ufw allow "$port"/tcp >/dev/null 2>&1 || true
@@ -1299,9 +1307,9 @@ perf_apply() {
         if command -v python3 >/dev/null 2>&1; then
             python3 -c '
 path = "'"$TOML_FILE"'"
-enc = bool('"$EFF_ENC"')
-comp = bool('"$EFF_COMP"')
-tls = bool('"$EFF_TLS"')
+enc = ("'"$EFF_ENC"'".strip() in ("1", "true", "True"))
+comp = ("'"$EFF_COMP"'".strip() in ("1", "true", "True"))
+tls = ("'"$EFF_TLS"'".strip() in ("1", "true", "True"))
 
 with open(path, "r") as f:
     lines = f.read().splitlines()
@@ -1342,6 +1350,7 @@ for i, sec in enumerate(sections):
         out_sections.append(final_hdr)
     else:
         new_sec = []
+        is_tcp = any("type = \"tcp\"" in l or "type=\"tcp\"" in l for l in sec)
         for l in sec:
             s = l.strip()
             if s.startswith("transport.useEncryption") or s.startswith("transport.useCompression"):
@@ -1349,9 +1358,9 @@ for i, sec in enumerate(sections):
             new_sec.append(l)
         while new_sec and new_sec[-1].strip() == "":
             new_sec.pop()
-        if enc:
+        if enc and is_tcp:
             new_sec.append("transport.useEncryption = true")
-        if comp:
+        if comp and is_tcp:
             new_sec.append("transport.useCompression = true")
         new_sec.append("")
         out_sections.append(new_sec)
@@ -1372,7 +1381,7 @@ with open(path, "w") as f:
             if command -v python3 >/dev/null 2>&1; then
                 python3 -c '
 path = "'"$TOML_FILE"'"
-tls = bool('"$EFF_TLS"')
+tls = ("'"$EFF_TLS"'".strip() in ("1", "true", "True"))
 
 with open(path, "r") as f:
     lines = f.read().splitlines()
@@ -1385,15 +1394,17 @@ for l in lines:
     new_lines.append(l)
 
 final_lines = []
-has_tls = False
-for l in new_lines:
-    final_lines.append(l)
-    if l.strip().startswith("auth.token") and tls:
+if tls:
+    has_tls = False
+    for l in new_lines:
+        final_lines.append(l)
+        if l.strip().startswith("auth.token"):
+            final_lines.append("transport.tls.force = true")
+            has_tls = True
+    if not has_tls:
         final_lines.append("transport.tls.force = true")
-        has_tls = True
-
-if tls and not has_tls:
-    final_lines.append("transport.tls.force = true")
+else:
+    final_lines = new_lines
 
 result = "\n".join(final_lines).strip() + "\n"
 with open(path, "w") as f:
@@ -1572,12 +1583,24 @@ cli_perf() {
         apply)
             perf_apply
             ;;
+        reset)
+            init_perf_json
+            perf_set_val "proxy_encryption" "false" 1
+            perf_set_val "proxy_compression" "false" 1
+            perf_set_val "force_tls" "false" 1
+            perf_set_val "chaff_profile" "off" 0
+            perf_set_val "dpi_enabled" "false" 1
+            dpi_shield_off >/dev/null 2>&1 || true
+            cli_chaff off >/dev/null 2>&1 || true
+            perf_apply
+            echo -e "${GREEN}[✔️] Performance & Obfuscation RESET to safe defaults (encryption: off, compression: off, TLS: standard, chaff: off, DPI shield: off).${NC}"
+            ;;
         -h|--help|help)
-            echo "Usage: hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply"
+            echo "Usage: hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply|reset"
             ;;
         *)
             echo -e "${RED}[!] Unknown subcommand: $SUB${NC}"
-            echo "Usage: hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply"
+            echo "Usage: hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply|reset"
             return 1
             ;;
     esac
