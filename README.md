@@ -1,5 +1,6 @@
 <div align="center">
 
+![Hashem Panel Dashboard](docs/dashboard.jpg)
 
 # Hashem Panel 🇮🇷 ↔ 🌍
 
@@ -74,36 +75,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/pdnczone/hashem-panel/main/i
 
 ---
 
-## 📸 Panel Previews
 
-<details>
-<summary><b>Click to expand and view screenshots</b></summary>
-<br>
-<table>
-  <tr>
-    <td width="50%">
-      <b>Dashboard & Analytics</b><br>
-      <img src="docs/dashboard.png" width="100%">
-    </td>
-    <td width="50%">
-      <b>Multi-Peer Tunnel Management</b><br>
-      <img src="docs/tunnel.png" width="100%">
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <b>Dashboard Details</b><br>
-      <img src="docs/dashboard-details.png" width="100%">
-    </td>
-    <td width="50%">
-      <b>Advanced Tuning (Capacity & DPI Shield)</b><br>
-      <i>Features smart Auto-Tune capability based on server vitals.</i>
-    </td>
-  </tr>
-</table>
-</details>
-
----
 
 ## 📋 `hashem` CLI Reference
 
@@ -116,6 +88,37 @@ hashem logs       # Tails the live FRP logs
 hashem optimize   # Automates BBR tuning, MTU adjustments, and sysctl buffers
 hashem update     # Updates the script and web panel to the latest version
 ```
+
+---
+
+## 📸 Panel Previews
+
+<details open>
+<summary><b>Click to expand and view screenshots</b></summary>
+<br>
+<table>
+  <tr>
+    <td width="50%">
+      <b>Dashboard & Analytics (11TB+ Traffic)</b><br>
+      <img src="docs/dashboard.jpg" width="100%">
+    </td>
+    <td width="50%">
+      <b>Advanced Tuning (Capacity & DPI Shield)</b><br>
+      <img src="docs/performance.jpg" width="100%">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <b>Real-Time Diagnostics & Latency</b><br>
+      <img src="docs/diagnostics.jpg" width="100%">
+    </td>
+    <td width="50%">
+      <b>Multi-Peer Tunnel Management</b><br>
+      <img src="docs/tunnel.png" width="100%">
+    </td>
+  </tr>
+</table>
+</details>
 
 ---
 
