@@ -19,6 +19,8 @@ type perfConfig struct {
 	DPIEnabled       bool   `json:"dpi_enabled"`
 	DPIRate          string `json:"dpi_rate"`
 	DPIBurst         int    `json:"dpi_burst"`
+	FRPMaxPool       int    `json:"frp_max_pool"`
+	AutoTune         bool   `json:"auto_tune"`
 }
 
 type perfStatusResponse struct {
@@ -28,7 +30,9 @@ type perfStatusResponse struct {
 	ChaffProfile     string          `json:"chaff_profile"`
 	DPIEnabled       bool            `json:"dpi_enabled"`
 	DPIRate          string          `json:"dpi_rate"`
-	DPIBurst         int             `json:"dpi_burst"`
+	DPIBurst         int    `json:"dpi_burst"`
+	FRPMaxPool       int    `json:"frp_max_pool"`
+	AutoTune         bool   `json:"auto_tune"`
 	InSync           bool            `json:"in_sync"`
 	SyncDetails      string          `json:"sync_details"`
 	Role             string          `json:"role"`
@@ -46,6 +50,8 @@ type perfPostRequest struct {
 	DPIEnabled       *bool   `json:"dpi_enabled,omitempty"`
 	DPIRate          *string `json:"dpi_rate,omitempty"`
 	DPIBurst         *int    `json:"dpi_burst,omitempty"`
+	FRPMaxPool       *int    `json:"frp_max_pool,omitempty"`
+	AutoTune         *bool   `json:"auto_tune,omitempty"`
 }
 
 func perfConfigPath() string {
@@ -61,6 +67,8 @@ func defaultPerfConfig() perfConfig {
 		DPIEnabled:       false,
 		DPIRate:          "60/sec",
 		DPIBurst:         120,
+		FRPMaxPool:       50,
+		AutoTune:         true,
 	}
 }
 
@@ -78,6 +86,8 @@ func loadPerfConfig() perfConfig {
 		DPIEnabled       *bool   `json:"dpi_enabled"`
 		DPIRate          *string `json:"dpi_rate"`
 		DPIBurst         *int    `json:"dpi_burst"`
+		FRPMaxPool       *int    `json:"frp_max_pool"`
+		AutoTune         *bool   `json:"auto_tune"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return def
@@ -107,6 +117,12 @@ func loadPerfConfig() perfConfig {
 	if raw.DPIBurst != nil && *raw.DPIBurst > 0 {
 		c.DPIBurst = *raw.DPIBurst
 	}
+	if raw.FRPMaxPool != nil && *raw.FRPMaxPool >= 10 {
+		c.FRPMaxPool = *raw.FRPMaxPool
+	}
+	if raw.AutoTune != nil {
+		c.AutoTune = *raw.AutoTune
+	}
 	return c
 }
 
@@ -120,6 +136,9 @@ func savePerfConfig(c perfConfig) error {
 	}
 	if c.DPIBurst <= 0 {
 		c.DPIBurst = 100
+	}
+	if c.FRPMaxPool <= 0 {
+		c.FRPMaxPool = 50
 	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {

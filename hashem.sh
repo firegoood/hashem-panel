@@ -1891,6 +1891,14 @@ with open(path, "w") as f:
 path = "'"$TOML_FILE"'"
 tls = ("'"$EFF_TLS"'".strip() in ("1", "true", "True"))
 
+import json, os
+max_pool = "50"
+try:
+    with open("/etc/gre-panel/perf.json") as jf:
+        max_pool = str(json.load(jf).get("frp_max_pool", 50))
+except:
+    pass
+
 with open(path, "r") as f:
     lines = f.read().splitlines()
 
@@ -1914,7 +1922,19 @@ if tls:
 else:
     final_lines = new_lines
 
-result = "\n".join(final_lines).strip() + "\n"
+# Update maxPoolCount
+out_lines = []
+has_pool = False
+for l in final_lines:
+    if l.strip().startswith("transport.maxPoolCount"):
+        out_lines.append("transport.maxPoolCount = " + max_pool)
+        has_pool = True
+    else:
+        out_lines.append(l)
+if not has_pool:
+    out_lines.append("transport.maxPoolCount = " + max_pool)
+
+result = "\n".join(out_lines).strip() + "\n"
 with open(path, "w") as f:
     f.write(result)
 '
@@ -2201,6 +2221,10 @@ setup_iran_server_noninteractive() {
     # 2. Setup FRP Server
     install_frp_binaries
     local EFF_TLS=$(perf_get_tls)
+    local MAX_POOL=50
+    if [[ -f /etc/gre-panel/perf.json ]] && command -v python3 >/dev/null 2>&1; then
+        MAX_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 50))" 2>/dev/null || echo 50)
+    fi
     local TLS_LINE=""
     [[ "$EFF_TLS" == "1" ]] && TLS_LINE="transport.tls.force = true"
     mkdir -p "${CONFIG_DIR}"
@@ -2213,7 +2237,7 @@ ${TLS_LINE:+$TLS_LINE
 }transport.tcpMux = true
 transport.tcpMuxKeepaliveInterval = 15
 transport.heartbeatTimeout = 30
-transport.maxPoolCount = 50
+transport.maxPoolCount = ${MAX_POOL}
 EOF
     cat <<EOF > /etc/systemd/system/frps.service
 [Unit]
@@ -2579,7 +2603,7 @@ ${TLS_LINE:+$TLS_LINE
 }transport.tcpMux = true
 transport.tcpMuxKeepaliveInterval = 15
 transport.heartbeatTimeout = 30
-transport.maxPoolCount = 50
+transport.maxPoolCount = ${MAX_POOL}
 EOF
     local SVC="frps${SUF}"
     cat <<EOF > /etc/systemd/system/${SVC}.service
@@ -3964,6 +3988,7 @@ except Exception:
 
 watchdog_check() {
     init_watchdog_json
+    autotune_tick
     local PEER_GRE
     PEER_GRE=$(watchdog_get_peer_gre)
     local GRE_OK=0
@@ -4095,6 +4120,36 @@ restart_all_lite() {
         [[ -f "$u" ]] || continue
         systemctl restart "$(basename "$u")" >/dev/null 2>&1
     done
+}
+
+
+autotune_tick() {
+    [[ ! -f /etc/gre-panel/perf.json ]] && return 0
+    local DO_TUNE=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('auto_tune', False))" 2>/dev/null || echo "False")
+    [[ "$DO_TUNE" != "True" && "$DO_TUNE" != "true" ]] && return 0
+
+    local CONN=$(ss -tn state established 2>/dev/null | wc -l)
+    local RAM=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+    [[ -z "$RAM" ]] && RAM=1024
+
+    local TARGET_POOL=50
+    if [[ "$CONN" -gt 300 ]]; then TARGET_POOL=150; fi
+    if [[ "$CONN" -gt 800 ]]; then TARGET_POOL=300; fi
+    if [[ "$CONN" -gt 2000 ]]; then TARGET_POOL=500; fi
+    if [[ "$RAM" -lt 1000 && "$TARGET_POOL" -gt 150 ]]; then TARGET_POOL=150; fi
+
+    local CUR_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 50))" 2>/dev/null)
+    if [[ "$CUR_POOL" != "$TARGET_POOL" ]]; then
+        python3 -c "
+import json
+with open('/etc/gre-panel/perf.json', 'r') as f: d = json.load(f)
+d['frp_max_pool'] = int($TARGET_POOL)
+with open('/etc/gre-panel/perf.json', 'w') as f: json.dump(d, f)
+" 2>/dev/null
+        # Apply the new max pool
+        perf_apply >/dev/null 2>&1
+        echo "$(date) - AutoTune: Adjusted FRP maxPoolCount to $TARGET_POOL (Conns: $CONN, RAM: $RAM)" >> /var/log/hashem_autotune.log
+    fi
 }
 
 watchdog_tick() {
