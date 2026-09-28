@@ -292,6 +292,11 @@ const chaffScriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/
 // and external tools may import the name.
 const greScriptURL = scriptURL
 
+var (
+	_ = greScriptURL
+	_ = sessionCount
+)
+
 func mustOpen(path string) *os.File {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err == nil {

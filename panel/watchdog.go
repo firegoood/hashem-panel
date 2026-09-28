@@ -189,6 +189,9 @@ func collectWatchdogEvents() []errEvent {
 				}
 			}
 		}
+		if scanErr := scanner.Err(); scanErr != nil {
+			_ = scanErr
+		}
 	}
 	if len(events) == 0 {
 		errMu.Lock()

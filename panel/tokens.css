@@ -8,7 +8,7 @@ svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-l
 [hidden]{display:none!important}
 
 *{box-sizing:border-box;margin:0;padding:0}
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 
 /* Glass material — subtle, professional */
 /* Baseline typography scale & spacing rhythm */
@@ -95,6 +95,8 @@ html{-webkit-text-size-adjust:100%}
   --ok-b40: color-mix(in srgb, var(--ok) 40%, transparent);
   --ok-b50: color-mix(in srgb, var(--ok) 50%, transparent);
   --er-b45: color-mix(in srgb, var(--er) 45%, transparent);
+  --ac-b35-ln2: color-mix(in srgb, var(--ac) 35%, var(--ln2));
+  --er-b25: color-mix(in srgb, var(--er) 25%, transparent);
 }
 
 /* Glass material — subtle, professional */
@@ -247,7 +249,7 @@ body[data-t="dark"], body {
 .hashem-btn-secondary:hover {
   background:var(--s3);
   color:var(--tx);
-  border-color:color-mix(in srgb, var(--ac) 35%, var(--ln2));
+  border-color:var(--ac-b35-ln2);
   transform:translateY(-1px);
 }
 .hashem-btn-secondary:active { transform:translateY(0); }
@@ -255,7 +257,7 @@ body[data-t="dark"], body {
 .hashem-btn-danger {
   background: color-mix(in srgb, var(--er) 10%, transparent);
   color: var(--er);
-  border: 1px solid color-mix(in srgb, var(--er) 25%, transparent);
+  border: 1px solid var(--er-b25);
 }
 .hashem-btn-danger:hover {
   background: color-mix(in srgb, var(--er) 20%, transparent);

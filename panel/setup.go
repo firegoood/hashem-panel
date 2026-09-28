@@ -335,7 +335,8 @@ func runInstaller(b setupRequest, ports []int) (string, string, []string, error)
 	}
 	token := ""
 	args := []string{}
-	if b.Role == "add-peer" {
+	switch b.Role {
+	case "add-peer":
 		name := b.Name
 		if name == "" {
 			name = "peer"
@@ -353,7 +354,7 @@ func runInstaller(b setupRequest, ports []int) (string, string, []string, error)
 			"--token", token,
 			"--ports", strings.Join(strs, ","),
 		}
-	} else if b.Role == "iran" {
+	case "iran":
 		token = randomToken(32)
 		args = []string{"setup-iran",
 			"--local-pub", b.LocalPub, "--remote-pub", b.RemotePub,
@@ -361,7 +362,7 @@ func runInstaller(b setupRequest, ports []int) (string, string, []string, error)
 			"--local-gre", b.LocalGre, "--peer-gre", b.PeerGre,
 			"--token", token,
 		}
-	} else {
+	default:
 		strs := make([]string, len(ports))
 		for i, p := range ports {
 			strs[i] = strconv.Itoa(p)

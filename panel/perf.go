@@ -154,7 +154,8 @@ func checkLiveTomlSync(c perfConfig) (bool, string, string) {
 		role = "iran"
 	}
 
-	if role == "foreign" {
+	switch role {
+	case "foreign":
 		data, err := os.ReadFile("/etc/frp/frpc.toml")
 		if err != nil {
 			return false, "cannot read /etc/frp/frpc.toml", role
@@ -174,7 +175,7 @@ func checkLiveTomlSync(c perfConfig) (bool, string, string) {
 			return false, fmt.Sprintf("Proxy compression (%v) does not match frpc.toml (%v)", c.ProxyCompression, hasComp), role
 		}
 		return true, "All settings match live frpc.toml", role
-	} else if role == "iran" {
+	case "iran":
 		data, err := os.ReadFile("/etc/frp/frps.toml")
 		if err != nil {
 			return false, "cannot read /etc/frp/frps.toml", role
@@ -185,8 +186,9 @@ func checkLiveTomlSync(c perfConfig) (bool, string, string) {
 			return false, fmt.Sprintf("Force TLS setting (%v) does not match frps.toml (%v)", c.ForceTLS, hasTLSForce), role
 		}
 		return true, "All settings match live frps.toml", role
+	default:
+		return true, "No tunnel configured yet", role
 	}
-	return true, "No tunnel configured yet", role
 }
 
 func runPerfCmd(args ...string) (string, error) {

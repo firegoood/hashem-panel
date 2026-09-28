@@ -340,7 +340,7 @@
   .nav-item, .drawer-nav .nav-item { min-height:40px; }
   .sysbar { height:8px; border-radius:99px; background:var(--sunk); overflow:hidden;
     box-shadow:inset 0 1px 2px rgba(0,0,0,.18); }
-  .sysbar > i { display:block; height:100%; border-radius:99px;
+  .sysbar > i { display:block; height:100%; border-radius:99px; width:0%;
     background:linear-gradient(90deg, var(--ac), color-mix(in srgb, var(--ac) 55%, #a78bfa));
     transition:width .6s var(--spring); min-width:2px; }
   .dash-big { font-size:24px; font-weight:700; color:var(--tx); letter-spacing:-.02em;
@@ -552,7 +552,7 @@
       <button type="submit" id="loginBtn">Sign in</button>
     </form>
     <p id="loginErr"></p>
-    <div class="foot"><b>Hashem Tunnel</b> · Infrastructure<br><span style="letter-spacing:.14em;font-size:10px;opacity:.75">DNC MADE THIS</span></div>
+    <div class="foot"><b>Hashem Tunnel</b> · Infrastructure<br><span class="u-foot-sub">DNC MADE THIS</span></div>
   </div>
 </div>
 
@@ -576,12 +576,12 @@
       <div class="nav-sec">System</div>
       <button class="nav-item" data-tab="perf" id="perfNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Performance</span></button>
       <button class="nav-item" data-tab="watchdog" id="watchdogNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span>Watchdog</span></button>
-      <button class="nav-item" data-tab="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg><span>Update</span><span class="badge info hidden" id="updBadge" style="margin-left:auto">new</span></button>
+      <button class="nav-item" data-tab="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg><span>Update</span><span class="badge info hidden u-ml-auto" id="updBadge" >new</span></button>
       <button class="nav-item" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg><span>Settings</span></button>
-      <button class="nav-item hidden" data-tab="terminal" id="termNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span>Terminal</span><span class="term-live hidden" id="termLiveDot" style="margin-left:auto"></span></button>
+      <button class="nav-item hidden" data-tab="terminal" id="termNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span>Terminal</span><span class="term-live hidden u-ml-auto" id="termLiveDot" ></span></button>
     </nav>
     <div class="sidebar-foot">
-      <button class="hashem-btn hashem-btn-secondary" id="themeBtn" style="flex:1">Theme</button>
+      <button class="hashem-btn hashem-btn-secondary u-flex-1" id="themeBtn" >Theme</button>
       <button class="hashem-btn hashem-btn-ghost" id="logoutBtn">Logout</button>
     </div>
   </aside>
@@ -596,7 +596,7 @@
     <div class="drawer-head"><span class="brand-name">Hashem</span><button class="drawer-x" id="drawerX" aria-label="Close">×</button></div>
     <nav class="drawer-nav" id="drawerNav"></nav>
     <div class="drawer-foot">
-      <button class="hashem-btn hashem-btn-secondary" id="themeBtnM" style="flex:1">Theme</button>
+      <button class="hashem-btn hashem-btn-secondary u-flex-1" id="themeBtnM" >Theme</button>
       <button class="hashem-btn hashem-btn-ghost" id="logoutBtnM">Logout</button>
     </div>
   </aside>
@@ -644,19 +644,19 @@
             <div class="kpi-top"><span class="kpi-label">CPU</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span></div>
             <div class="kpi-val" id="kpiCpu">N/A</div>
             <div class="kpi-sub" id="kpiCpuSub">—</div>
-            <div class="sysbar"><i id="cpuBar" style="width:0%"></i></div>
+            <div class="sysbar"><i id="cpuBar"></i></div>
           </div>
           <div class="tunnel-card kpi">
             <div class="kpi-top"><span class="kpi-label">RAM</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 7v10h16V7M4 7l2-3h12l2 3"/></svg></span></div>
             <div class="kpi-val" id="kpiRam">N/A</div>
             <div class="kpi-sub" id="kpiRamSub">—</div>
-            <div class="sysbar"><i id="ramBar" style="width:0%"></i></div>
+            <div class="sysbar"><i id="ramBar"></i></div>
           </div>
           <div class="tunnel-card kpi">
             <div class="kpi-top"><span class="kpi-label">Disk</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg></span></div>
             <div class="kpi-val" id="kpiDisk">N/A</div>
             <div class="kpi-sub" id="kpiDiskSub">—</div>
-            <div class="sysbar"><i id="diskBar" style="width:0%"></i></div>
+            <div class="sysbar"><i id="diskBar"></i></div>
           </div>
           <div class="tunnel-card kpi">
             <div class="kpi-top"><span class="kpi-label">Uptime / Conns</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span></div>
@@ -680,9 +680,9 @@
           <div class="tc-header"><p class="tc-title">Tunnel status</p><span class="status-indicator" id="tunnelDot"><span class="dot"></span><span id="tunnelDotTxt">—</span></span></div>
           <div id="tunnel"></div>
           <div id="tunChips" aria-label="Per-tunnel health"></div>
-          <div class="ent-sec-label" style="margin-top:6px">Peer tunnels</div>
+          <div class="ent-sec-label u-mt-6" >Peer tunnels</div>
           <div id="peerCards" class="det-grid"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px" id="tunnelActs">
+          <div class="u-flex-gap-8 u-mt-4" id="tunnelActs">
             <button class="hashem-btn hashem-btn-secondary" data-act="ping">Ping peer</button>
             <button class="hashem-btn hashem-btn-secondary" data-act="restart-gre">Restart GRE</button>
             <button class="hashem-btn hashem-btn-secondary" data-act="restart-frps" id="frpRestartBtn">Restart frps</button>
@@ -691,7 +691,7 @@
             <button class="hashem-btn hashem-btn-secondary hidden" id="restoreBtn">Restore pre-optimize</button>
             <button class="hashem-btn hashem-btn-danger" id="removeTunnelBtn">Remove tunnel</button>
           </div>
-          <pre id="actOut" class="logs hidden" style="margin-top:4px"></pre>
+          <pre id="actOut" class="logs hidden u-mt-4" ></pre>
           <div class="qs-hint" id="tuneHint">Optimize: FQ+BBR + 16MB TCP buffers + MTU 1380 + MSS clamp 1340 + keepalive. Backs up current settings first — Restore brings them back.</div>
         </div>
       </section>
@@ -748,7 +748,7 @@
           <div id="foreignWrap" hidden>
             <div class="qs-step"><span class="qs-num">2</span><div class="qs-body">
               <label class="qs-label">Connect this server to Iran</label>
-              <div style="display:grid;gap:10px">
+              <div class="u-grid-gap-10">
                 <div class="fg"><label for="jToken">Setup bundle or token (from Iran side)</label><input class="hashem-input" id="jToken" autocomplete="off" placeholder="paste the hsh1_... bundle from Iran (or a legacy token)"></div>
                 <div class="fg"><label for="jPorts">Reverse ports (comma-separated)</label><input class="hashem-input" id="jPorts" placeholder="auto-filled from bundle, or 443, 2083"></div>
                 <div class="qs-hint" id="joinBundleHint">Paste the bundle → ports + advanced fields auto-fill. A legacy 32-char token works too — then fill ports + advanced manually.</div>
@@ -763,7 +763,7 @@
               <label class="qs-label">Advanced (optional)</label>
               <details class="qs-adv" id="foreignAdv">
                 <summary>Manual addresses &amp; control port</summary>
-                <div class="qs-hint" style="margin:8px 0">Leave everything here empty to auto-join — the panel discovers Iran's settings from the live tunnel. Only fill these in if auto-join fails.</div>
+                <div class="qs-hint u-my-8" >Leave everything here empty to auto-join — the panel discovers Iran's settings from the live tunnel. Only fill these in if auto-join fails.</div>
                 <div class="qs-row">
                   <div class="fg"><label for="fLocalPub">Local public IP</label><input class="hashem-input" id="fLocalPub" inputmode="decimal"></div>
                   <div class="fg"><label for="fRemotePub">Iran public IP</label><input class="hashem-input" id="fRemotePub" inputmode="decimal" placeholder="e.g. 203.0.113.10"></div>
@@ -778,8 +778,8 @@
             <label class="qs-label">Add another foreign server (keeps this tunnel)</label>
             <div class="tunnel-card" id="addPeerCard">
               <div class="tc-header"><p class="tc-title">➕ Connect another foreign server</p><span class="qs-hint" id="peerCountHint"></span></div>
-              <div class="qs-hint" style="border-left:3px solid var(--ac);padding-left:10px">✅ <b>This is the safe way to add a server.</b> It creates a <b>separate</b> tunnel with its own token — existing tunnels keep running untouched. (Re-running the Iran form above instead would replace this server's tunnel and disconnect old Foreign sides.)</div>
-              <div class="qs-body" style="display:grid;gap:10px">
+              <div class="qs-hint u-hint-accent" >✅ <b>This is the safe way to add a server.</b> It creates a <b>separate</b> tunnel with its own token — existing tunnels keep running untouched. (Re-running the Iran form above instead would replace this server's tunnel and disconnect old Foreign sides.)</div>
+              <div class="qs-body u-grid-gap-10" >
                 <div class="fg"><label for="pName">Name (label for this tunnel)</label><input class="hashem-input" id="pName" placeholder="e.g. germany-1" maxlength="32"></div>
                 <div class="qs-row">
                   <div class="fg"><label for="pRemotePub">Foreign public IP</label><input class="hashem-input" id="pRemotePub" inputmode="decimal" placeholder="e.g. 203.0.113.10"></div>
@@ -804,17 +804,17 @@
       <section id="tab-logs" hidden>
         <div class="tunnel-card">
           <div class="tc-header"><p class="tc-title">Logs</p>
-            <label class="qs-hint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="checkbox" id="logFollow" checked style="accent-color:var(--ac)"> Live
+            <label class="qs-hint u-flex-center-gap8 u-cursor-pointer" >
+              <input type="checkbox" id="logFollow" checked class="u-accent-ac"> Live
             </label>
           </div>
-          <div class="qs-seg" role="group" aria-label="Service" id="logSvcSeg" style="flex-wrap:wrap">
+          <div class="qs-seg u-flex-wrap" role="group" aria-label="Service" id="logSvcSeg" >
             <button data-log="frps" aria-pressed="true">frps</button>
             <button data-log="frpc" aria-pressed="false">frpc</button>
             <button data-log="gre-panel" aria-pressed="false">panel</button>
           </div>
-          <div class="qs-hint" id="logPeerHint" style="margin-top:8px">Peer tunnels appear here when added.</div>
-          <div class="qs-row" style="margin-top:8px">
+          <div class="qs-hint u-mt-8" id="logPeerHint" >Peer tunnels appear here when added.</div>
+          <div class="qs-row u-mt-8" >
             <div class="fg"><label for="logSearch">Search (filters lines)</label><input class="hashem-input" id="logSearch" placeholder="e.g. error, login, 443"></div>
             <div class="fg"><label for="logLevel">Level</label><select class="hashem-input" id="logLevel">
               <option value="">All levels</option>
@@ -829,17 +829,17 @@
               <option value="1000">Last 1000</option>
             </select></div>
           </div>
-          <div class="qs-hint" id="logMeta" style="margin-top:8px">—</div>
-          <div id="logFindings" style="display:grid;gap:8px;margin-top:8px"></div>
-          <pre id="logs" class="logs" style="margin-top:8px">(pick a service)</pre>
-          <div class="tc-header" style="margin-top:14px"><p class="tc-title" style="font-size:13px">Panel errors</p>
-            <div style="display:flex;gap:8px;align-items:center">
+          <div class="qs-hint u-mt-8" id="logMeta" >—</div>
+          <div id="logFindings" class="u-grid-gap-8 u-mt-8"></div>
+          <pre id="logs" class="logs u-mt-8" >(pick a service)</pre>
+          <div class="tc-header u-mt-14" ><p class="tc-title u-fs-13" >Panel errors</p>
+            <div class="u-flex-center-gap8">
               <span class="qs-hint" id="errCount"></span>
-              <button class="hashem-btn hashem-btn-secondary" id="errRefresh" style="padding:4px 10px;font-size:12px">Refresh</button>
+              <button class="hashem-btn hashem-btn-secondary u-btn-xs" id="errRefresh" >Refresh</button>
             </div>
           </div>
           <div class="qs-hint">Every failed panel action is recorded here with its code — newest last.</div>
-          <div id="errList" style="display:grid;gap:6px;margin-top:8px"><div class="qs-hint">—</div></div>
+          <div id="errList" class="u-grid-gap-6 u-mt-8"><div class="qs-hint">—</div></div>
         </div>
       </section>
       <section id="tab-perf" hidden>
@@ -847,7 +847,7 @@
         <div class="tunnel-card wd-hero-card">
           <div class="tc-header">
             <p class="tc-title">Performance &amp; Obfuscation</p>
-            <div style="display:flex;align-items:center;gap:10px">
+            <div class="u-flex-center-gap10">
               <span class="status-indicator" id="perfSyncInd"><span class="dot"></span><span id="perfSyncTxt">—</span></span>
               <button class="hashem-btn hashem-btn-primary" id="perfApplyTopBtn">Apply &amp; Restart</button>
             </div>
@@ -880,33 +880,33 @@
           </div>
           <div class="qs-hint">Configures layer-2 crypto and snappy compression on FRP reverse tunnels. Speed-first defaults keep encryption and compression OFF so already-encrypted protocols (VLESS, Trojan) run at wire speed.</div>
           
-          <div style="display:flex;flex-direction:column;gap:14px;margin-top:12px">
-            <label class="wd-radio-opt" style="align-items:flex-start">
-              <input type="checkbox" id="perfEncCheck" style="margin-top:3px;accent-color:var(--ac);width:16px;height:16px">
+          <div class="u-flex-col-gap14 u-mt-12">
+            <label class="wd-radio-opt u-items-start" >
+              <input type="checkbox" id="perfEncCheck" class="u-checkbox-ac">
               <div>
-                <b style="color:var(--tx)">Proxy Encryption (transport.useEncryption)</b>
-                <div class="qs-hint" style="margin-top:2px">Encrypts data between frpc and frps with AES-128. Keep disabled for already-encrypted streams (e.g. VLESS) to eliminate double-crypto overhead on low-power VPS.</div>
+                <b class="u-color-tx">Proxy Encryption (transport.useEncryption)</b>
+                <div class="qs-hint u-mt-2" >Encrypts data between frpc and frps with AES-128. Keep disabled for already-encrypted streams (e.g. VLESS) to eliminate double-crypto overhead on low-power VPS.</div>
               </div>
             </label>
 
-            <label class="wd-radio-opt" style="align-items:flex-start">
-              <input type="checkbox" id="perfCompCheck" style="margin-top:3px;accent-color:var(--ac);width:16px;height:16px">
+            <label class="wd-radio-opt u-items-start" >
+              <input type="checkbox" id="perfCompCheck" class="u-checkbox-ac">
               <div>
-                <b style="color:var(--tx)">Proxy Compression (transport.useCompression)</b>
-                <div class="qs-hint" style="margin-top:2px">Snappy compression per proxy. Keep disabled when streaming incompressible encrypted data (VLESS, TLS) to avoid wasting CPU cycles.</div>
+                <b class="u-color-tx">Proxy Compression (transport.useCompression)</b>
+                <div class="qs-hint u-mt-2" >Snappy compression per proxy. Keep disabled when streaming incompressible encrypted data (VLESS, TLS) to avoid wasting CPU cycles.</div>
               </div>
             </label>
 
-            <label class="wd-radio-opt" style="align-items:flex-start">
-              <input type="checkbox" id="perfTlsCheck" style="margin-top:3px;accent-color:var(--ac);width:16px;height:16px">
+            <label class="wd-radio-opt u-items-start" >
+              <input type="checkbox" id="perfTlsCheck" class="u-checkbox-ac">
               <div>
-                <b style="color:var(--tx)">Forced TLS (transport.tls.force &amp; disableCustomTLSFirstByte)</b>
-                <div class="qs-hint" style="margin-top:2px">Strips custom FRP TLS header. Keep OFF (recommended) inside GRE tunnel to prevent handshake mismatches between servers.</div>
+                <b class="u-color-tx">Forced TLS (transport.tls.force &amp; disableCustomTLSFirstByte)</b>
+                <div class="qs-hint u-mt-2" >Strips custom FRP TLS header. Keep OFF (recommended) inside GRE tunnel to prevent handshake mismatches between servers.</div>
               </div>
             </label>
           </div>
 
-          <div class="qs-actions" style="margin-top:16px">
+          <div class="qs-actions u-mt-16" >
             <button class="hashem-btn hashem-btn-primary" id="perfApplyBtn">Apply &amp; restart tunnels</button>
             <button class="hashem-btn hashem-btn-secondary" id="perfSaveOnlyBtn">Save Settings</button>
             <button class="hashem-btn hashem-btn-danger" id="perfResetBtn" title="Reset all performance & obfuscation settings to clean wire-speed defaults">🛡️ Reset to Safe Defaults</button>
@@ -921,10 +921,10 @@
           </div>
           <div class="qs-hint">Anti-censorship and flood defense. Chaff fills idle timing gaps with randomized ping packets. DPI shield protects reverse ports from active scanner floods.</div>
 
-          <div class="fg" style="margin-top:12px">
+          <div class="fg u-mt-12" >
             <label for="perfChaffSelect">Chaff Profile</label>
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-              <select class="hashem-input" id="perfChaffSelect" style="max-width:200px">
+            <div class="u-flex-center-wrap10">
+              <select class="hashem-input u-max-w-200" id="perfChaffSelect" >
                 <option value="off">Off (disabled)</option>
                 <option value="low">Low (0.4-2.8s intervals)</option>
                 <option value="mid">Mid (0.15-1.2s intervals)</option>
@@ -935,9 +935,9 @@
             <div class="ent-help">Idle-gap filler creates random dummy pings across the GRE tunnel. Default is OFF.</div>
           </div>
 
-          <div class="fg" style="margin-top:16px">
+          <div class="fg u-mt-16" >
             <label>DPI Flood Shield</label>
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <div class="u-flex-center-wrap10">
               <span class="status-indicator" id="perfDpiLiveInd"><span class="dot"></span><span id="perfDpiLiveTxt">—</span></span>
               <button class="hashem-btn hashem-btn-secondary" id="perfDpiToggleBtn">Toggle DPI Shield</button>
               <span class="badge" id="perfDpiRateBadge">60/sec (burst 120)</span>
@@ -949,11 +949,11 @@
         <!-- Multi-Carrier Failover (Direct GRE <-> FOU UDP) Card -->
         <div class="tunnel-card" id="carrierCard">
           <div class="tc-header">
-            <div style="display:flex;align-items:center;gap:10px">
+            <div class="u-flex-center-gap10">
               <p class="tc-title">Carrier &amp; UDP Encapsulation (FOU)</p>
               <span class="badge info" id="carrierActiveBadge">🟢 Direct GRE</span>
             </div>
-            <div style="display:flex;align-items:center;gap:8px">
+            <div class="u-flex-center-gap8">
               <button class="hashem-btn hashem-btn-secondary" id="carrierCycleBtn" title="Switch immediately to next carrier">⚡ Cycle Carrier</button>
               <button class="hashem-btn hashem-btn-primary" id="carrierApplyBtn">Apply Active</button>
             </div>
@@ -963,28 +963,28 @@
             Bypasses DPI protocol-47 throttling and random IP drops by wrapping GRE inside symmetric UDP packets.
           </div>
 
-          <div class="wd-hero-grid" style="margin-top:12px">
+          <div class="wd-hero-grid u-mt-12" >
             <div class="wd-stat-box">
               <span class="wd-stat-label">Active Carrier</span>
-              <div class="wd-stat-val" id="carrierActiveVal" style="font-size:18px">—</div>
+              <div class="wd-stat-val u-fs-18" id="carrierActiveVal" >—</div>
               <span class="wd-stat-sub" id="carrierActiveSub">Kernel encapsulation</span>
             </div>
             <div class="wd-stat-box">
               <span class="wd-stat-label">Configured Mode</span>
-              <div class="wd-stat-val" id="carrierModeVal" style="font-size:18px">—</div>
+              <div class="wd-stat-val u-fs-18" id="carrierModeVal" >—</div>
               <span class="wd-stat-sub" id="carrierModeSub">Failover policy</span>
             </div>
             <div class="wd-stat-box">
               <span class="wd-stat-label">FOU Listeners</span>
-              <div class="wd-stat-val" id="carrierPortsVal" style="font-size:18px">—</div>
+              <div class="wd-stat-val u-fs-18" id="carrierPortsVal" >—</div>
               <span class="wd-stat-sub" id="carrierPortsSub">UDP ipproto 47</span>
             </div>
           </div>
 
-          <div class="fg" style="margin-top:16px">
+          <div class="fg u-mt-16" >
             <label for="carrierModeSelect">Carrier Selection / Policy</label>
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-              <select class="hashem-input" id="carrierModeSelect" style="max-width:260px">
+            <div class="u-flex-center-wrap10">
+              <select class="hashem-input u-max-w-260" id="carrierModeSelect" >
                 <option value="auto">Auto (Failover on drops)</option>
                 <option value="direct">Direct GRE (Protocol 47)</option>
                 <option value="fou:443">FOU UDP : 443 (HTTPS disguise)</option>
@@ -998,10 +998,10 @@
             </div>
           </div>
 
-          <div class="fg" style="margin-top:16px">
+          <div class="fg u-mt-16" >
             <label for="carrierPortsInput">FOU UDP Ports (comma-separated)</label>
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-              <input type="text" class="hashem-input" id="carrierPortsInput" value="443, 55555" style="max-width:260px" placeholder="443, 55555">
+            <div class="u-flex-center-wrap10">
+              <input type="text" class="hashem-input u-max-w-260" id="carrierPortsInput" value="443, 55555"  placeholder="443, 55555">
               <button class="hashem-btn hashem-btn-secondary" id="carrierSavePortsBtn">Update FOU Ports</button>
             </div>
             <div class="ent-help">
@@ -1015,7 +1015,7 @@
         <div class="tunnel-card wd-hero-card">
           <div class="tc-header">
             <p class="tc-title">Tunnel Watchdog</p>
-            <div style="display:flex;align-items:center;gap:10px">
+            <div class="u-flex-center-gap10">
               <span class="status-indicator" id="wdStatusInd"><span class="dot"></span><span id="wdStatusTxt">—</span></span>
               <button class="hashem-btn hashem-btn-secondary" id="wdToggleBtn">Enable</button>
             </div>
@@ -1049,9 +1049,9 @@
           <div class="qs-hint">Receive instant Telegram notifications when the tunnel drops or recovers. Middle of bot token is never exposed.</div>
           <div class="fg">
             <label for="wdBotToken">Bot Token</label>
-            <div style="display:flex;gap:6px;align-items:center">
-              <input class="hashem-input" id="wdBotToken" type="password" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" autocomplete="off" spellcheck="false" style="flex:1">
-              <button type="button" class="hashem-btn hashem-btn-secondary" id="wdShowTokenBtn" title="Toggle visibility" style="padding:0 12px;height:38px">👁</button>
+            <div class="u-flex-center-gap8">
+              <input class="hashem-input u-flex-1" id="wdBotToken" type="password" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" autocomplete="off" spellcheck="false" >
+              <button type="button" class="hashem-btn hashem-btn-secondary u-btn-input-h" id="wdShowTokenBtn" title="Toggle visibility" >👁</button>
             </div>
           </div>
           <div class="fg">
@@ -1073,9 +1073,9 @@
           </div>
           <div class="fg hidden" id="wdTunnelPortGroup">
             <label for="wdTunnelPortSelect">Tunnel SOCKS5 Proxy Port</label>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <select class="hashem-input" id="wdTunnelPortSelect" style="min-width:180px"></select>
-              <input class="hashem-input hidden" id="wdTunnelPortManual" type="number" min="1" max="65535" placeholder="Custom port" style="max-width:140px">
+            <div class="u-flex-center-wrap8">
+              <select class="hashem-input u-min-w-180" id="wdTunnelPortSelect" ></select>
+              <input class="hashem-input hidden u-max-w-140" id="wdTunnelPortManual" type="number" min="1" max="65535" placeholder="Custom port" >
             </div>
             <div class="ent-help">Routed through 127.0.0.1:PORT via SOCKS5 proxy on Foreign side.</div>
           </div>
@@ -1093,11 +1093,11 @@
             <span class="badge" id="wdSchedBadge">Off</span>
           </div>
           <div class="qs-hint">Full backup of FRP tomls, panel settings, peers registry, and systemd units encrypted with OpenSSL AES-256-CBC keyed from your panel password.</div>
-          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div class="u-flex-center-wrap12">
             <button class="hashem-btn hashem-btn-primary" id="wdBackupNowBtn">Create Backup Now</button>
             <span class="qs-hint" id="wdBackupNowMsg"></span>
           </div>
-          <div class="fg" style="margin-top:12px">
+          <div class="fg u-mt-12" >
             <label>Backup Schedule</label>
             <div class="wd-radio-group">
               <label class="wd-radio-opt">
@@ -1116,19 +1116,19 @@
           </div>
           <div class="fg hidden" id="wdSchedHoursGroup">
             <label for="wdSchedHours">Interval (Hours)</label>
-            <input class="hashem-input" id="wdSchedHours" type="number" min="1" max="168" value="6" style="max-width:180px">
+            <input class="hashem-input u-max-w-180" id="wdSchedHours" type="number" min="1" max="168" value="6" >
           </div>
           <div class="fg hidden" id="wdSchedDailyGroup">
             <label for="wdSchedDailyAt">Daily Time (24h format HH:MM)</label>
-            <input class="hashem-input" id="wdSchedDailyAt" type="time" value="03:00" style="max-width:180px">
+            <input class="hashem-input u-max-w-180" id="wdSchedDailyAt" type="time" value="03:00" >
           </div>
           <div>
             <button class="hashem-btn hashem-btn-secondary" id="wdSaveSchedBtn">Save Schedule</button>
           </div>
 
           <!-- Stored Backups -->
-          <div style="margin-top:16px">
-            <div style="font-weight:600;color:var(--tx);font-size:14px;margin-bottom:8px">Stored Backups (/var/backups/hashem)</div>
+          <div class="u-mt-16">
+            <div class="u-fw-600 u-color-tx u-fs-14 u-mb-8">Stored Backups (/var/backups/hashem)</div>
             <div id="wdBackupList" class="wd-backup-list">
               <div class="qs-hint">No backups yet.</div>
             </div>
@@ -1151,8 +1151,8 @@
           <div class="tc-header"><p class="tc-title">Panel update</p><span class="status-indicator" id="updDot"><span class="dot"></span><span id="updDotTxt">—</span></span></div>
           <div class="ver-big" id="verCurrent">—</div>
           <div class="qs-hint">Installed version</div>
-          <div id="verRowsUpd" style="display:grid;gap:0;margin-top:4px"><div class="qs-hint">Press Check to load release info.</div></div>
-          <div class="qs-actions" style="margin-top:8px">
+          <div id="verRowsUpd" class="u-grid-gap-0 u-mt-4"><div class="qs-hint">Press Check to load release info.</div></div>
+          <div class="qs-actions u-mt-8" >
             <button class="hashem-btn hashem-btn-primary" id="updateBtn">Check for updates</button>
           </div>
           <div class="qs-hint" id="updateMsg">Press Check to see if a newer release is available.</div>
@@ -1233,7 +1233,7 @@
 <div class="ent-modal-ov" id="entModal" hidden>
   <div class="ent-modal" role="dialog" aria-modal="true" aria-labelledby="entModalTitle">
     <div class="ent-modal-h"><b id="entModalTitle">Confirm</b><button class="ent-x" id="entModalX" aria-label="Close">×</button></div>
-    <div class="ent-modal-b"><p style="margin:0;color:var(--tx2)" id="entModalBody"></p></div>
+    <div class="ent-modal-b"><p class="u-m-0 u-color-tx2" id="entModalBody"></p></div>
     <div class="ent-modal-f"><button class="hashem-btn hashem-btn-ghost" id="entModalNo">Cancel</button><button class="hashem-btn hashem-btn-danger" id="entModalYes">Confirm</button></div>
   </div>
 </div>
