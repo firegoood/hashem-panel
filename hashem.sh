@@ -2210,7 +2210,6 @@ auth.token = "${TOKEN}"
 ${TLS_LINE:+$TLS_LINE
 }transport.tcpMux = true
 transport.tcpMuxKeepaliveInterval = 15
-transport.heartbeatInterval = 10
 transport.heartbeatTimeout = 30
 transport.maxPoolCount = 50
 EOF
@@ -2577,7 +2576,6 @@ auth.token = "${TOKEN}"
 ${TLS_LINE:+$TLS_LINE
 }transport.tcpMux = true
 transport.tcpMuxKeepaliveInterval = 15
-transport.heartbeatInterval = 10
 transport.heartbeatTimeout = 30
 transport.maxPoolCount = 50
 EOF
