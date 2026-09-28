@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -208,9 +209,9 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 			} else {
 				_ = stopWSSCarrier()
 			}
-			_ = exec.Command("/usr/local/bin/hashem", "carrier", "set", m).Run()
+			_, _ = runHashemCarrierCmd("set", m)
 		} else {
-			_ = exec.Command("/usr/local/bin/hashem", "carrier", "mode", "auto").Run()
+			_, _ = runHashemCarrierCmd("mode", "auto")
 		}
 		_ = saveCarrierConfig(cfg)
 		writeJSON(w, map[string]any{"status": "ok", "mode": cfg.Mode, "active": cfg.ActiveCarrier, "active_carrier": cfg.ActiveCarrier})
@@ -235,11 +236,11 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 			_ = stopWSSCarrier()
 		}
 		_ = saveCarrierConfig(cfg)
-		_ = exec.Command("/usr/local/bin/hashem", "carrier", "set", t).Run()
+		_, _ = runHashemCarrierCmd("set", t)
 		writeJSON(w, map[string]any{"status": "ok", "active": cfg.ActiveCarrier, "active_carrier": cfg.ActiveCarrier, "detail": "Applied carrier " + t})
 
 	case "cycle_next", "cycle", "next":
-		out, err := exec.Command("/usr/local/bin/hashem", "carrier", "cycle").CombinedOutput()
+		out, err := runHashemCarrierCmd("cycle")
 		if err == nil && len(out) > 0 {
 			cfg = loadCarrierConfig()
 		} else {
@@ -266,7 +267,7 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 				_ = stopWSSCarrier()
 			}
 			_ = saveCarrierConfig(cfg)
-			_ = exec.Command("/usr/local/bin/hashem", "carrier", "set", cfg.ActiveCarrier).Run()
+			_, _ = runHashemCarrierCmd("set", cfg.ActiveCarrier)
 		}
 		writeJSON(w, map[string]any{"status": "ok", "active": cfg.ActiveCarrier, "active_carrier": cfg.ActiveCarrier})
 
@@ -286,7 +287,7 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 		cfg.FOUPort2 = p2
 		cfg.Candidates = []string{"direct", "fou:" + strconv.Itoa(p1), "fou:" + strconv.Itoa(p2), "wss:" + strconv.Itoa(cfg.WSSPort)}
 		_ = saveCarrierConfig(cfg)
-		_ = exec.Command("/usr/local/bin/hashem", "carrier", "set-ports", strconv.Itoa(p1), strconv.Itoa(p2)).Run()
+		_, _ = runHashemCarrierCmd("set-ports", strconv.Itoa(p1), strconv.Itoa(p2))
 		writeJSON(w, map[string]any{"status": "ok", "fou_port1": p1, "fou_port2": p2, "fou_ports": []int{p1, p2}})
 
 	case "set_wss", "set-wss":
@@ -312,3 +313,21 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, "E-ACTION-01", "unknown action: want set_mode, set_active, cycle_next, set_ports, or set_wss")
 	}
 }
+
+func runHashemCarrierCmd(args ...string) ([]byte, error) {
+	script, err := greScriptPath()
+	if err == nil {
+		cmdArgs := append([]string{script, "carrier"}, args...)
+		cmd := exec.Command("bash", cmdArgs...)
+		cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+		return cmd.CombinedOutput()
+	}
+	if fileExists("/usr/local/bin/hashem") {
+		cmdArgs := append([]string{"carrier"}, args...)
+		cmd := exec.Command("/usr/local/bin/hashem", cmdArgs...)
+		cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+		return cmd.CombinedOutput()
+	}
+	return nil, fmt.Errorf("hashem script not found")
+}
+

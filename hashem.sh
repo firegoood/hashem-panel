@@ -31,6 +31,26 @@ PERF_FILE="/etc/gre-panel/perf.json"
 CARRIER_FILE="/etc/gre-panel/carrier.json"
 BACKUP_DIR="/var/backups/hashem"
 
+ensure_hashem_bin() {
+    [[ ${EUID:-$(id -u 2>/dev/null || echo 1)} -eq 0 ]] || return 0
+    mkdir -p /usr/local/bin
+    if [[ -f "$0" && "$0" != "$HASHEM_BIN" ]]; then
+        cp "$0" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN" 2>/dev/null || true
+        cp "$0" "$HASHEM_SCRIPT" 2>/dev/null && chmod +x "$HASHEM_SCRIPT" 2>/dev/null || true
+        ln -sf "$HASHEM_SCRIPT" /usr/local/bin/gre.sh 2>/dev/null || true
+    elif [[ ! -x "$HASHEM_BIN" ]]; then
+        local cand
+        for cand in "$0" ./hashem.sh /tmp/hashem.sh "$HASHEM_SCRIPT"; do
+            if [[ -f "$cand" ]]; then
+                cp "$cand" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN" 2>/dev/null || true
+                break
+            fi
+        done
+    fi
+}
+ensure_hashem_bin
+
+
 # ---- Performance / Obfuscation Configuration (/etc/gre-panel/perf.json) ----
 init_perf_json() {
     mkdir -p /etc/gre-panel
@@ -343,7 +363,7 @@ except Exception:
 
 carrier_set_mode() {
     local M="$1"
-    [[ "$M" == "auto" || "$M" == "direct" || "$M" == fou:* ]] || return 1
+    [[ "$M" == "auto" || "$M" == "direct" || "$M" == fou:* || "$M" == wss* ]] || return 1
     init_carrier_json
     python3 -c '
 import json, sys
@@ -377,9 +397,10 @@ try:
         d = json.load(f)
 except Exception:
     d = {}
+wp = d.get("wss_port", 8443)
 d["fou_port1"] = p1
 d["fou_port2"] = p2
-d["candidates"] = ["direct", f"fou:{p1}", f"fou:{p2}"]
+d["candidates"] = ["direct", f"fou:{p1}", f"fou:{p2}", f"wss:{wp}"]
 with open(p + ".tmp", "w") as f:
     json.dump(d, f, indent=2)
 import os
@@ -409,6 +430,7 @@ carrier_init_kernel() {
             ufw allow "$P2"/udp >/dev/null 2>&1 || true
         fi
     fi
+    ip fou add port 19998 ipproto 47 >/dev/null 2>&1 || true
 }
 
 carrier_apply() {
@@ -434,36 +456,92 @@ carrier_apply() {
     local ANY_APPLIED=0
     for dev in "${IFS_TO_APPLY[@]}"; do
         if ip link show "$dev" >/dev/null 2>&1; then
+            # Record current IPv4 address so it can NEVER be lost when toggling state
+            local DEV_IP=""
+            DEV_IP=$(ip -o -4 addr show dev "$dev" 2>/dev/null | awk '{print $4}' | head -1)
+            if [[ -z "$DEV_IP" ]]; then
+                if [[ "$dev" == "$TUNNEL_NAME" ]]; then
+                    if [[ -f "/etc/frp/frps.toml" ]]; then
+                        DEV_IP="10.10.10.2/30"
+                    elif [[ -f "/etc/frp/frpc.toml" ]]; then
+                        DEV_IP="10.10.10.1/30"
+                    fi
+                fi
+            fi
+
+            local TARGET_MTU=1380
+            [[ "$TARGET" == wss* ]] && TARGET_MTU=1360
+
+            local CHANGED=0
             if [[ "$TARGET" == "direct" ]]; then
-                if ! ip link set dev "$dev" type gre encap none >/dev/null 2>&1; then
+                if ip link set dev "$dev" type gre encap none >/dev/null 2>&1; then
+                    CHANGED=1
+                else
                     ip link set dev "$dev" down >/dev/null 2>&1 || true
-                    ip link set dev "$dev" type gre encap none >/dev/null 2>&1 || true
-                    ip link set dev "$dev" up mtu 1380 >/dev/null 2>&1 || true
+                    if ip link set dev "$dev" type gre encap none >/dev/null 2>&1; then
+                        CHANGED=1
+                    fi
                 fi
                 ANY_APPLIED=1
             elif [[ "$TARGET" == fou:* ]]; then
                 local DPORT="${TARGET#fou:}"
                 if is_valid_port "$DPORT"; then
                     ip fou add port "$DPORT" ipproto 47 >/dev/null 2>&1 || true
-                    if ! ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1; then
+                    if ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1; then
+                        CHANGED=1
+                    else
                         ip link set dev "$dev" down >/dev/null 2>&1 || true
-                        ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1 || true
-                        ip link set dev "$dev" up mtu 1380 >/dev/null 2>&1 || true
+                        if ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1; then
+                            CHANGED=1
+                        fi
                     fi
                     ANY_APPLIED=1
                 fi
             elif [[ "$TARGET" == wss* ]]; then
                 local WPORT="8443"
                 [[ "$TARGET" == wss:* ]] && WPORT="${TARGET#wss:}"
-                # Encapsulate GRE into local bridge port 19998 (streamed by WSS Carrier)
                 ip fou add port 19998 ipproto 47 >/dev/null 2>&1 || true
-                if ! ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1; then
+                if ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1; then
+                    CHANGED=1
+                else
                     ip link set dev "$dev" down >/dev/null 2>&1 || true
-                    ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1 || true
-                    ip link set dev "$dev" up mtu 1360 >/dev/null 2>&1 || true
+                    if ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1; then
+                        CHANGED=1
+                    fi
                 fi
                 ANY_APPLIED=1
             fi
+
+            # If dynamic changelink is unsupported by this kernel, re-instantiate cleanly in-place
+            if [[ "$CHANGED" -eq 0 ]]; then
+                local REMOTE_PUB LOCAL_PUB
+                REMOTE_PUB=$(ip tunnel show "$dev" 2>/dev/null | awk '/remote/ {for(i=1;i<=NF;i++) if($i=="remote") print $(i+1)}' | head -1)
+                LOCAL_PUB=$(ip tunnel show "$dev" 2>/dev/null | awk '/local/ {for(i=1;i<=NF;i++) if($i=="local") print $(i+1)}' | head -1)
+                if [[ -n "$REMOTE_PUB" ]]; then
+                    ip tunnel del "$dev" >/dev/null 2>&1 || ip link del "$dev" >/dev/null 2>&1 || true
+                    local LOCAL_OPTS=""
+                    [[ -n "$LOCAL_PUB" && "$LOCAL_PUB" != "any" ]] && LOCAL_OPTS="local $LOCAL_PUB"
+                    if [[ "$TARGET" == "direct" ]]; then
+                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 nopmtudisc >/dev/null 2>&1 || true
+                    elif [[ "$TARGET" == fou:* ]]; then
+                        local DPORT="${TARGET#fou:}"
+                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 nopmtudisc encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1 || true
+                    elif [[ "$TARGET" == wss* ]]; then
+                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 nopmtudisc encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1 || true
+                    fi
+                    ANY_APPLIED=1
+                fi
+            fi
+
+            # Always bring interface up with proper MTU and restore inner IPv4 address
+            ip link set dev "$dev" up mtu "$TARGET_MTU" >/dev/null 2>&1 || true
+            if [[ -n "$DEV_IP" ]]; then
+                if ! ip -o -4 addr show dev "$dev" 2>/dev/null | grep -q "${DEV_IP%/*}"; then
+                    ip addr add "$DEV_IP" dev "$dev" >/dev/null 2>&1 || true
+                fi
+            fi
+            iptables -t mangle -C POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || \
+                iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || true
         fi
     done
 
@@ -488,7 +566,8 @@ os.chmod(p, 0o600)
     if [[ $ANY_APPLIED -eq 1 ]]; then
         return 0
     fi
-    if [[ -n "${IFS_TO_APPLY[0]:-}" ]]; then
+    # Don't call systemctl restart recursively if invoked from a systemd service hook
+    if [[ -z "${SYSTEMD_EXEC_PID:-}" && -z "${INVOCATION_ID:-}" && -n "${IFS_TO_APPLY[0]:-}" ]]; then
         systemctl restart "${IFS_TO_APPLY[0]}.service" >/dev/null 2>&1 || true
     fi
     return 0
@@ -511,7 +590,10 @@ try:
     with open(path) as f:
         d = json.load(f)
     cur = d.get("active_carrier", "direct")
-    cands = d.get("candidates", ["direct", "fou:443", "fou:55555"])
+    p1 = d.get("fou_port1", 443)
+    p2 = d.get("fou_port2", 55555)
+    wp = d.get("wss_port", 8443)
+    cands = d.get("candidates", ["direct", f"fou:{p1}", f"fou:{p2}", f"wss:{wp}"])
     if cur in cands:
         idx = (cands.index(cur) + 1) % len(cands)
         next_cand = cands[idx]
@@ -644,6 +726,7 @@ validate_setup_common() { # $1=local_pub $2=remote_pub $3=frp_port $4=local_gre
 }
 
 tunnel_present() {
+    ip link show "$TUNNEL_NAME" >/dev/null 2>&1 && return 0
     ip tunnel show 2>/dev/null | grep -q "$TUNNEL_NAME" && return 0
     [[ -f "${CONFIG_DIR}/frps.toml" || -f "${CONFIG_DIR}/frpc.toml" ]] && return 0
     return 1
@@ -684,6 +767,34 @@ get_latest_frp_version() {
     fi
 }
 
+download_with_fallback() {
+    local DEST="$1"
+    local URL="$2"
+    local TIMEOUT="${3:-45}"
+
+    # Try direct URL first
+    if curl -fsSL --max-time "$TIMEOUT" -o "$DEST" "$URL" 2>/dev/null && [[ -s "$DEST" ]]; then
+        return 0
+    fi
+
+    # Iran-friendly GitHub proxy mirrors if it is a GitHub URL
+    if [[ "$URL" == https://github.com/* || "$URL" == https://raw.githubusercontent.com/* ]]; then
+        echo -e "${YELLOW}[*] Direct download timed out / blocked — trying Iran proxy mirror...${NC}"
+        local MIRRORS=(
+            "https://ghproxy.net/${URL}"
+            "https://mirror.ghproxy.com/${URL}"
+            "https://gh.ddlc.top/${URL}"
+        )
+        for M in "${MIRRORS[@]}"; do
+            if curl -fsSL --max-time "$TIMEOUT" -o "$DEST" "$M" 2>/dev/null && [[ -s "$DEST" ]]; then
+                echo -e "${GREEN}[✔️] Download succeeded via mirror: ${M%/*}${NC}"
+                return 0
+            fi
+        done
+    fi
+    return 1
+}
+
 install_frp_binaries() {
     # already installed → reuse (add-peer must not re-download FRP per peer,
     # and must never exit the caller if the network is slow — peers 2..5
@@ -700,8 +811,8 @@ install_frp_binaries() {
     TAR_FILE="frp_${FRP_VERSION}_linux_${FRP_ARCH}.tar.gz"
     DOWNLOAD_URL="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/${TAR_FILE}"
 
-    if ! curl -fsSL --max-time 90 -o "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL"; then
-        echo -e "${RED}[!] Failed to download FRP from GitHub.${NC}"
+    if ! download_with_fallback "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL" 60; then
+        echo -e "${RED}[!] Failed to download FRP from GitHub or mirrors.${NC}"
         rm -rf "$TMP_DIR"
         return 1
     fi
@@ -732,10 +843,39 @@ setup_gre_iface() {
 
     echo -e "${CYAN}[*] Configuring persistent GRE tunnel service (${IFNAME})...${NC}"
 
+    ensure_hashem_bin
+
+    local IP_BIN
+    IP_BIN=$(command -v ip || echo "/sbin/ip")
+    modprobe ip_gre >/dev/null 2>&1 || true
+    modprobe fou >/dev/null 2>&1 || true
+
     # Tear down existing if present
-    ip tunnel del "$IFNAME" >/dev/null 2>&1 || true
+    "$IP_BIN" link del "$IFNAME" >/dev/null 2>&1 || "$IP_BIN" tunnel del "$IFNAME" >/dev/null 2>&1 || true
+
+    # Intelligent NAT / local IP handling:
+    # If LOCAL_IP is not bound directly to a local interface (common on cloud/NAT VPS in Iran),
+    # binding explicitly causes Linux kernel EADDRNOTAVAIL (Cannot assign requested address).
+    # In that case, use the interface IP that routes to REMOTE_IP, or wildcard (omit local).
+    local LOCAL_ARG=""
+    if [[ -n "$LOCAL_IP" ]] && "$IP_BIN" -o addr show 2>/dev/null | grep -qw "$LOCAL_IP"; then
+        LOCAL_ARG="local ${LOCAL_IP}"
+    else
+        local NIC_IP
+        NIC_IP=$("$IP_BIN" route get "$REMOTE_IP" 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
+        if [[ -n "$NIC_IP" ]] && "$IP_BIN" -o addr show 2>/dev/null | grep -qw "$NIC_IP"; then
+            LOCAL_ARG="local ${NIC_IP}"
+        else
+            LOCAL_ARG=""
+        fi
+    fi
 
     # Create systemd service for GRE
+    # Robust architecture:
+    # 1. Multi-fallback: try netlink `ip link add` (modern), then `ip tunnel add` (ioctl),
+    #    and if local address binding failed due to NAT/routing, retry without local arg.
+    # 2. Wrap hooks in /bin/sh -c with [ -x ... ] checks so systemd never exits with status 203/EXEC
+    # 3. Use addr replace / add to avoid failure when address is already assigned
     cat <<EOF > /etc/systemd/system/${IFNAME}.service
 [Unit]
 Description=GRE Tunnel Interface
@@ -744,21 +884,40 @@ After=network.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=-/usr/local/bin/hashem carrier-kernel-init
-ExecStartPre=-/sbin/ip tunnel del ${IFNAME}
-ExecStart=/bin/sh -c "/sbin/ip tunnel add ${IFNAME} mode gre local ${LOCAL_IP} remote ${REMOTE_IP} ttl 255 nopmtudisc && /sbin/ip link set dev ${IFNAME} up mtu 1380 && /sbin/ip addr add ${GRE_INTERNAL_IP}/30 dev ${IFNAME}"
-ExecStartPost=-/usr/local/bin/hashem carrier-apply-active ${IFNAME}
-ExecStop=-/sbin/ip tunnel del ${IFNAME}
+ExecStartPre=-/bin/sh -c "modprobe ip_gre 2>/dev/null; modprobe fou 2>/dev/null; if [ -x /usr/local/bin/hashem ]; then /usr/local/bin/hashem carrier-kernel-init 2>/dev/null; fi; true"
+ExecStartPre=-/bin/sh -c "${IP_BIN} link del ${IFNAME} 2>/dev/null || ${IP_BIN} tunnel del ${IFNAME} 2>/dev/null; true"
+ExecStart=/bin/sh -c '(\
+    ${IP_BIN} link add ${IFNAME} type gre ${LOCAL_ARG} remote ${REMOTE_IP} ttl 255 nopmtudisc 2>/dev/null || \
+    ${IP_BIN} tunnel add ${IFNAME} mode gre ${LOCAL_ARG} remote ${REMOTE_IP} ttl 255 nopmtudisc 2>/dev/null || \
+    ${IP_BIN} link add ${IFNAME} type gre remote ${REMOTE_IP} ttl 255 nopmtudisc 2>/dev/null || \
+    ${IP_BIN} tunnel add ${IFNAME} mode gre remote ${REMOTE_IP} ttl 255 nopmtudisc 2>/dev/null || true); \
+    ${IP_BIN} link set dev ${IFNAME} up mtu 1380 && \
+    (${IP_BIN} addr replace ${GRE_INTERNAL_IP}/30 dev ${IFNAME} 2>/dev/null || ${IP_BIN} addr add ${GRE_INTERNAL_IP}/30 dev ${IFNAME} 2>/dev/null || true)'
+ExecStartPost=-/bin/sh -c "if [ -x /usr/local/bin/hashem ]; then /usr/local/bin/hashem carrier-apply-active ${IFNAME} 2>/dev/null; fi; true"
+ExecStop=-/bin/sh -c "${IP_BIN} link del ${IFNAME} 2>/dev/null || ${IP_BIN} tunnel del ${IFNAME} 2>/dev/null; true"
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
+    systemctl reset-failed "${IFNAME}.service" >/dev/null 2>&1 || true
     systemctl enable "${IFNAME}.service" >/dev/null 2>&1
     if ! systemctl restart "${IFNAME}.service"; then
-        echo -e "${RED}[!] GRE interface ${IFNAME} failed to start — check: ip tunnel show; journalctl -u ${IFNAME}.service${NC}"
-        return 1
+        # Direct fallback in bash if systemctl restart fails
+        "$IP_BIN" link del "$IFNAME" >/dev/null 2>&1 || "$IP_BIN" tunnel del "$IFNAME" >/dev/null 2>&1 || true
+        ( "$IP_BIN" link add "$IFNAME" type gre ${LOCAL_ARG} remote "$REMOTE_IP" ttl 255 nopmtudisc 2>/dev/null || \
+          "$IP_BIN" tunnel add "$IFNAME" mode gre ${LOCAL_ARG} remote "$REMOTE_IP" ttl 255 nopmtudisc 2>/dev/null || \
+          "$IP_BIN" link add "$IFNAME" type gre remote "$REMOTE_IP" ttl 255 nopmtudisc 2>/dev/null || \
+          "$IP_BIN" tunnel add "$IFNAME" mode gre remote "$REMOTE_IP" ttl 255 nopmtudisc 2>/dev/null || true )
+        "$IP_BIN" link set dev "$IFNAME" up mtu 1380 >/dev/null 2>&1 || true
+        ( "$IP_BIN" addr replace "${GRE_INTERNAL_IP}/30" dev "$IFNAME" 2>/dev/null || "$IP_BIN" addr add "${GRE_INTERNAL_IP}/30" dev "$IFNAME" 2>/dev/null || true )
+
+        if ! "$IP_BIN" link show "$IFNAME" >/dev/null 2>&1; then
+            echo -e "${RED}[!] GRE interface ${IFNAME} failed to start — check: ip tunnel show; journalctl -u ${IFNAME}.service${NC}"
+            journalctl -u "${IFNAME}.service" -n 5 --no-pager 2>/dev/null || true
+            return 1
+        fi
     fi
     carrier_apply_active "${IFNAME}" >/dev/null 2>&1 || true
 
@@ -1764,7 +1923,9 @@ setup_foreign_server_noninteractive() {
 _setup_foreign_full() {
     local IP_FOREIGN=$1 IP_IRAN=$2 SERVER_PORT=$3 TOKEN=$4
     local LOCAL_GRE=$5 PEER_GRE=$6 PORTS_CLEANED=$7
+    carrier_init_kernel 2>/dev/null || true
     setup_gre_systemd "$IP_FOREIGN" "$IP_IRAN" "$LOCAL_GRE"
+    carrier_apply_active "$TUNNEL_NAME" >/dev/null 2>&1 || true
     echo -e "${CYAN}[*] Testing GRE internal ping to Iran (${PEER_GRE})...${NC}"
     if ping -c 3 -W 2 "$PEER_GRE" >/dev/null 2>&1; then
         echo -e "${GREEN}[✔️] GRE Tunnel link is UP and reachable!${NC}"
@@ -2881,38 +3042,43 @@ install_panel() {
     DL_OK=0
     # try latest release first (prebuilt, no Go needed)
     LATEST_JSON=$(curl -fsSL --max-time 15 "https://api.github.com/repos/pdnczone/hashem-panel/releases/latest" 2>/dev/null) || true
+    DL_URL=""
+    GREPANEL_URL=""
+    HASHEMSH_URL=""
+    HASHEM_URL=""
     if [[ -n "$LATEST_JSON" ]]; then
         DL_URL=$(echo "$LATEST_JSON" | grep -o "\"browser_download_url\": *\"[^\"]*${PANEL_ASSET}\"" | head -1 | cut -d'"' -f4)
-        if [[ -n "$DL_URL" ]] && curl -fsSL --max-time 90 -L "$DL_URL" -o "$TMP_PANEL/gre-panel" && [[ -s "$TMP_PANEL/gre-panel" ]]; then
-            if head -c 4 "$TMP_PANEL/gre-panel" | grep -q "ELF"; then
-                DL_OK=1
-                echo -e "${GREEN}[✔️] Downloaded prebuilt panel ($(du -h "$TMP_PANEL/gre-panel" | cut -f1)).${NC}"
-            else
-                echo -e "${YELLOW}[!] Downloaded file is not a binary — falling back to source build.${NC}"
-            fi
-        fi
         GREPANEL_URL=$(echo "$LATEST_JSON" | grep -o "\"browser_download_url\": *\"[^\"]*grepanel\"" | head -1 | cut -d'"' -f4)
-        if [[ -n "$GREPANEL_URL" ]]; then
-            curl -fsSL --max-time 30 "$GREPANEL_URL" -o /usr/local/bin/grepanel 2>/dev/null && chmod +x /usr/local/bin/grepanel || true
-        fi
         HASHEMSH_URL=$(echo "$LATEST_JSON" | grep -o "\"browser_download_url\": *\"[^\"]*hashem\\.sh\"" | head -1 | cut -d'"' -f4)
-        if [[ -n "$HASHEMSH_URL" ]]; then
-            curl -fsSL --max-time 30 "$HASHEMSH_URL" -o "$HASHEM_SCRIPT" 2>/dev/null && chmod +x "$HASHEM_SCRIPT" || true
-            cp "$HASHEM_SCRIPT" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN" || true
-            ln -sf "$HASHEM_SCRIPT" /usr/local/bin/gre.sh 2>/dev/null || true
-        else
-            # transitional: releases before the hashem.sh rename ship gre.sh
-            GRESH_URL=$(echo "$LATEST_JSON" | grep -o "\"browser_download_url\": *\"[^\"]*gre\\.sh\"" | head -1 | cut -d'"' -f4)
-            if [[ -n "$GRESH_URL" ]]; then
-                curl -fsSL --max-time 30 "$GRESH_URL" -o "$HASHEM_SCRIPT" 2>/dev/null && chmod +x "$HASHEM_SCRIPT" || true
-                cp "$HASHEM_SCRIPT" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN" || true
-                ln -sf "$HASHEM_SCRIPT" /usr/local/bin/gre.sh 2>/dev/null || true
-            fi
-        fi
         HASHEM_URL=$(echo "$LATEST_JSON" | grep -o "\"browser_download_url\": *\"[^\"]*/hashem\"" | head -1 | cut -d'"' -f4)
-        if [[ -n "$HASHEM_URL" ]]; then
-            curl -fsSL --max-time 30 "$HASHEM_URL" -o /usr/local/bin/hashem 2>/dev/null && chmod +x /usr/local/bin/hashem || true
+    fi
+    # Fallback to direct release asset URLs if API was blocked/empty
+    [[ -z "$DL_URL" ]] && DL_URL="https://github.com/pdnczone/hashem-panel/releases/latest/download/${PANEL_ASSET}"
+    [[ -z "$GREPANEL_URL" ]] && GREPANEL_URL="https://github.com/pdnczone/hashem-panel/releases/latest/download/grepanel"
+    [[ -z "$HASHEMSH_URL" ]] && HASHEMSH_URL="https://github.com/pdnczone/hashem-panel/releases/latest/download/hashem.sh"
+    [[ -z "$HASHEM_URL" ]] && HASHEM_URL="https://github.com/pdnczone/hashem-panel/releases/latest/download/hashem"
+
+    if download_with_fallback "$TMP_PANEL/gre-panel" "$DL_URL" 60 && [[ -s "$TMP_PANEL/gre-panel" ]]; then
+        if head -c 4 "$TMP_PANEL/gre-panel" 2>/dev/null | grep -q "ELF"; then
+            DL_OK=1
+            echo -e "${GREEN}[✔️] Downloaded prebuilt panel ($(du -h "$TMP_PANEL/gre-panel" | cut -f1)).${NC}"
+        else
+            echo -e "${YELLOW}[!] Downloaded file is not a binary — falling back to source build.${NC}"
         fi
+    fi
+
+    if download_with_fallback "/usr/local/bin/grepanel" "$GREPANEL_URL" 30; then
+        chmod +x /usr/local/bin/grepanel 2>/dev/null || true
+    fi
+
+    if download_with_fallback "$HASHEM_SCRIPT" "$HASHEMSH_URL" 30; then
+        chmod +x "$HASHEM_SCRIPT" 2>/dev/null || true
+        cp "$HASHEM_SCRIPT" "$HASHEM_BIN" 2>/dev/null && chmod +x "$HASHEM_BIN" || true
+        ln -sf "$HASHEM_SCRIPT" /usr/local/bin/gre.sh 2>/dev/null || true
+    fi
+
+    if download_with_fallback "/usr/local/bin/hashem" "$HASHEM_URL" 30; then
+        chmod +x /usr/local/bin/hashem 2>/dev/null || true
     fi
 
     if [[ "$DL_OK" -ne 1 ]]; then
@@ -2923,7 +3089,7 @@ install_panel() {
             apt-get update -qq
             apt-get install -y -qq golang-go
         fi
-        if ! curl -fsSL "https://github.com/pdnczone/hashem-panel/archive/refs/heads/main.tar.gz" -o "$TMP_PANEL/panel.tgz"; then
+        if ! download_with_fallback "$TMP_PANEL/panel.tgz" "https://github.com/pdnczone/hashem-panel/archive/refs/heads/main.tar.gz" 60; then
             echo -e "${RED}[!] Failed to download panel sources.${NC}"
             rm -rf "$TMP_PANEL"
             return 1

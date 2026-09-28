@@ -151,6 +151,11 @@ func tunnelExists() bool {
 			return true
 		}
 	}
+	if out, err := exec.Command("ip", "link", "show", "gre-tunnel").CombinedOutput(); err == nil {
+		if strings.Contains(string(out), "gre-tunnel") {
+			return true
+		}
+	}
 	for _, f := range []string{"/etc/frp/frps.toml", "/etc/frp/frpc.toml"} {
 		if _, err := os.Stat(f); err == nil {
 			return true
@@ -528,7 +533,7 @@ func randomFrpPort() int {
 // ---- setup bundle: one readable string with everything foreign needs ----
 
 // setupBundle is a parsed
-// hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
+// hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>][_fou<P1>-<P2>]
 type setupBundle struct {
 	IranPub    string
 	FrpPort    int
@@ -536,24 +541,40 @@ type setupBundle struct {
 	ForeignGre string
 	Token      string
 	Ports      []int
+	FouPorts   []int
 }
 
 // MakeBundle builds the single foreign-setup string. Ports may be empty
 // (base setup-iran omits them); when present they join with '-'.
 func MakeBundle(iranPub string, frpPort int, iranGre, foreignGre, token string, ports []int) string {
+	cfg := loadCarrierConfig()
+	p1, p2 := cfg.FOUPort1, cfg.FOUPort2
+	if p1 <= 0 {
+		p1 = 443
+	}
+	if p2 <= 0 {
+		p2 = 55555
+	}
 	s := bundlePrefix + iranPub + "_" + strconv.Itoa(frpPort) + "_" + iranGre + "_" + foreignGre + "_" + token
+	portsPart := ""
 	if len(ports) > 0 {
 		strs := make([]string, len(ports))
 		for i, p := range ports {
 			strs[i] = strconv.Itoa(p)
 		}
-		s += "_" + strings.Join(strs, "-")
+		portsPart = strings.Join(strs, "-")
+	}
+	fouPart := fmt.Sprintf("fou%d-%d", p1, p2)
+	if portsPart != "" {
+		s += "_" + portsPart + "_" + fouPart
+	} else {
+		s += "__" + fouPart
 	}
 	return s
 }
 
 // ParseBundle validates a bundle pasted into the foreign token field.
-// The 7th _<PORTS> part is optional; '-' and ',' both split ports.
+// Supports 5, 6, or 7 parts (handles optional ports and optional _fou<P1>-<P2>).
 // Legacy 32-char tokens are NOT bundles — isBundle() guards that first.
 func ParseBundle(s string) (setupBundle, error) {
 	var b setupBundle
@@ -563,8 +584,8 @@ func ParseBundle(s string) (setupBundle, error) {
 	}
 	rest := strings.TrimPrefix(s, bundlePrefix)
 	parts := strings.Split(rest, "_")
-	if len(parts) != 5 && len(parts) != 6 {
-		return b, fmt.Errorf("bundle must have 5 or 6 underscore parts (got %d)", len(parts))
+	if len(parts) < 5 || len(parts) > 7 {
+		return b, fmt.Errorf("bundle must have 5, 6, or 7 underscore parts (got %d)", len(parts))
 	}
 	iranPub, portS, iranGre, foreignGre, token := parts[0], parts[1], parts[2], parts[3], parts[4]
 	if net.ParseIP(iranPub) == nil || !isV4(iranPub) {
@@ -584,12 +605,24 @@ func ParseBundle(s string) (setupBundle, error) {
 		return b, fmt.Errorf("bad token in bundle (length 1-128)")
 	}
 	b = setupBundle{IranPub: iranPub, FrpPort: port, IranGre: iranGre, ForeignGre: foreignGre, Token: token}
-	if len(parts) == 6 {
-		ports := parsePorts(strings.ReplaceAll(parts[5], "-", ","))
-		if len(ports) == 0 {
-			return b, fmt.Errorf("bad ports in bundle: %q", parts[5])
+	for i := 5; i < len(parts); i++ {
+		p := parts[i]
+		if p == "" {
+			continue
 		}
-		b.Ports = ports
+		if strings.HasPrefix(p, "fou") {
+			fouRaw := strings.TrimPrefix(p, "fou")
+			for _, portStr := range strings.Split(fouRaw, "-") {
+				if fp, err := strconv.Atoi(portStr); err == nil && fp >= 1 && fp <= 65535 {
+					b.FouPorts = append(b.FouPorts, fp)
+				}
+			}
+		} else {
+			ports := parsePorts(strings.ReplaceAll(p, "-", ","))
+			if len(ports) > 0 {
+				b.Ports = ports
+			}
+		}
 	}
 	return b, nil
 }
@@ -621,6 +654,14 @@ func applyBundle(body *setupRequest, b setupBundle) {
 			strs[i] = strconv.Itoa(p)
 		}
 		body.Ports = strings.Join(strs, ", ")
+	}
+	if len(b.FouPorts) >= 2 {
+		cfg := loadCarrierConfig()
+		cfg.FOUPort1 = b.FouPorts[0]
+		cfg.FOUPort2 = b.FouPorts[1]
+		cfg.Candidates = []string{"direct", fmt.Sprintf("fou:%d", cfg.FOUPort1), fmt.Sprintf("fou:%d", cfg.FOUPort2), fmt.Sprintf("wss:%d", cfg.WSSPort)}
+		_ = saveCarrierConfig(cfg)
+		_, _ = runHashemCarrierCmd("set-ports", strconv.Itoa(cfg.FOUPort1), strconv.Itoa(cfg.FOUPort2))
 	}
 	body.Token = b.Token
 }

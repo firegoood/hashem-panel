@@ -480,6 +480,10 @@ func localStatus() tunnelStatus {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "inet ") {
 				st.Gre.Inner = strings.Fields(line)[1]
+				st.Gre.Exists = true
+				if st.Gre.Name == "" {
+					st.Gre.Name = "gre-tunnel"
+				}
 			}
 		}
 	}
