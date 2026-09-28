@@ -580,6 +580,103 @@
     stroke: var(--ac);
     transform: scale(1.1);
   }
+
+  /* Right Sidebar */
+  .right-sidebar {
+    width: 320px;
+    background: color-mix(in srgb, var(--bg) 60%, var(--s1));
+    border-left: 1px solid var(--ln);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+    z-index: 40;
+    flex-shrink: 0;
+  }
+  .rs-header {
+    padding: 22px 16px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    color: var(--tx);
+    border-bottom: 1px solid var(--ln);
+    text-transform: uppercase;
+  }
+  .rs-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+    color: var(--mu);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    line-height: 1.4;
+  }
+  .rs-log-line {
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    padding-bottom: 8px;
+    word-break: break-all;
+  }
+  .rs-log-line:last-child { border-bottom: none; }
+  @media (max-width: 1200px) {
+    .right-sidebar { display: none; }
+  }
+
+  /* Sidebar Nav enhancements */
+  .sidebar-nav .nav-item {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    justify-content: flex-start !important;
+    padding-left: 20px !important;
+    text-align: left !important;
+    gap: 12px;
+  }
+  .drawer-nav .nav-item {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    justify-content: flex-start !important;
+    padding-left: 20px !important;
+    gap: 12px;
+  }
+  .nav-item svg { width: 22px; height: 22px; }
+
+  /* Login enhancements */
+  #login .card {
+    background: linear-gradient(145deg, #121214 0%, color-mix(in srgb, var(--ac) 5%, #121214) 100%) !important;
+    border: 1px solid color-mix(in srgb, var(--ac) 30%, rgba(255,255,255,.08)) !important;
+    box-shadow: 0 40px 100px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.1) !important;
+  }
+  #login .field input {
+    background: rgba(0,0,0,0.4) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    color: white !important;
+    font-size: 15px !important;
+    padding: 14px 16px !important;
+    border-radius: 12px !important;
+    transition: all 0.2s !important;
+  }
+  #login .field input:focus {
+    border-color: var(--ac) !important;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ac) 25%, transparent) !important;
+  }
+  #loginBtn {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--ac) 15%, var(--ac)), var(--ac)) !important;
+    color: white !important;
+    border-radius: 12px !important;
+    padding: 14px !important;
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--ac) 35%, transparent) !important;
+    transition: all 0.25s ease !important;
+    border: 1px solid color-mix(in srgb, var(--ac) 50%, rgba(255,255,255,0.2)) !important;
+  }
+  #loginBtn:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 12px 32px color-mix(in srgb, var(--ac) 45%, transparent) !important;
+  }
 </style>
 
 </head>
@@ -1480,6 +1577,12 @@
       </section>
     </main>
   </div>
+  <aside class="right-sidebar">
+    <div class="rs-header">Live Activity Stream</div>
+    <div class="rs-content" id="rsLogs">
+      <div class="rs-log-line">Waiting for logs...</div>
+    </div>
+  </aside>
 </div>
 </div>
 <div id="toast" class="toast hidden"></div>
@@ -4404,6 +4507,38 @@ document.addEventListener('visibilitychange', () => {
     }
   } else if (!$('app').classList.contains('hidden') && !$('tab-dashboard').hidden) refreshDash();
 });
+
+async function refreshRightSidebarLogs() {
+  if (window.innerWidth < 1200) return;
+  try {
+    const s = await api('/api/logs?n=15');
+    if (s.lines) {
+      const rs = $('rsLogs');
+      if (rs) {
+        rs.innerHTML = s.lines.map(l => '<div class="rs-log-line">' + esc(l) + '</div>').join('');
+      }
+    }
+  } catch(e) {}
+}
+setInterval(refreshRightSidebarLogs, 4000);
+setTimeout(refreshRightSidebarLogs, 500);
+
+async function refreshRightSidebarLogs() {
+  if (window.innerWidth < 1200) return;
+  try {
+    const s = await api('/api/logs?n=15');
+    if (s.lines) {
+      const rs = $('rsLogs');
+      if (rs) {
+        rs.innerHTML = s.lines.map(l => '<div class="rs-log-line">' + esc(l) + '</div>').join('');
+      }
+    }
+  } catch(e) {}
+}
+setInterval(refreshRightSidebarLogs, 4000);
+setTimeout(refreshRightSidebarLogs, 500);
 </script>
 </body>
 </html>
+
+
