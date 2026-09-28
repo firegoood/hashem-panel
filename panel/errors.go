@@ -16,6 +16,7 @@ package main
 //   E-GRE-xx     GRE interface / ping diagnostics (log annotation)
 //   E-FRP-xx     FRP diagnostics (log annotation)
 //   E-SYS-xx     host tooling (journalctl/systemctl missing)
+//   E-WD-xx      watchdog / telegram alerts / backup
 
 import (
 	"encoding/json"
@@ -41,6 +42,7 @@ var errCatalog = map[string]errInfo{
 	"E-AUTH-03": {400, "bad login request", "Reload the page and try again."},
 	"E-AUTH-04": {400, "password must be at least 4 characters", "Pick a longer password."},
 	"E-AUTH-05": {500, "cannot switch password", "Disk write failed — check /etc/gre-panel permissions."},
+	"E-AUTH-06": {401, "session expired", "Log in again from the login screen."},
 	// setup validation
 	"E-SETUP-01": {400, "bad setup request (invalid JSON)", "Reload the page and resubmit the form."},
 	"E-SETUP-02": {400, "role must be iran, foreign or add-peer", "Pick the role from the Setup tab buttons."},
@@ -48,7 +50,7 @@ var errCatalog = map[string]errInfo{
 	"E-SETUP-04": {400, "invalid remote public IP", "Enter the other side's public IPv4 exactly."},
 	"E-SETUP-05": {400, "invalid local GRE IP", "Use the suggested 10.x address or another private IPv4."},
 	"E-SETUP-06": {400, "invalid peer GRE IP", "Use the suggested 10.x address or another private IPv4."},
-	"E-SETUP-07": {400, "frp port must be 1-65535", "Use 7000 for the first tunnel, 7001+ for the next ones."},
+	"E-SETUP-07": {400, "frp port must be 1-65535", "Use any free port 1-65535 (default is random 20000-60000)."},
 	"E-SETUP-08": {400, "token from Iran side is required", "Copy the token shown on the Iran panel into this form — or paste the whole hsh1_... bundle (it fills every field)."},
 	"E-SETUP-09": {400, "token too long (max 128, bundles longer than 256 rejected)", "Paste the token/bundle as-is; do not add extra text."},
 	"E-SETUP-10": {400, "at least one reverse port is required (e.g. 443, 2083)", "Add the ports clients will connect to."},
@@ -100,6 +102,17 @@ var errCatalog = map[string]errInfo{
 	"E-TLS-06": {500, "cannot install certificate", "Disk write failed — check /etc/gre-panel permissions."},
 	"E-TLS-07": {400, "no certificate to renew", "Issue a certificate first from the Settings tab."},
 	"E-TLS-08": {500, "HTTPS listener failed", "Port in use or bad cert — HTTP still works; check the error detail."},
+	// watchdog & backup
+	"E-WD-01": {400, "bad watchdog request", "Check request parameters and try again."},
+	"E-WD-02": {502, "telegram alert failed", "Verify bot token, chat ID, and selected route."},
+	"E-WD-03": {500, "backup creation failed", "Check disk space and write permissions in /var/backups/hashem."},
+	"E-WD-04": {500, "backup restore failed", "Decryption failed or backup archive is corrupted."},
+	"E-WD-05": {502, "telegram route unreachable", "Ensure tunnel is up or switch route to direct."},
+	// performance & obfuscation
+	"E-PERF-00": {0, "Performance settings applied", "Informational: settings saved and tunnels updated."},
+	"E-PERF-01": {400, "bad performance request", "Check request parameters and try again."},
+	"E-PERF-02": {500, "cannot save performance settings", "Disk write failed — check /etc/gre-panel permissions."},
+	"E-PERF-03": {500, "cannot apply performance settings", "Check FRP services and configuration."},
 }
 
 type errEvent struct {

@@ -76,7 +76,7 @@ func watchdogConfigPath() string {
 
 func loadWatchdogConfig() watchdogConfig {
 	def := watchdogConfig{
-		Enabled:       false,
+		Enabled:       true,
 		IntervalSec:   60,
 		FailThreshold: 2,
 		TGRoute:       "direct",
