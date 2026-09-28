@@ -40,17 +40,43 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	peers := livePeers()
 	// multi-peer rollup: tunnel counts as online if ANY leg is up
 	anyUp := st.Gre.Exists || st.FrpUp
+	health := "DOWN"
 	if len(peers) > 0 {
+		allHealthy := true
+		anyHealthy := false
 		anyUp = false
 		for _, p := range peers {
 			if p.GreUp || p.FrpUp {
 				anyUp = true
-				break
 			}
+			if p.GreUp && p.FrpUp && p.PingOK {
+				anyHealthy = true
+			} else if p.GreUp || p.FrpUp {
+				anyHealthy = true
+				allHealthy = false
+			} else {
+				allHealthy = false
+			}
+		}
+		if allHealthy && len(peers) > 0 {
+			health = "HEALTHY"
+		} else if anyHealthy {
+			health = "DEGRADED"
+		} else {
+			health = "DOWN"
+		}
+	} else {
+		if st.Gre.Exists && st.FrpUp && st.PingOK {
+			health = "HEALTHY"
+		} else if st.Gre.Exists || st.FrpUp {
+			health = "DEGRADED"
+		} else {
+			health = "DOWN"
 		}
 	}
 	d := map[string]any{
 		"online":     anyUp,
+		"health":     health,
 		"peer_count": len(peers),
 		"peers":      peers,
 		"ping_ok":    st.PingOK,

@@ -2385,8 +2385,10 @@ async function refreshDash() {
     const on = !!d.online;
     const nPeers = d.peer_count || 0;
     const multi = nPeers > 0;
-    set('kpiStatus', on ? 'Online' : 'Offline');
-    const kpiStatus = $('kpiStatus'); if (kpiStatus) kpiStatus.style.color = on ? 'var(--ok)' : 'var(--er)';
+    const statusText = d.health ? (d.health === 'HEALTHY' ? 'Healthy' : (d.health === 'DEGRADED' ? 'Degraded' : 'Down')) : (on ? 'Online' : 'Offline');
+    const statusColor = d.health ? (d.health === 'HEALTHY' ? 'var(--ok)' : (d.health === 'DEGRADED' ? 'var(--wr)' : 'var(--er)')) : (on ? 'var(--ok)' : 'var(--er)');
+    set('kpiStatus', statusText);
+    const kpiStatus = $('kpiStatus'); if (kpiStatus) kpiStatus.style.color = statusColor;
     set('kpiStatusSub', (multi ? nPeers + ' tunnel' + (nPeers > 1 ? 's' : '') + ' · ' : '') + (d.role || 'unknown role') + ' · ' + (d.checked ? 'checked ' + String(d.checked).slice(11, 19) + ' UTC' : ''));
     const g = d.gre || {}, f = d.frp || {};
     const peers = d.peers || [];
@@ -2707,7 +2709,7 @@ function parseBundleClient(s) {
   s = (s || '').trim();
   if (!s.startsWith('hsh1_')) return null;
   const parts = s.slice(5).split('_');
-  if (parts.length !== 5 && parts.length !== 6) return {error: 'bundle must have 5 or 6 underscore parts'};
+  if (parts.length < 5 || parts.length > 7) return {error: 'bundle must have 5, 6, or 7 underscore parts'};
   const [iranPub, portS, iranGre, foreignGre, token] = parts;
   const v4 = ip => /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) && ip.split('.').every(o => +o <= 255);
   if (!v4(iranPub)) return {error: 'bad Iran public IP in bundle'};
@@ -2717,11 +2719,19 @@ function parseBundleClient(s) {
   if (!v4(foreignGre)) return {error: 'bad foreign GRE IP in bundle'};
   if (!token || token.length > 128) return {error: 'bad token in bundle'};
   let ports = [];
-  if (parts.length === 6) {
-    ports = parts[5].split(/[-,]/).map(x => parseInt(x.trim(), 10)).filter(p => p >= 1 && p <= 65535);
-    if (!ports.length) return {error: 'bad ports in bundle'};
+  let fouPorts = [];
+  for (let i = 5; i < parts.length; i++) {
+    const p = parts[i];
+    if (!p) continue;
+    if (p.startsWith('fou')) {
+      const fps = p.slice(3).split('-').map(x => parseInt(x.trim(), 10)).filter(x => x >= 1 && x <= 65535);
+      if (fps.length) fouPorts = fps;
+    } else {
+      const parsed = p.split(/[-,]/).map(x => parseInt(x.trim(), 10)).filter(x => x >= 1 && x <= 65535);
+      if (parsed.length) ports = parsed;
+    }
   }
-  return {iranPub, port, iranGre, foreignGre, token, ports};
+  return {iranPub, port, iranGre, foreignGre, token, ports, fouPorts};
 }
 // pasting a bundle auto-fills ports + advanced fields (explicit edits win)
 $('jToken').addEventListener('input', () => {
@@ -2782,11 +2792,12 @@ $('joinBtn').onclick = async () => {
     const body = bundle ? {
       role: 'foreign',
       local_public: m.local || adv('fLocalPub') || d.local_public || '',
-      remote_public: adv('fRemotePub') || bundle.iranPub || m.peer_ip || $('sRemotePub').value.trim(),
-      local_gre: adv('fLocalGre') || bundle.foreignGre || (m.inner || '').split('/')[0] || $('sLocalGre').value.trim(),
-      peer_gre: adv('fPeerGre') || bundle.iranGre || peerInnerHint(st) || $('sPeerGre').value.trim(),
-      frp_port: parseInt(adv('fFrpPort') || String(bundle.port), 10) || st.frp_port || parseInt($('sFrpPort').value, 10) || 7000,
-      token, ports, force: true,
+      remote_public: adv('fRemotePub') || bundle.iranPub || m.peer_ip || '',
+      local_gre: adv('fLocalGre') || bundle.foreignGre || (m.inner || '').split('/')[0] || '',
+      peer_gre: adv('fPeerGre') || bundle.iranGre || '',
+      frp_port: bundle.port,
+      token: rawToken,
+      ports, force: true,
     } : {
       role: 'foreign',
       local_public: m.local || adv('fLocalPub') || d.local_public || '',

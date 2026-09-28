@@ -379,6 +379,9 @@ func runInstaller(b setupRequest, ports []int) (string, string, []string, error)
 			"--token", b.Token,
 			"--ports", strings.Join(strs, ","),
 		}
+		if isBundle(b.Token) {
+			args = append(args, "--bundle", b.Token)
+		}
 	}
 	if b.Force {
 		args = append(args, "--force")
@@ -636,19 +639,12 @@ func isBundle(s string) bool { return strings.HasPrefix(strings.TrimSpace(s), bu
 // public IP is OUR remote; bundle's foreign GRE is OUR local GRE;
 // bundle's Iran GRE is OUR peer GRE.
 func applyBundle(body *setupRequest, b setupBundle) {
-	if body.RemotePub == "" {
-		body.RemotePub = b.IranPub
-	}
-	if body.LocalGre == "" {
-		body.LocalGre = b.ForeignGre
-	}
-	if body.PeerGre == "" {
-		body.PeerGre = b.IranGre
-	}
-	if body.FrpPort == 0 {
-		body.FrpPort = b.FrpPort
-	}
-	if body.Ports == "" && len(b.Ports) > 0 {
+	// Bundle is the authoritative Source of Truth for tunnel parameters
+	body.RemotePub = b.IranPub
+	body.LocalGre = b.ForeignGre
+	body.PeerGre = b.IranGre
+	body.FrpPort = b.FrpPort
+	if len(b.Ports) > 0 {
 		strs := make([]string, len(b.Ports))
 		for i, p := range b.Ports {
 			strs[i] = strconv.Itoa(p)

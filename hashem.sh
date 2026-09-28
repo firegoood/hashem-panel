@@ -50,6 +50,308 @@ ensure_hashem_bin() {
 }
 ensure_hashem_bin
 
+LOG_DIR="/var/log/hashem"
+
+# Mask tokens and sensitive credentials in log strings
+mask_sensitive() {
+    local text="$1"
+    echo "$text" | sed -E \
+        -e 's/(hsh1_[^_]+_[0-9]+_[^_]+_[^_]+_)[A-Za-z0-9_-]{8,128}/\1[MASKED_TOKEN]/g' \
+        -e 's/(auth\.token[[:space:]]*=[[:space:]]*")[^"]+/\1[MASKED_TOKEN]/g' \
+        -e 's/(token[[:space:]]*=[[:space:]]*")[^"]+/\1[MASKED_TOKEN]/g' \
+        -e 's/(--token[[:space:]]+)[A-Za-z0-9_-]{16,128}/\1[MASKED_TOKEN]/g' \
+        -e 's/(Token:[[:space:]]*)[A-Za-z0-9_-]{16,128}/\1[MASKED_TOKEN]/g'
+}
+
+log_msg() {
+    local category="${1:-installer}"
+    local level="${2:-INFO}"
+    local msg="$3"
+    [[ ${EUID:-$(id -u 2>/dev/null || echo 1)} -eq 0 ]] || return 0
+    mkdir -p "$LOG_DIR" 2>/dev/null || return 0
+    local logfile="${LOG_DIR}/${category}.log"
+    local masked
+    masked=$(mask_sensitive "$msg")
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] ${masked}" >> "$logfile" 2>/dev/null || true
+}
+
+backup_configs() {
+    local label="${1:-manual}"
+    local ts
+    ts=$(date '+%Y%m%d_%H%M%S')
+    local bdir="${BACKUP_DIR}/${ts}_${label}"
+    mkdir -p "$bdir" 2>/dev/null || return 1
+    
+    # Backup configuration folders
+    [[ -d /etc/hashem ]] && cp -rp /etc/hashem "$bdir/" 2>/dev/null || true
+    [[ -d /etc/gre-panel ]] && cp -rp /etc/gre-panel "$bdir/" 2>/dev/null || true
+    [[ -d /etc/frp ]] && cp -rp /etc/frp "$bdir/" 2>/dev/null || true
+    
+    # Backup relevant systemd units
+    mkdir -p "$bdir/systemd" 2>/dev/null || true
+    for u in /etc/systemd/system/gre-*.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc*.service /etc/systemd/system/gre-panel.service; do
+        [[ -f "$u" ]] && cp -p "$u" "$bdir/systemd/" 2>/dev/null || true
+    done
+    
+    echo "$bdir" > "${BACKUP_DIR}/latest" 2>/dev/null || true
+    log_msg "installer" "INFO" "Created config backup at $bdir"
+    echo "$bdir"
+}
+
+rollback_configs() {
+    local bdir="$1"
+    [[ -z "$bdir" && -f "${BACKUP_DIR}/latest" ]] && bdir=$(cat "${BACKUP_DIR}/latest" 2>/dev/null)
+    if [[ -z "$bdir" || ! -d "$bdir" ]]; then
+        echo -e "${RED}[!] No valid backup directory found for rollback.${NC}"
+        return 1
+    fi
+    echo -e "${YELLOW}[*] Rolling back configurations from: $bdir ...${NC}"
+    log_msg "installer" "WARN" "Initiating rollback from $bdir"
+    
+    [[ -d "$bdir/hashem" ]] && cp -rp "$bdir/hashem" /etc/ 2>/dev/null || true
+    [[ -d "$bdir/gre-panel" ]] && cp -rp "$bdir/gre-panel" /etc/ 2>/dev/null || true
+    [[ -d "$bdir/frp" ]] && cp -rp "$bdir/frp" /etc/ 2>/dev/null || true
+    if [[ -d "$bdir/systemd" ]]; then
+        cp -p "$bdir/systemd/"* /etc/systemd/system/ 2>/dev/null || true
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+    echo -e "${GREEN}[✔️] Rollback completed.${NC}"
+    log_msg "installer" "INFO" "Rollback completed successfully"
+}
+
+# Component States: NOT_INSTALLED, INSTALLED, RUNNING, STOPPED, BROKEN, UNKNOWN
+get_component_status() {
+    local comp="$1"
+    case "$comp" in
+        panel)
+            local bin="/usr/local/bin/gre-panel"
+            local svc="gre-panel"
+            if [[ ! -f "$bin" && ! -f "/etc/systemd/system/${svc}.service" ]]; then
+                echo "NOT_INSTALLED"; return 0
+            fi
+            if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                echo "RUNNING"; return 0
+            elif systemctl is-failed --quiet "$svc" 2>/dev/null; then
+                echo "BROKEN"; return 0
+            elif [[ -f "$bin" ]]; then
+                echo "STOPPED"; return 0
+            else
+                echo "BROKEN"; return 0
+            fi
+            ;;
+        frps)
+            local bin="/usr/local/bin/frps"
+            local svc="frps"
+            if [[ ! -f "$bin" && ! -f "/etc/systemd/system/${svc}.service" && ! -f "/etc/frp/frps.toml" ]]; then
+                echo "NOT_INSTALLED"; return 0
+            fi
+            if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                echo "RUNNING"; return 0
+            elif systemctl is-failed --quiet "$svc" 2>/dev/null; then
+                echo "BROKEN"; return 0
+            elif [[ -f "$bin" ]]; then
+                echo "STOPPED"; return 0
+            else
+                echo "BROKEN"; return 0
+            fi
+            ;;
+        frpc)
+            local bin="/usr/local/bin/frpc"
+            local svc="frpc"
+            if [[ ! -f "$bin" && ! -f "/etc/systemd/system/${svc}.service" && ! -f "/etc/frp/frpc.toml" ]]; then
+                echo "NOT_INSTALLED"; return 0
+            fi
+            if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                echo "RUNNING"; return 0
+            elif systemctl is-failed --quiet "$svc" 2>/dev/null; then
+                echo "BROKEN"; return 0
+            elif [[ -f "$bin" ]]; then
+                echo "STOPPED"; return 0
+            else
+                echo "BROKEN"; return 0
+            fi
+            ;;
+        gre)
+            local ifname="${2:-$TUNNEL_NAME}"
+            local svc="${ifname}.service"
+            local link_exists=0
+            local addr_exists=0
+            if ip link show "$ifname" >/dev/null 2>&1; then
+                link_exists=1
+            fi
+            if ip -4 addr show dev "$ifname" 2>/dev/null | grep -q "inet "; then
+                addr_exists=1
+            fi
+            if [[ "$link_exists" -eq 1 && "$addr_exists" -eq 1 ]]; then
+                echo "RUNNING"; return 0
+            fi
+            if systemctl is-failed --quiet "$svc" 2>/dev/null; then
+                echo "BROKEN"; return 0
+            elif [[ -f "/etc/systemd/system/${svc}" || "$link_exists" -eq 1 ]]; then
+                echo "BROKEN"; return 0
+            else
+                echo "NOT_INSTALLED"; return 0
+            fi
+            ;;
+        deps)
+            local missing=()
+            for cmd in ip curl tar iptables systemctl python3 ping; do
+                command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+            done
+            if [[ ${#missing[@]} -eq 0 ]]; then
+                echo "INSTALLED"; return 0
+            else
+                echo "BROKEN"; return 0
+            fi
+            ;;
+        *)
+            echo "UNKNOWN"; return 0
+            ;;
+    esac
+}
+
+ensure_dependencies_smart() {
+    local missing_pkgs=()
+    command -v ip >/dev/null 2>&1 || missing_pkgs+=("iproute2")
+    command -v curl >/dev/null 2>&1 || missing_pkgs+=("curl")
+    command -v tar >/dev/null 2>&1 || missing_pkgs+=("tar")
+    command -v iptables >/dev/null 2>&1 || missing_pkgs+=("iptables")
+    command -v systemctl >/dev/null 2>&1 || missing_pkgs+=("systemd")
+    command -v python3 >/dev/null 2>&1 || missing_pkgs+=("python3")
+    command -v ping >/dev/null 2>&1 || missing_pkgs+=("iputils-ping")
+    command -v ss >/dev/null 2>&1 || missing_pkgs+=("iproute2")
+    
+    if [[ ${#missing_pkgs[@]} -eq 0 ]]; then
+        echo -e "${GREEN}[✔️] All system dependencies are satisfied.${NC}"
+        return 0
+    fi
+    
+    local uniq_pkgs
+    uniq_pkgs=$(printf "%s\n" "${missing_pkgs[@]}" | sort -u | tr '\n' ' ')
+    echo -e "${CYAN}[*] Installing missing dependencies: ${uniq_pkgs}...${NC}"
+    log_msg "installer" "INFO" "Installing missing dependencies: ${uniq_pkgs}"
+    
+    if command -v apt-get >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq && apt-get install -y -qq $uniq_pkgs || {
+            echo -e "${RED}[!] Failed to install some dependencies via apt-get: ${uniq_pkgs}${NC}"
+            return 1
+        }
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y -q $uniq_pkgs || true
+    fi
+    echo -e "${GREEN}[✔️] Missing dependencies installed successfully.${NC}"
+}
+
+is_port_in_use() {
+    local port=$1
+    if command -v ss >/dev/null 2>&1; then
+        ss -tulpn "sport = :$port" 2>/dev/null | grep -q ":$port " && return 0
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tulpn 2>/dev/null | grep -q ":$port " && return 0
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -i :"$port" >/dev/null 2>&1 && return 0
+    fi
+    return 1
+}
+
+diagnose_port_process() {
+    local port=$1
+    echo -e "${CYAN}=== Diagnosing Process Holding Port :$port ===${NC}"
+    if command -v ss >/dev/null 2>&1; then
+        ss -tulpn "sport = :$port" 2>/dev/null
+    fi
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -i :"$port" 2>/dev/null
+    elif command -v fuser >/dev/null 2>&1; then
+        fuser "$port/tcp" 2>/dev/null
+    fi
+    echo -e "${CYAN}=============================================${NC}"
+}
+
+ensure_port_available() {
+    local port=$1
+    local purpose=${2:-"Required port"}
+    local is_bundle=${3:-0}
+    
+    while is_port_in_use "$port"; do
+        echo -e "${RED}[!] ERROR: ${purpose} ${port} is already in use by another process.${NC}"
+        log_msg "tunnel" "ERROR" "${purpose} ${port} is in use"
+        if [[ ! -t 0 ]]; then
+            return 1
+        fi
+        echo "Options:"
+        echo "  1) Retry (after stopping conflicting process)"
+        echo "  2) Diagnose process"
+        echo "  3) Cancel"
+        if [[ "$is_bundle" -ne 1 ]]; then
+            echo "  4) Choose another port"
+        else
+            echo "  4) Explicitly choose another port (override bundle)"
+        fi
+        read -p "Select option [1-4]: " P_OPT
+        case "$P_OPT" in
+            1)
+                continue
+                ;;
+            2)
+                diagnose_port_process "$port"
+                echo ""
+                ;;
+            3)
+                return 1
+                ;;
+            4)
+                prompt_port NEW_PORT "Enter new ${purpose}" "$(gen_random_port)"
+                port=$NEW_PORT
+                ;;
+            *)
+                echo -e "${RED}[!] Invalid option.${NC}"
+                ;;
+        esac
+    done
+    echo "$port"
+    return 0
+}
+
+cli_bundle_inspect() {
+    local BUNDLE="" SHOW_TOKEN=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --show-token|-s) SHOW_TOKEN=1; shift ;;
+            hsh1_*) BUNDLE="$1"; shift ;;
+            *) BUNDLE="$1"; shift ;;
+        esac
+    done
+    if [[ -z "$BUNDLE" ]]; then
+        read -p "Enter setup bundle (hsh1_...): " BUNDLE
+    fi
+    if ! bundle_parse "$BUNDLE"; then
+        echo -e "${RED}[!] Invalid bundle format. Expected: hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>][_fou<P1>-<P2>]${NC}"
+        return 1
+    fi
+    
+    local DISP_TOKEN="******************************** (Masked, pass --show-token to reveal)"
+    if [[ "$SHOW_TOKEN" -eq 1 ]]; then
+        DISP_TOKEN="$B_TOKEN"
+    fi
+    
+    echo -e "\n${CYAN}=============================================================="
+    echo "                 HASHEM TUNNEL BUNDLE INSPECT"
+    echo -e "==============================================================${NC}"
+    echo -e "Bundle Version:        ${GREEN}hsh1${NC}"
+    echo -e "Iran Public IP:        ${CYAN}${B_IRAN_PUB}${NC}"
+    echo -e "FRP Server Port:       ${CYAN}${B_FRP_PORT}${NC} (serverPort / bindPort)"
+    echo -e "Iran GRE Internal IP:  ${CYAN}${B_IRAN_GRE}${NC}"
+    echo -e "Foreign GRE IP:        ${CYAN}${B_FOREIGN_GRE}${NC}"
+    echo -e "Reverse Proxy Ports:   ${CYAN}${B_PORTS:-None (Manual configuration)}${NC}"
+    echo -e "FOU UDP Ports:         ${CYAN}${B_FOU_P1}, ${B_FOU_P2}${NC}"
+    echo -e "Auth Token:            ${YELLOW}${DISP_TOKEN}${NC}"
+    echo -e "Source of Truth:       ${GREEN}Enforced on Foreign Server${NC}"
+    echo -e "${CYAN}==============================================================${NC}\n"
+    return 0
+}
+
 
 # ---- Performance / Obfuscation Configuration (/etc/gre-panel/perf.json) ----
 init_perf_json() {
@@ -522,12 +824,12 @@ carrier_apply() {
                     local LOCAL_OPTS=""
                     [[ -n "$LOCAL_PUB" && "$LOCAL_PUB" != "any" ]] && LOCAL_OPTS="local $LOCAL_PUB"
                     if [[ "$TARGET" == "direct" ]]; then
-                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 nopmtudisc >/dev/null 2>&1 || true
+                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 >/dev/null 2>&1 || true
                     elif [[ "$TARGET" == fou:* ]]; then
                         local DPORT="${TARGET#fou:}"
-                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 nopmtudisc encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1 || true
+                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1 || true
                     elif [[ "$TARGET" == wss* ]]; then
-                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 nopmtudisc encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1 || true
+                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1 || true
                     fi
                     ANY_APPLIED=1
                 fi
@@ -733,7 +1035,8 @@ tunnel_present() {
 }
 
 check_root() {
-    if [[ $EUID -ne 0 ]]; then
+    [[ "${HASHEM_NO_ROOT_CHECK:-0}" == "1" ]] && return 0
+    if [[ ${EUID:-$(id -u 2>/dev/null || echo 1)} -ne 0 ]]; then
         echo -e "${RED}[!] This script must be run as root (sudo).${NC}"
         exit 1
     fi
@@ -870,12 +1173,21 @@ setup_gre_iface() {
         fi
     fi
 
+    local PEER_INNER=""
+    if [[ "$GRE_INTERNAL_IP" =~ \.2$ ]]; then
+        PEER_INNER="${GRE_INTERNAL_IP%.*}.1"
+    else
+        PEER_INNER="${GRE_INTERNAL_IP%.*}.2"
+    fi
+
     # Create systemd service for GRE
     # Robust architecture:
     # 1. Multi-fallback: try netlink `ip link add` (modern), then `ip tunnel add` (ioctl),
     #    and if local address binding failed due to NAT/routing, retry without local arg.
-    # 2. Wrap hooks in /bin/sh -c with [ -x ... ] checks so systemd never exits with status 203/EXEC
-    # 3. Use addr replace / add to avoid failure when address is already assigned
+    # 2. Fixed TTL (255) without incompatible nopmtudisc (fixing root cause: ttl != 0 and nopmtudisc are incompatible).
+    # 3. Wrap hooks in /bin/sh -c with [ -x ... ] checks so systemd never exits with status 203/EXEC.
+    # 4. Use addr replace / add to avoid failure when address is already assigned.
+    # 5. Add direct point-to-point /32 route to the peer inner GRE IP.
     cat <<EOF > /etc/systemd/system/${IFNAME}.service
 [Unit]
 Description=GRE Tunnel Interface
@@ -887,12 +1199,13 @@ RemainAfterExit=yes
 ExecStartPre=-/bin/sh -c "modprobe ip_gre 2>/dev/null; modprobe fou 2>/dev/null; if [ -x /usr/local/bin/hashem ]; then /usr/local/bin/hashem carrier-kernel-init 2>/dev/null; fi; true"
 ExecStartPre=-/bin/sh -c "${IP_BIN} link del ${IFNAME} 2>/dev/null || ${IP_BIN} tunnel del ${IFNAME} 2>/dev/null; true"
 ExecStart=/bin/sh -c '(\
-    ${IP_BIN} link add ${IFNAME} type gre ${LOCAL_ARG} remote ${REMOTE_IP} ttl 255 nopmtudisc 2>/dev/null || \
-    ${IP_BIN} tunnel add ${IFNAME} mode gre ${LOCAL_ARG} remote ${REMOTE_IP} ttl 255 nopmtudisc 2>/dev/null || \
-    ${IP_BIN} link add ${IFNAME} type gre remote ${REMOTE_IP} ttl 255 nopmtudisc 2>/dev/null || \
-    ${IP_BIN} tunnel add ${IFNAME} mode gre remote ${REMOTE_IP} ttl 255 nopmtudisc 2>/dev/null || true); \
+    ${IP_BIN} link add ${IFNAME} type gre ${LOCAL_ARG} remote ${REMOTE_IP} ttl 255 2>/dev/null || \
+    ${IP_BIN} tunnel add ${IFNAME} mode gre ${LOCAL_ARG} remote ${REMOTE_IP} ttl 255 2>/dev/null || \
+    ${IP_BIN} link add ${IFNAME} type gre remote ${REMOTE_IP} ttl 255 2>/dev/null || \
+    ${IP_BIN} tunnel add ${IFNAME} mode gre remote ${REMOTE_IP} ttl 255 2>/dev/null || true); \
     ${IP_BIN} link set dev ${IFNAME} up mtu 1380 && \
-    (${IP_BIN} addr replace ${GRE_INTERNAL_IP}/30 dev ${IFNAME} 2>/dev/null || ${IP_BIN} addr add ${GRE_INTERNAL_IP}/30 dev ${IFNAME} 2>/dev/null || true)'
+    (${IP_BIN} addr replace ${GRE_INTERNAL_IP}/30 dev ${IFNAME} 2>/dev/null || ${IP_BIN} addr add ${GRE_INTERNAL_IP}/30 dev ${IFNAME} 2>/dev/null || true) && \
+    (${IP_BIN} route replace ${PEER_INNER}/32 dev ${IFNAME} 2>/dev/null || true)'
 ExecStartPost=-/bin/sh -c "if [ -x /usr/local/bin/hashem ]; then /usr/local/bin/hashem carrier-apply-active ${IFNAME} 2>/dev/null; fi; true"
 ExecStop=-/bin/sh -c "${IP_BIN} link del ${IFNAME} 2>/dev/null || ${IP_BIN} tunnel del ${IFNAME} 2>/dev/null; true"
 
@@ -903,22 +1216,35 @@ EOF
     systemctl daemon-reload
     systemctl reset-failed "${IFNAME}.service" >/dev/null 2>&1 || true
     systemctl enable "${IFNAME}.service" >/dev/null 2>&1
-    if ! systemctl restart "${IFNAME}.service"; then
-        # Direct fallback in bash if systemctl restart fails
-        "$IP_BIN" link del "$IFNAME" >/dev/null 2>&1 || "$IP_BIN" tunnel del "$IFNAME" >/dev/null 2>&1 || true
-        ( "$IP_BIN" link add "$IFNAME" type gre ${LOCAL_ARG} remote "$REMOTE_IP" ttl 255 nopmtudisc 2>/dev/null || \
-          "$IP_BIN" tunnel add "$IFNAME" mode gre ${LOCAL_ARG} remote "$REMOTE_IP" ttl 255 nopmtudisc 2>/dev/null || \
-          "$IP_BIN" link add "$IFNAME" type gre remote "$REMOTE_IP" ttl 255 nopmtudisc 2>/dev/null || \
-          "$IP_BIN" tunnel add "$IFNAME" mode gre remote "$REMOTE_IP" ttl 255 nopmtudisc 2>/dev/null || true )
-        "$IP_BIN" link set dev "$IFNAME" up mtu 1380 >/dev/null 2>&1 || true
-        ( "$IP_BIN" addr replace "${GRE_INTERNAL_IP}/30" dev "$IFNAME" 2>/dev/null || "$IP_BIN" addr add "${GRE_INTERNAL_IP}/30" dev "$IFNAME" 2>/dev/null || true )
-
-        if ! "$IP_BIN" link show "$IFNAME" >/dev/null 2>&1; then
-            echo -e "${RED}[!] GRE interface ${IFNAME} failed to start — check: ip tunnel show; journalctl -u ${IFNAME}.service${NC}"
-            journalctl -u "${IFNAME}.service" -n 5 --no-pager 2>/dev/null || true
-            return 1
+    local GRE_STARTED=0
+    if systemctl restart "${IFNAME}.service" >/dev/null 2>&1; then
+        if "$IP_BIN" link show "$IFNAME" >/dev/null 2>&1 && "$IP_BIN" -4 addr show dev "$IFNAME" 2>/dev/null | grep -q "${GRE_INTERNAL_IP%/*}"; then
+            GRE_STARTED=1
         fi
     fi
+
+    if [[ "$GRE_STARTED" -ne 1 ]]; then
+        # Direct fallback in bash if systemctl restart did not bring up interface
+        "$IP_BIN" link del "$IFNAME" >/dev/null 2>&1 || "$IP_BIN" tunnel del "$IFNAME" >/dev/null 2>&1 || true
+        ( "$IP_BIN" link add "$IFNAME" type gre ${LOCAL_ARG} remote "$REMOTE_IP" ttl 255 2>/dev/null || \
+          "$IP_BIN" tunnel add "$IFNAME" mode gre ${LOCAL_ARG} remote "$REMOTE_IP" ttl 255 2>/dev/null || \
+          "$IP_BIN" link add "$IFNAME" type gre remote "$REMOTE_IP" ttl 255 2>/dev/null || \
+          "$IP_BIN" tunnel add "$IFNAME" mode gre remote "$REMOTE_IP" ttl 255 2>/dev/null || true )
+        "$IP_BIN" link set dev "$IFNAME" up mtu 1380 >/dev/null 2>&1 || true
+        ( "$IP_BIN" addr replace "${GRE_INTERNAL_IP}/30" dev "$IFNAME" 2>/dev/null || "$IP_BIN" addr add "${GRE_INTERNAL_IP}/30" dev "$IFNAME" 2>/dev/null || true )
+        ( "$IP_BIN" route replace "${PEER_INNER}/32" dev "$IFNAME" 2>/dev/null || true )
+
+        if "$IP_BIN" link show "$IFNAME" >/dev/null 2>&1 && "$IP_BIN" -4 addr show dev "$IFNAME" 2>/dev/null | grep -q "${GRE_INTERNAL_IP%/*}"; then
+            GRE_STARTED=1
+        fi
+    fi
+
+    if [[ "$GRE_STARTED" -ne 1 ]]; then
+        echo -e "${RED}[!] GRE interface ${IFNAME} failed to start — check: ip tunnel show; journalctl -u ${IFNAME}.service${NC}"
+        journalctl -u "${IFNAME}.service" -n 5 --no-pager 2>/dev/null || true
+        return 1
+    fi
+
     carrier_apply_active "${IFNAME}" >/dev/null 2>&1 || true
 
     # Enable packet forwarding & MSS clamping to avoid fragmentation
@@ -1843,11 +2169,29 @@ menu_perf() {
 setup_iran_server_noninteractive() {
     local IP_IRAN=$1 IP_FOREIGN=$2 BIND_PORT=$3 TOKEN=$4
     local LOCAL_GRE=${5:-$IRAN_GRE_IP} PEER_GRE=${6:-$FOREIGN_GRE_IP}
-    setup_gre_systemd "$IP_IRAN" "$IP_FOREIGN" "$LOCAL_GRE"
+    
+    log_msg "tunnel" "INFO" "Starting IRAN server setup: GRE ${IP_IRAN} <-> ${IP_FOREIGN}, FRP port: ${BIND_PORT}"
+    backup_configs "pre_setup_iran"
+    ensure_dependencies_smart
+
+    local STATUS_GRE="OK"
+    local STATUS_FRP="OK"
+    local STATUS_PANEL="OK"
+    local GRE_ERR="" FRP_ERR="" PANEL_ERR=""
+
+    # 1. Setup GRE interface
+    if ! setup_gre_systemd "$IP_IRAN" "$IP_FOREIGN" "$LOCAL_GRE"; then
+        STATUS_GRE="FAILED"
+        GRE_ERR="GRE interface failed to start or configure IP"
+        log_msg "tunnel" "ERROR" "GRE setup failed on IRAN server"
+    fi
+
+    # 2. Setup FRP Server
     install_frp_binaries
     local EFF_TLS=$(perf_get_tls)
     local TLS_LINE=""
     [[ "$EFF_TLS" == "1" ]] && TLS_LINE="transport.tls.force = true"
+    mkdir -p "${CONFIG_DIR}"
     cat <<EOF > "${CONFIG_DIR}/frps.toml"
 bindAddr = "0.0.0.0"
 bindPort = ${BIND_PORT}
@@ -1877,37 +2221,79 @@ ExecStart=${INSTALL_DIR}/frps -c ${CONFIG_DIR}/frps.toml
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
+    systemctl reset-failed frps >/dev/null 2>&1 || true
     systemctl enable frps >/dev/null 2>&1
     systemctl restart frps
+    sleep 1
+
+    if ! systemctl is-active --quiet frps; then
+        STATUS_FRP="FAILED"
+        FRP_ERR="frps service failed to start — check: journalctl -u frps"
+        log_msg "tunnel" "ERROR" "frps service failed to start"
+    fi
+
     setup_chaff "" "$PEER_GRE"
     if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
         ufw allow "${BIND_PORT}/tcp" >/dev/null 2>&1
     fi
-    echo -e "${GREEN}[✔️] IRAN setup done: GRE ${IP_IRAN} <-> ${IP_FOREIGN} (${LOCAL_GRE} peer ${PEER_GRE}), frps :${BIND_PORT}${NC}"
-    echo -e "${YELLOW}Token: ${TOKEN} (copy to the FOREIGN side)${NC}"
-    echo -e "BUNDLE:$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN")"
+
     local DPI_EN=$(perf_get_dpi_enabled)
     if [[ "$DPI_EN" == "1" ]]; then
         dpi_shield_on >/dev/null 2>&1 || true
     fi
     tune_apply >/dev/null 2>&1 || true
     watchdog_on >/dev/null 2>&1 || true
+
+    # 3. Web Panel
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
-        echo -e "${CYAN}[*] Skipping panel install (called from panel).${NC}"
+        echo -e "${CYAN}[*] Skipping panel install (called from panel or flag).${NC}"
     else
-        install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 15 (Update All).${NC}"
-    fi
-    if [[ "${GRE_SKIP_PANEL:-0}" != "1" && -t 0 ]]; then
-        echo ""
-        echo -e "${CYAN}--- Panel HTTPS (optional but recommended) ---${NC}"
-        echo -e "The panel currently runs on plain HTTP. If this server has a domain"
-        echo -e "pointing to it, you can get a free Let's Encrypt certificate now:"
-        read -p "Get HTTPS certificate for the panel now? [y/N]: " TLS_WANT
-        if [[ "$TLS_WANT" =~ ^[Yy]$ ]]; then
-            panel_tls_issue || echo -e "${YELLOW}[!] TLS skipped — panel still works on HTTP; retry from menu option 16.${NC}"
-        else
-            echo -e "${CYAN}[*] Skipped — enable later from menu option 16 or web Settings → HTTPS certificate.${NC}"
+        if ! install_panel_smart; then
+            STATUS_PANEL="FAILED"
+            PANEL_ERR="Panel installation or start failed"
         fi
+    fi
+
+    # 4. Summary & Verification
+    echo -e "\n=============================================================="
+    echo "                   INSTALLATION SUMMARY"
+    echo "=============================================================="
+    if [[ "$STATUS_GRE" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     GRE Tunnel Interface (${TUNNEL_NAME}: ${IP_IRAN} <-> ${IP_FOREIGN}, IP: ${LOCAL_GRE})"
+    else
+        echo -e "[${RED}FAILED${NC}] GRE Tunnel Interface (${GRE_ERR})"
+    fi
+
+    if [[ "$STATUS_FRP" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     FRP Server Service (frps listening on port :${BIND_PORT})"
+    else
+        echo -e "[${RED}FAILED${NC}] FRP Server Service (${FRP_ERR})"
+    fi
+
+    if [[ "${GRE_SKIP_PANEL:-0}" != "1" ]]; then
+        if [[ "$STATUS_PANEL" == "OK" ]]; then
+            echo -e "[${GREEN}OK${NC}]     Web Panel (healthy and accessible)"
+        else
+            echo -e "[${RED}FAILED${NC}] Web Panel (${PANEL_ERR})"
+        fi
+    fi
+    echo "=============================================================="
+
+    if [[ "$STATUS_GRE" == "OK" && "$STATUS_FRP" == "OK" ]]; then
+        echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC}\n"
+        echo -e "GRE Public Link:      ${CYAN}${IP_IRAN} <--> ${IP_FOREIGN}${NC}"
+        echo -e "IRAN GRE Internal IP: ${CYAN}${LOCAL_GRE}${NC}"
+        echo -e "FRP Bind Port:        ${CYAN}${BIND_PORT}${NC}"
+        echo -e "Secret Token:         ${CYAN}${TOKEN}${NC}"
+        echo -e "Setup Bundle:         ${CYAN}$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN")${NC}"
+        echo -e "BUNDLE:$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN")"
+        log_msg "tunnel" "INFO" "IRAN server setup completed successfully"
+        return 0
+    else
+        echo -e "Overall Installation Status: ${RED}PARTIALLY FAILED${NC}"
+        echo -e "${YELLOW}[!] Review component failure(s) above. Do NOT assume tunnel is ready.${NC}\n"
+        log_msg "tunnel" "ERROR" "IRAN server setup partially failed: GRE=${STATUS_GRE}, FRP=${STATUS_FRP}"
+        return 1
     fi
 }
 
@@ -1923,21 +2309,41 @@ setup_foreign_server_noninteractive() {
 _setup_foreign_full() {
     local IP_FOREIGN=$1 IP_IRAN=$2 SERVER_PORT=$3 TOKEN=$4
     local LOCAL_GRE=$5 PEER_GRE=$6 PORTS_CLEANED=$7
+    
+    log_msg "tunnel" "INFO" "Starting FOREIGN server setup: GRE ${IP_FOREIGN} <-> ${IP_IRAN}, serverPort: ${SERVER_PORT}, reverse ports: ${PORTS_CLEANED}"
+    backup_configs "pre_setup_foreign"
+    ensure_dependencies_smart
+
+    local STATUS_GRE="OK"
+    local STATUS_PING="OK"
+    local STATUS_FRP="OK"
+    local STATUS_PANEL="OK"
+    local GRE_ERR="" PING_ERR="" FRP_ERR="" PANEL_ERR=""
+
     carrier_init_kernel 2>/dev/null || true
-    setup_gre_systemd "$IP_FOREIGN" "$IP_IRAN" "$LOCAL_GRE"
+    if ! setup_gre_systemd "$IP_FOREIGN" "$IP_IRAN" "$LOCAL_GRE"; then
+        STATUS_GRE="FAILED"
+        GRE_ERR="GRE interface failed to configure or initialize"
+        log_msg "tunnel" "ERROR" "GRE setup failed on FOREIGN server"
+    fi
     carrier_apply_active "$TUNNEL_NAME" >/dev/null 2>&1 || true
+
     echo -e "${CYAN}[*] Testing GRE internal ping to Iran (${PEER_GRE})...${NC}"
     if ping -c 3 -W 2 "$PEER_GRE" >/dev/null 2>&1; then
         echo -e "${GREEN}[✔️] GRE Tunnel link is UP and reachable!${NC}"
     else
+        STATUS_PING="WARN"
+        PING_ERR="Ping to peer GRE IP ${PEER_GRE} timed out (may need Iran side up)"
         echo -e "${YELLOW}[!] Warning: Ping to ${PEER_GRE} did not respond yet.${NC}"
     fi
+
     install_frp_binaries
     local EFF_TLS=$(perf_get_tls)
     local EFF_ENC=$(perf_get_enc)
     local EFF_COMP=$(perf_get_comp)
     local TLS_CUSTOM=""
     [[ "$EFF_TLS" == "1" ]] && TLS_CUSTOM="transport.tls.disableCustomTLSFirstByte = true"
+    mkdir -p "${CONFIG_DIR}"
     cat <<EOF > "${CONFIG_DIR}/frpc.toml"
 serverAddr = "${PEER_GRE}"
 serverPort = ${SERVER_PORT}
@@ -1979,6 +2385,7 @@ ${ENC_LINE:+$ENC_LINE
 }
 EOF
     done
+
     cat <<EOF > /etc/systemd/system/frpc.service
 [Unit]
 Description=FRP Client Reverse Service
@@ -1996,33 +2403,74 @@ ExecStart=${INSTALL_DIR}/frpc -c ${CONFIG_DIR}/frpc.toml
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
+    systemctl reset-failed frpc >/dev/null 2>&1 || true
     systemctl enable frpc >/dev/null 2>&1
     systemctl restart frpc
+    sleep 1
+
+    if ! systemctl is-active --quiet frpc; then
+        STATUS_FRP="FAILED"
+        FRP_ERR="frpc service failed to start — check: journalctl -u frpc"
+        log_msg "tunnel" "ERROR" "frpc service failed to start"
+    fi
+
     setup_chaff "" "$PEER_GRE"
-    echo -e "${GREEN}[✔️] FOREIGN setup done: GRE ${IP_FOREIGN} <-> ${IP_IRAN} (${LOCAL_GRE} peer ${PEER_GRE}), frpc → ${PEER_GRE}:${SERVER_PORT}${NC}"
-    echo -e "${GREEN}Reverse ports: ${PORTS_CLEANED} (TCP & UDP, TLS)${NC}"
     local DPI_EN=$(perf_get_dpi_enabled)
     if [[ "$DPI_EN" == "1" ]]; then
         dpi_shield_on >/dev/null 2>&1 || true
     fi
     tune_apply >/dev/null 2>&1 || true
     watchdog_on >/dev/null 2>&1 || true
+
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
-        echo -e "${CYAN}[*] Skipping panel install (called from panel).${NC}"
+        echo -e "${CYAN}[*] Skipping panel install (called from panel or flag).${NC}"
     else
-        install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 15 (Update All).${NC}"
-    fi
-    if [[ "${GRE_SKIP_PANEL:-0}" != "1" && -t 0 ]]; then
-        echo ""
-        echo -e "${CYAN}--- Panel HTTPS (optional but recommended) ---${NC}"
-        echo -e "The panel currently runs on plain HTTP. If this server has a domain"
-        echo -e "pointing to it, you can get a free Let's Encrypt certificate now:"
-        read -p "Get HTTPS certificate for the panel now? [y/N]: " TLS_WANT_F
-        if [[ "$TLS_WANT_F" =~ ^[Yy]$ ]]; then
-            panel_tls_issue || echo -e "${YELLOW}[!] TLS skipped — panel still works on HTTP; retry from menu option 16.${NC}"
-        else
-            echo -e "${CYAN}[*] Skipped — enable later from menu option 16 or web Settings → HTTPS certificate.${NC}"
+        if ! install_panel_smart; then
+            STATUS_PANEL="FAILED"
+            PANEL_ERR="Panel installation or start failed"
         fi
+    fi
+
+    echo -e "\n=============================================================="
+    echo "                   INSTALLATION SUMMARY"
+    echo "=============================================================="
+    if [[ "$STATUS_GRE" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     GRE Tunnel Interface (${TUNNEL_NAME}: ${IP_FOREIGN} <-> ${IP_IRAN}, IP: ${LOCAL_GRE})"
+    else
+        echo -e "[${RED}FAILED${NC}] GRE Tunnel Interface (${GRE_ERR})"
+    fi
+
+    if [[ "$STATUS_PING" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     GRE Ping Connectivity (Peer ${PEER_GRE} reachable)"
+    else
+        echo -e "[${YELLOW}WARN${NC}]   GRE Ping Connectivity (${PING_ERR})"
+    fi
+
+    if [[ "$STATUS_FRP" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     FRP Client Service (frpc active, connecting to ${PEER_GRE}:${SERVER_PORT})"
+        echo -e "         Reverse ports: ${PORTS_CLEANED} (TCP & UDP, TLS)"
+    else
+        echo -e "[${RED}FAILED${NC}] FRP Client Service (${FRP_ERR})"
+    fi
+
+    if [[ "${GRE_SKIP_PANEL:-0}" != "1" ]]; then
+        if [[ "$STATUS_PANEL" == "OK" ]]; then
+            echo -e "[${GREEN}OK${NC}]     Web Panel (healthy and accessible)"
+        else
+            echo -e "[${RED}FAILED${NC}] Web Panel (${PANEL_ERR})"
+        fi
+    fi
+    echo "=============================================================="
+
+    if [[ "$STATUS_GRE" == "OK" && "$STATUS_FRP" == "OK" ]]; then
+        echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC}\n"
+        log_msg "tunnel" "INFO" "FOREIGN server setup completed successfully"
+        return 0
+    else
+        echo -e "Overall Installation Status: ${RED}PARTIALLY FAILED${NC}"
+        echo -e "${YELLOW}[!] Review component failure(s) above. Do NOT assume tunnel is ready.${NC}\n"
+        log_msg "tunnel" "ERROR" "FOREIGN server setup partially failed: GRE=${STATUS_GRE}, FRP=${STATUS_FRP}"
+        return 1
     fi
 }
 
@@ -2308,37 +2756,19 @@ setup_iran_server() {
     echo -e "${YELLOW}       STEP 1: CONFIGURING IRAN SERVER (GRE + FRPS)  ${NC}"
     echo -e "${YELLOW}====================================================${NC}"
 
-    # Prefer the local interface IP (what GRE must bind to) over the egress IP
-    # an external service sees (often different behind NAT, e.g. ipify).
     MY_PUBLIC_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
     [[ -z "$MY_PUBLIC_IP" ]] && MY_PUBLIC_IP=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
     prompt_ip IP_IRAN "Enter IRAN Server Public IP" "$MY_PUBLIC_IP"
     prompt_ip IP_FOREIGN "Enter FOREIGN Server Public IP" ""
 
     prompt_port BIND_PORT "Enter FRP Bind Port" "$(gen_random_port)"
+    BIND_PORT=$(ensure_port_available "$BIND_PORT" "FRP Bind Port" 0) || return 1
 
     AUTO_TOKEN=$(gen_token32)
     prompt_token TOKEN "Enter Secret Auth Token" "$AUTO_TOKEN"
 
     # single source of truth: GRE + frps + panel all happen inside
     setup_iran_server_noninteractive "$IP_IRAN" "$IP_FOREIGN" "$BIND_PORT" "$TOKEN" "$IRAN_GRE_IP" "$FOREIGN_GRE_IP"
-
-    echo -e "\n${GREEN}=================================================================${NC}"
-    echo -e "${GREEN}[✔️] IRAN SERVER CONFIGURATION COMPLETE!${NC}"
-    echo -e "GRE Public Link:      ${CYAN}${IP_IRAN} <--> ${IP_FOREIGN}${NC}"
-    echo -e "IRAN GRE Internal IP: ${CYAN}${IRAN_GRE_IP}${NC}"
-    echo -e "FRP Bind Port:        ${CYAN}${BIND_PORT}${NC}"
-    echo -e "Secret Token:         ${CYAN}${TOKEN}${NC}"
-    echo -e "Setup Bundle:         ${CYAN}$(bundle_make "$IP_IRAN" "$BIND_PORT" "$IRAN_GRE_IP" "$FOREIGN_GRE_IP" "$TOKEN")${NC}"
-    echo -e "\n${YELLOW}>>> Now run this script on FOREIGN server and provide:${NC}"
-    echo -e "Paste the ${CYAN}Setup Bundle${NC} above (has IP + port + GRE + token) — or manually:"
-    echo -e "1. IRAN Public IP: ${CYAN}${IP_IRAN}${NC}"
-    echo -e "2. Port:           ${CYAN}${BIND_PORT}${NC}"
-    echo -e "3. Token:          ${CYAN}${TOKEN}${NC}"
-    echo -e "${GREEN}=================================================================${NC}\n"
-
-    # panel is already running here (menu path) — install it fresh
-    install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 15 (Update All).${NC}"
 }
 
 # interactive wrapper for cli_add_peer: prompts for one more foreign server.
@@ -2385,50 +2815,58 @@ setup_foreign_server() {
     echo -e "${YELLOW}====================================================${NC}"
     MY_PUBLIC_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
     [[ -z "$MY_PUBLIC_IP" ]] && MY_PUBLIC_IP=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
-    prompt_ip IP_FOREIGN "Enter FOREIGN Server Public IP" "$MY_PUBLIC_IP"
-    prompt_ip IP_IRAN "Enter IRAN Server Public IP" ""
-    # bundle shortcut: paste hsh1_... -> everything auto-fills, rest is skipped
-    local BUNDLE_IN=""
-    read -p "Setup bundle from Iran (hsh1_...) [Enter to fill fields manually]: " BUNDLE_IN
+
+    echo -e "Do you have a Setup Bundle from the Iran server? (${CYAN}hsh1_...${NC})"
+    read -p "Enter Setup Bundle [Press Enter to configure manually]: " BUNDLE_IN
     local SERVER_PORT TOKEN INPUT_PORTS BUNDLE_USED=0 LOCAL_GRE_SET="$FOREIGN_GRE_IP" PEER_GRE_SET="$IRAN_GRE_IP"
+    local IP_FOREIGN="" IP_IRAN=""
+    
     if [[ -n "$BUNDLE_IN" ]]; then
         if bundle_parse "$BUNDLE_IN"; then
-            IP_IRAN=$B_IRAN_PUB; IP_FOREIGN=${MY_PUBLIC_IP:-$IP_FOREIGN}
-            SERVER_PORT=$B_FRP_PORT; TOKEN=$B_TOKEN
-            LOCAL_GRE_SET=$B_FOREIGN_GRE; PEER_GRE_SET=$B_IRAN_GRE
-            INPUT_PORTS=$(echo "$B_PORTS" | tr ' ' ',')
+            echo ""
+            cli_bundle_inspect "$BUNDLE_IN"
+            read -p "Apply this bundle configuration? [Y/n]: " CONFIRM_APPLY
+            if [[ "$CONFIRM_APPLY" =~ ^[Nn]$ ]]; then
+                echo -e "${YELLOW}[*] Bundle application cancelled by user. Returning to menu.${NC}"
+                return 0
+            fi
             BUNDLE_USED=1
+            IP_IRAN=$B_IRAN_PUB
+            SERVER_PORT=$B_FRP_PORT
+            TOKEN=$B_TOKEN
+            LOCAL_GRE_SET=$B_FOREIGN_GRE
+            PEER_GRE_SET=$B_IRAN_GRE
+            INPUT_PORTS=$(echo "$B_PORTS" | tr ' ' ',')
             carrier_set_fou_ports "$B_FOU_P1" "$B_FOU_P2" 2>/dev/null || true
             carrier_init_kernel 2>/dev/null || true
-            echo -e "${GREEN}[✔️] Bundle applied: Iran ${IP_IRAN}:${SERVER_PORT}, token set, ports: ${INPUT_PORTS:-— (enter below)}${NC}"
+            prompt_ip IP_FOREIGN "Enter FOREIGN Server Public IP" "$MY_PUBLIC_IP"
+            if [[ -z "$INPUT_PORTS" ]]; then
+                prompt_ports INPUT_PORTS "Enter Ports to Reverse-Tunnel"
+            fi
         else
-            echo -e "${RED}[!] Bad bundle — falling back to manual fields.${NC}"
+            echo -e "${RED}[!] Invalid bundle format. Falling back to manual input.${NC}"
         fi
     fi
+
     if [[ "$BUNDLE_USED" -ne 1 ]]; then
-        prompt_port SERVER_PORT "Enter FRP Bind Port" "$(gen_random_port)"
+        prompt_ip IP_FOREIGN "Enter FOREIGN Server Public IP" "$MY_PUBLIC_IP"
+        prompt_ip IP_IRAN "Enter IRAN Server Public IP" ""
+        prompt_port SERVER_PORT "Enter FRP Server Port (from Iran server)" "$(gen_random_port)"
         prompt_required TOKEN "Enter Secret Auth Token"
-        prompt_ports INPUT_PORTS "Enter Ports to Reverse-Tunnel"
-    elif [[ -z "$INPUT_PORTS" ]]; then
         prompt_ports INPUT_PORTS "Enter Ports to Reverse-Tunnel"
     fi
 
-    # single source of truth: GRE + ping + frpc + panel all happen inside
-    # (frpc reaches Iran's GRE internal IP through the GRE tunnel)
+    # Check port availability before applying
+    SERVER_PORT=$(ensure_port_available "$SERVER_PORT" "FRP Server Port" "$BUNDLE_USED") || return 1
+
     PORTS_CLEANED=$(echo "$INPUT_PORTS" | tr ',' ' ')
+    local P
+    for P in $PORTS_CLEANED; do
+        ensure_port_available "$P" "Reverse Proxy Port :$P" "$BUNDLE_USED" >/dev/null || return 1
+    done
+
+    # single source of truth: GRE + ping + frpc + panel all happen inside
     _setup_foreign_full "$IP_FOREIGN" "$IP_IRAN" "$SERVER_PORT" "$TOKEN" "$LOCAL_GRE_SET" "$PEER_GRE_SET" "$PORTS_CLEANED"
-
-    echo -e "\n${GREEN}=================================================================${NC}"
-    echo -e "${GREEN}[✔️] FOREIGN SERVER CONFIGURATION COMPLETE!${NC}"
-    echo -e "GRE Public Link:      ${CYAN}${IP_FOREIGN} <--> ${IP_IRAN}${NC}"
-    echo -e "FOREIGN GRE IP:       ${CYAN}${LOCAL_GRE_SET}${NC}"
-    echo -e "FRP Connecting to:    ${CYAN}${PEER_GRE_SET}:${SERVER_PORT}${NC} (Inside GRE Tunnel)"
-    echo -e "Reverse Ports:        ${CYAN}${PORTS_CLEANED}${NC} (TCP & UDP)"
-    echo -e "FRP TLS Encryption:   ${GREEN}Enabled${NC}"
-    echo -e "${GREEN}=================================================================${NC}\n"
-
-    # panel is already running here (menu path) — install it fresh
-    install_panel || echo -e "${YELLOW}[!] Panel auto-install failed — retry from menu option 15 (Update All).${NC}"
 }
 
 check_status() {
@@ -2721,12 +3159,148 @@ doctor_stop_server() {
     echo -e "${GREEN}[✔️] iperf3 server stopped.${NC}"
 }
 
+doctor_health_check() {
+    echo -e "\n${CYAN}=============================================================="
+    echo "             HASHEM SYSTEM & TUNNEL HEALTH CHECK"
+    echo -e "==============================================================${NC}"
+    
+    local PASS_COUNT=0 WARN_COUNT=0 FAIL_COUNT=0
+    
+    report_item() {
+        local name="$1" status="$2" details="$3"
+        local badge
+        case "$status" in
+            PASS) badge="${GREEN}[PASS]${NC}"; ((PASS_COUNT++)) ;;
+            WARN) badge="${YELLOW}[WARN]${NC}"; ((WARN_COUNT++)) ;;
+            FAIL) badge="${RED}[FAIL]${NC}"; ((FAIL_COUNT++)) ;;
+        esac
+        printf "%-8b %-30s %s\n" "$badge" "$name" "$details"
+    }
+    
+    # 1. OS & Architecture
+    local OS_INFO
+    OS_INFO=$(uname -s -m 2>/dev/null || echo "Linux")
+    report_item "Operating System & Arch" "PASS" "$OS_INFO"
+    
+    # 2. Linux Kernel Version
+    local KERNEL_VER
+    KERNEL_VER=$(uname -r 2>/dev/null || echo "Unknown")
+    report_item "Linux Kernel Version" "PASS" "$KERNEL_VER"
+    
+    # 3. IP Forwarding
+    local IP_FWD
+    IP_FWD=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0)
+    if [[ "$IP_FWD" == "1" ]]; then
+        report_item "IP Forwarding (ip_forward)" "PASS" "Enabled (1)"
+    else
+        report_item "IP Forwarding (ip_forward)" "WARN" "Disabled (0) — enable via sysctl"
+    fi
+    
+    # 4. GRE Kernel Modules
+    if lsmod 2>/dev/null | grep -q "ip_gre" || modprobe ip_gre 2>/dev/null; then
+        report_item "Kernel Module (ip_gre)" "PASS" "Loaded"
+    else
+        report_item "Kernel Module (ip_gre)" "FAIL" "Missing / Cannot load ip_gre module"
+    fi
+    
+    # 5. FOU Kernel Module
+    if lsmod 2>/dev/null | grep -q "fou" || modprobe fou 2>/dev/null; then
+        report_item "Kernel Module (fou)" "PASS" "Loaded"
+    else
+        report_item "Kernel Module (fou)" "WARN" "FOU module not available (fallback to direct GRE)"
+    fi
+    
+    # 6. GRE Interface Status
+    if ip link show "$TUNNEL_NAME" >/dev/null 2>&1; then
+        local INNER_IP
+        INNER_IP=$(ip -4 addr show dev "$TUNNEL_NAME" 2>/dev/null | awk '/inet / {print $2}')
+        if [[ -n "$INNER_IP" ]]; then
+            report_item "GRE Interface (${TUNNEL_NAME})" "PASS" "UP with IP: $INNER_IP"
+        else
+            report_item "GRE Interface (${TUNNEL_NAME})" "WARN" "Interface exists but no IPv4 assigned"
+        fi
+    else
+        report_item "GRE Interface (${TUNNEL_NAME})" "WARN" "Interface not found"
+    fi
+    
+    # 7. GRE Peer Ping Connectivity
+    local PEER_PING_TARGET=""
+    if [[ -f /etc/frp/frpc.toml ]]; then
+        PEER_PING_TARGET=$(awk -F'=' '/serverAddr/{gsub(/[ "]/,"",$2); print $2}' /etc/frp/frpc.toml 2>/dev/null)
+    elif [[ -f /etc/frp/frps.toml ]]; then
+        PEER_PING_TARGET="$FOREIGN_GRE_IP"
+    fi
+    if [[ -n "$PEER_PING_TARGET" ]]; then
+        local P_OUT
+        if P_OUT=$(ping -c 2 -W 2 "$PEER_PING_TARGET" 2>/dev/null); then
+            local RTT
+            RTT=$(echo "$P_OUT" | awk -F'/' '/rtt/ {print $5}')
+            report_item "GRE Peer Connectivity" "PASS" "Reachable (${RTT:-<50} ms)"
+        else
+            report_item "GRE Peer Connectivity" "FAIL" "Cannot ping peer ${PEER_PING_TARGET}"
+        fi
+    else
+        report_item "GRE Peer Connectivity" "WARN" "No peer IP configured yet"
+    fi
+    
+    # 8. FRPS Service
+    if [[ -f /etc/systemd/system/frps.service ]]; then
+        if systemctl is-active --quiet frps 2>/dev/null; then
+            local F_PORT
+            F_PORT=$(awk -F'=' '/bindPort/{gsub(/[ "]/,"",$2); print $2}' /etc/frp/frps.toml 2>/dev/null)
+            report_item "FRP Server (frps)" "PASS" "Active and listening on port :${F_PORT:-unknown}"
+        else
+            report_item "FRP Server (frps)" "FAIL" "Service installed but NOT running"
+        fi
+    fi
+    
+    # 9. FRPC Service
+    if [[ -f /etc/systemd/system/frpc.service ]]; then
+        if systemctl is-active --quiet frpc 2>/dev/null; then
+            report_item "FRP Client (frpc)" "PASS" "Active (Reverse Tunnel Established)"
+        else
+            report_item "FRP Client (frpc)" "FAIL" "Service installed but NOT running"
+        fi
+    fi
+    
+    # 10. Web Panel Service
+    if [[ -f /etc/systemd/system/gre-panel.service ]]; then
+        if systemctl is-active --quiet gre-panel 2>/dev/null; then
+            local P_PORT
+            P_PORT=$(grep -o '"port": *[0-9]*' /etc/gre-panel/panel.json 2>/dev/null | grep -o '[0-9]*' || echo 7777)
+            report_item "Web Panel (gre-panel)" "PASS" "Active on port ${P_PORT}"
+        else
+            report_item "Web Panel (gre-panel)" "FAIL" "Service installed but NOT running"
+        fi
+    else
+        report_item "Web Panel (gre-panel)" "WARN" "Not installed on this host"
+    fi
+    
+    # 11. Firewall / Ports
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+        report_item "Firewall (UFW)" "PASS" "Active (ports configured)"
+    else
+        report_item "Firewall (UFW)" "PASS" "Permissive / inactive"
+    fi
+    
+    echo -e "${CYAN}==============================================================${NC}"
+    if [[ "$FAIL_COUNT" -eq 0 && "$WARN_COUNT" -eq 0 ]]; then
+        echo -e "OVERALL HEALTH RESULT: ${GREEN}PASS${NC} (All checks passed successfully)"
+    elif [[ "$FAIL_COUNT" -eq 0 ]]; then
+        echo -e "OVERALL HEALTH RESULT: ${YELLOW}WARN${NC} (${WARN_COUNT} warning(s) detected, system functional)"
+    else
+        echo -e "OVERALL HEALTH RESULT: ${RED}FAIL${NC} (${FAIL_COUNT} critical failure(s) detected)"
+    fi
+    echo -e "${CYAN}==============================================================${NC}\n"
+}
+
 cli_doctor() {
     case "${1:-}" in
         server) doctor_start_server ;;
         stop-server) doctor_stop_server ;;
         fix) doctor_apply_fixes ;;
-        *) doctor_diagnostics ;;
+        diag|speed) doctor_diagnostics ;;
+        check|*) doctor_health_check ;;
     esac
 }
 
@@ -3025,6 +3599,91 @@ free_ram() {
     after=$(free -m | awk '/^Mem:/{print $7}')
     echo -e "${GREEN}[✔️] Available RAM: ${before}M → ${after}M${NC}"
     free -m | head -2
+}
+
+install_panel_smart() {
+    local status
+    status=$(get_component_status panel)
+    case "$status" in
+        RUNNING)
+            echo -e "${GREEN}[✔️] Web Panel is already installed and running.${NC}"
+            echo -e "${CYAN}[*] Skipping redundant reinstallation to preserve system state.${NC}"
+            show_panel_url
+            return 0
+            ;;
+        STOPPED)
+            echo -e "${YELLOW}[!] Web Panel is installed but currently STOPPED.${NC}"
+            if [[ -t 0 ]]; then
+                read -p "Start Web Panel service now? [Y/n]: " START_OPT
+                if [[ ! "$START_OPT" =~ ^[Nn]$ ]]; then
+                    systemctl start gre-panel
+                    sleep 2
+                    if systemctl is-active --quiet gre-panel; then
+                        echo -e "${GREEN}[✔️] Web Panel started successfully.${NC}"
+                        show_panel_url
+                        return 0
+                    else
+                        echo -e "${RED}[!] Failed to start Web Panel.${NC}"
+                    fi
+                fi
+            else
+                systemctl start gre-panel
+                sleep 2
+                systemctl is-active --quiet gre-panel && return 0
+            fi
+            ;;
+        BROKEN)
+            echo -e "${RED}[!] Web Panel is installed but UNHEALTHY / BROKEN.${NC}"
+            if [[ -t 0 ]]; then
+                echo "Options:"
+                echo "  1) Repair (reset-failed & restart service)"
+                echo "  2) Reinstall (clean download & install)"
+                echo "  3) Skip"
+                echo "  4) Back"
+                read -p "Select option [1-4]: " BROKEN_OPT
+                case "$BROKEN_OPT" in
+                    1)
+                        echo -e "${CYAN}[*] Attempting repair...${NC}"
+                        systemctl reset-failed gre-panel >/dev/null 2>&1 || true
+                        systemctl restart gre-panel >/dev/null 2>&1 || true
+                        sleep 2
+                        if systemctl is-active --quiet gre-panel; then
+                            echo -e "${GREEN}[✔️] Web Panel repaired and running!${NC}"
+                            show_panel_url
+                            return 0
+                        else
+                            echo -e "${RED}[!] Repair failed. Falling back to clean install...${NC}"
+                            backup_configs "panel_broken"
+                            install_panel
+                            return $?
+                        fi
+                        ;;
+                    2)
+                        backup_configs "panel_reinstall"
+                        install_panel
+                        return $?
+                        ;;
+                    3|4)
+                        return 0
+                        ;;
+                    *)
+                        echo -e "${YELLOW}[*] Action skipped.${NC}"
+                        return 0
+                        ;;
+                esac
+            else
+                backup_configs "panel_reinstall"
+                install_panel
+                return $?
+            fi
+            ;;
+        NOT_INSTALLED|*)
+            ensure_dependencies_smart
+            backup_configs "panel_install"
+            install_panel
+            return $?
+            ;;
+    esac
 }
 
 install_panel() {
@@ -4460,135 +5119,385 @@ menu_carrier() {
     read -p "Press Enter to return to menu..."
 }
 
-main_menu() {
-    clear
-    echo -e "${CYAN}"
-    echo "=========================================================="
-    echo "       GRE + FRP Reverse Tunnel Manager (Iran <-> Kharej)"
-    echo "     Layer 3 GRE Tunnel + Encrypted TLS FRP Reverse Relay"
-    echo "=========================================================="
-    echo -e "${NC}"
-    echo -e "${YELLOW}── Setup ──${NC}"
-    echo "  1) Setup IRAN Server    (GRE + FRP Server / frps)"
-    echo "  2) Setup FOREIGN Server (GRE + FRP Client / frpc Reverse)"
+pause_prompt() {
     echo ""
-    echo -e "${YELLOW}── Peer Tunnels (Iran: more foreign servers) ──${NC}"
-    echo "  3) Add Peer Tunnel"
-    echo "  4) List Peer Tunnels"
-    echo "  5) Remove Peer Tunnel"
-    echo ""
-    echo -e "${YELLOW}── Monitor & Control ──${NC}"
-    echo "  6) Check Connection Status & GRE Ping Test"
-    echo "  7) View FRP Live Logs"
-    echo "  8) Restart Tunnel Services"
-    echo "  9) Remove Tunnel (GRE + FRP, panel stays)"
-    echo " 24) Diagnostics & Speed Test (Doctor / عیب‌یابی و تست سرعت)"
-    echo ""
-    echo -e "${YELLOW}── Tune ──${NC}"
-    echo " 10) Optimize Tunnel (BBR + buffers + MTU/MSS, with backup)"
-    echo " 11) Restore Pre-Optimize Settings"
-    echo " 12) Optimization Status"
-    echo " 19) Traffic Chaff / Obfuscation (idle-gap filler: on/off/status)"
-    echo " 20) Watchdog & Backup (Telegram alerts, route direct/tunnel, encrypted backup)"
-    echo " 21) DPI Shield (rate-limit reverse ports against flood: on/off/status)"
-    echo " 22) Performance & Obfuscation Toggles (proxy crypto/comp, forced TLS, DPI rate)"
-    echo " 23) Carrier & Failover (Direct GRE ↔ FOU UDP: auto/manual/status)"
-    echo ""
-    echo -e "${YELLOW}── Panel & System ──${NC}"
-    echo " 13) Show Panel URL + Username + Password"
-    echo " 14) Panel HTTPS (Let's Encrypt certificate)"
-    echo " 15) Update All (latest script + latest panel binary)"
-    echo " 16) Free RAM (journald cap 16M + drop cache + 1GB swap)"
-    echo " 17) hashem CLI help (non-interactive commands)"
-    echo " 18) Uninstall Everything (tunnel + panel + 'hashem' command)"
-    echo "  0) Exit"
-    echo ""
-    read -p "Select an option [0-24]: " OPTION
-
-    case "$OPTION" in
-        1)
-            setup_iran_server
-            ;;
-        2)
-            setup_foreign_server
-            ;;
-        3)
-            menu_add_peer
-            ;;
-        4)
-            peer_list_pretty
-            ;;
-        5)
-            menu_remove_peer
-            ;;
-        6)
-            check_status
-            ;;
-        7)
-            show_logs
-            ;;
-        8)
-            restart_all
-            ;;
-        9)
-            remove_tunnel
-            ;;
-        10)
-            tune_apply
-            ;;
-        11)
-            tune_restore
-            ;;
-        12)
-            tune_status
-            ;;
-        13)
-            show_panel_url
-            ;;
-        14)
-            panel_tls_issue
-            ;;
-        15)
-            update_all
-            ;;
-        16)
-            free_ram
-            ;;
-        17)
-            usage_cli
-            ;;
-        18)
-            uninstall_all
-            ;;
-        19)
-            menu_chaff
-            ;;
-        20)
-            menu_watchdog
-            ;;
-        21)
-            menu_dpi_shield
-            ;;
-        22)
-            menu_perf
-            ;;
-        23)
-            menu_carrier
-            ;;
-        24)
-            doctor_diagnostics
-            ;;
-        0)
-            echo "Exiting..."
-            exit 0
-            ;;
-        *)
-            echo -e "${RED}[!] Invalid option.${NC}"
-            ;;
-    esac
+    read -p "Press Enter to return to menu..." _dummy
 }
 
-check_root
+menu_installation() {
+    while true; do
+        clear
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -e "${CYAN}                   INSTALLATION MENU                          ${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
+        echo "  1) Full Installation (Interactive Guide: GRE + FRP + Web Panel)"
+        echo "  2) Install Web Panel (Smart: skips if healthy, repair if broken)"
+        echo "  3) Install Tunnel Components (GRE + FRP without Web Panel)"
+        echo "  4) Install FRP Binaries (frps & frpc)"
+        echo "  5) Install GRE Kernel Modules & Configure Interface"
+        echo "  6) Install Missing System Dependencies Only"
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select an option [0-6]: " IN_OPT
+        case "$IN_OPT" in
+            1)
+                echo "Select server role for Full Installation:"
+                echo "  1) IRAN Server (GRE + FRP Server + Web Panel)"
+                echo "  2) FOREIGN Server (GRE + FRP Reverse Client + Web Panel)"
+                echo "  0) Back"
+                read -p "Select role [0-2]: " R_OPT
+                case "$R_OPT" in
+                    1) setup_iran_server ;;
+                    2) setup_foreign_server ;;
+                    *) ;;
+                esac
+                pause_prompt
+                ;;
+            2)
+                install_panel_smart
+                pause_prompt
+                ;;
+            3)
+                echo "Select server role for Tunnel Components:"
+                echo "  1) IRAN Server"
+                echo "  2) FOREIGN Server"
+                echo "  0) Back"
+                read -p "Select role [0-2]: " TR_OPT
+                case "$TR_OPT" in
+                    1) GRE_SKIP_PANEL=1 setup_iran_server ;;
+                    2) GRE_SKIP_PANEL=1 setup_foreign_server ;;
+                    *) ;;
+                esac
+                pause_prompt
+                ;;
+            4)
+                install_frp_binaries
+                pause_prompt
+                ;;
+            5)
+                echo -e "${CYAN}[*] Ensuring GRE kernel modules are loaded...${NC}"
+                modprobe ip_gre 2>/dev/null && modprobe fou 2>/dev/null && echo -e "${GREEN}[✔️] GRE & FOU modules loaded.${NC}" || echo -e "${RED}[!] Failed to load modules.${NC}"
+                pause_prompt
+                ;;
+            6)
+                ensure_dependencies_smart
+                pause_prompt
+                ;;
+            0)
+                return 0
+                ;;
+            *)
+                echo -e "${RED}[!] Invalid option.${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+menu_tunnel() {
+    while true; do
+        clear
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -e "${CYAN}                   TUNNEL MANAGEMENT                          ${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
+        echo "  1) Create / Setup IRAN Tunnel (GRE + FRPS)"
+        echo "  2) Create / Setup FOREIGN Tunnel (GRE + FRPC / via Bundle or Manual)"
+        echo "  3) Add Peer Tunnel (Multi-peer Foreign servers on Iran)"
+        echo "  4) List Peer Tunnels"
+        echo "  5) Remove Peer Tunnel"
+        echo "  6) Restart Tunnel Services (systemctl restart gre + frp)"
+        echo "  7) Delete / Teardown Tunnel (GRE + FRP, Web Panel stays)"
+        echo "  8) Tunnel Status & GRE Ping Test"
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select an option [0-8]: " T_OPT
+        case "$T_OPT" in
+            1) setup_iran_server; pause_prompt ;;
+            2) setup_foreign_server; pause_prompt ;;
+            3) menu_add_peer; pause_prompt ;;
+            4) peer_list_pretty; pause_prompt ;;
+            5) menu_remove_peer; pause_prompt ;;
+            6) restart_all; pause_prompt ;;
+            7) remove_tunnel; pause_prompt ;;
+            8) check_status; pause_prompt ;;
+            0) return 0 ;;
+            *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+menu_server() {
+    while true; do
+        clear
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -e "${CYAN}                   SERVER & SYSTEM MANAGEMENT                 ${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
+        echo "  1) Show Web Panel URL & Credentials"
+        echo "  2) Panel HTTPS (Free Let's Encrypt TLS Certificate)"
+        echo "  3) Network Optimization (BBR + sysctl buffers + MTU clamp)"
+        echo "  4) Restore Network Tuning (pre-optimize sysctl backup)"
+        echo "  5) Tuning Status"
+        echo "  6) Free RAM (cap journald 16MB + drop cache + 1GB swapfile)"
+        echo "  7) Carrier & Failover (Direct GRE ↔ FOU UDP: auto/manual/status)"
+        echo "  8) Traffic Chaff / Obfuscation (idle-gap filler: on/off/status)"
+        echo "  9) DPI Shield (rate-limit reverse ports against flood: on/off/status)"
+        echo " 10) Watchdog & Alerting (Telegram alerts, route failover)"
+        echo " 11) Performance & Obfuscation Toggles (proxy crypto/comp, forced TLS)"
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select an option [0-11]: " S_OPT
+        case "$S_OPT" in
+            1) show_panel_url; pause_prompt ;;
+            2) panel_tls_issue; pause_prompt ;;
+            3) tune_apply; pause_prompt ;;
+            4) tune_restore; pause_prompt ;;
+            5) tune_status; pause_prompt ;;
+            6) free_ram; pause_prompt ;;
+            7) menu_carrier ;;
+            8) menu_chaff ;;
+            9) menu_dpi_shield ;;
+            10) menu_watchdog ;;
+            11) menu_perf ;;
+            0) return 0 ;;
+            *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+menu_bundle() {
+    while true; do
+        clear
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -e "${CYAN}                   BUNDLE MANAGEMENT                          ${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
+        echo "  1) Generate / Show Setup Bundle for This Iran Server"
+        echo "  2) Inspect Setup Bundle (hashem bundle inspect <bundle>)"
+        echo "  3) Import & Apply Bundle on This Server (Foreign Role)"
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select an option [0-3]: " B_OPT
+        case "$B_OPT" in
+            1)
+                local IP_IRAN BIND_PORT TOKEN
+                IP_IRAN=$(grep -o '"local_public": *"[^"]*"' /etc/gre-panel/panel.json 2>/dev/null | cut -d'"' -f4)
+                [[ -z "$IP_IRAN" ]] && IP_IRAN=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
+                BIND_PORT=$(awk -F'=' '/bindPort/{gsub(/[ "]/,"",$2); print $2}' /etc/frp/frps.toml 2>/dev/null)
+                TOKEN=$(awk -F'=' '/auth\.token/{gsub(/[ "]/,"",$2); print $2}' /etc/frp/frps.toml 2>/dev/null)
+                if [[ -n "$IP_IRAN" && -n "$BIND_PORT" && -n "$TOKEN" ]]; then
+                    echo -e "\n${GREEN}=== Iran Server Setup Bundle ===${NC}"
+                    echo -e "BUNDLE: ${CYAN}$(bundle_make "$IP_IRAN" "$BIND_PORT" "$IRAN_GRE_IP" "$FOREIGN_GRE_IP" "$TOKEN")${NC}\n"
+                else
+                    echo -e "${YELLOW}[!] IRAN tunnel is not configured yet on this host.${NC}"
+                fi
+                pause_prompt
+                ;;
+            2)
+                cli_bundle_inspect
+                pause_prompt
+                ;;
+            3)
+                setup_foreign_server
+                pause_prompt
+                ;;
+            0) return 0 ;;
+            *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+menu_diagnostics() {
+    while true; do
+        clear
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -e "${CYAN}                   DIAGNOSTICS & HEALTH CHECK                 ${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
+        echo "  1) Full Health Check (Doctor: PASS / WARN / FAIL table)"
+        echo "  2) Check GRE Interface & Internal Link"
+        echo "  3) Check FRP Services (frps / frpc)"
+        echo "  4) Check Listening Ports & Port Conflicts"
+        echo "  5) Check Routes & IP Forwarding"
+        echo "  6) View Live FRP & Panel Logs (journalctl)"
+        echo "  7) Advanced Latency & Speed Benchmark"
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select an option [0-7]: " D_OPT
+        case "$D_OPT" in
+            1) doctor_health_check; pause_prompt ;;
+            2)
+                echo -e "\n${CYAN}=== GRE Interface Details ===${NC}"
+                ip -d link show "$TUNNEL_NAME" 2>/dev/null || ip link show "$TUNNEL_NAME" 2>/dev/null || echo "No interface $TUNNEL_NAME"
+                ip -4 addr show dev "$TUNNEL_NAME" 2>/dev/null || true
+                pause_prompt
+                ;;
+            3)
+                echo -e "\n${CYAN}=== FRP Service Status ===${NC}"
+                systemctl status frps --no-pager 2>/dev/null || systemctl status frpc --no-pager 2>/dev/null || echo "No FRP service active"
+                pause_prompt
+                ;;
+            4)
+                echo -e "\n${CYAN}=== Listening Ports (FRP & Panel) ===${NC}"
+                if command -v ss >/dev/null 2>&1; then
+                    ss -tulpn | grep -E "frps|frpc|gre-panel|7777" || ss -tulpn | head -15
+                else
+                    netstat -tulpn 2>/dev/null | grep -E "frps|frpc|gre-panel|7777" || true
+                fi
+                pause_prompt
+                ;;
+            5)
+                echo -e "\n${CYAN}=== Routing Table ===${NC}"
+                ip route show
+                echo -e "\n${CYAN}IP Forwarding:${NC} $(sysctl -n net.ipv4.ip_forward 2>/dev/null || cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)"
+                pause_prompt
+                ;;
+            6) show_logs ;;
+            7) doctor_diagnostics; pause_prompt ;;
+            0) return 0 ;;
+            *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+menu_update() {
+    while true; do
+        clear
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -e "${CYAN}                   UPDATE SYSTEM                              ${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
+        echo "  1) Update All (Latest hashem.sh script + latest Web Panel binary)"
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select an option [0-1]: " U_OPT
+        case "$U_OPT" in
+            1)
+                backup_configs "pre_update"
+                update_all
+                doctor_health_check
+                pause_prompt
+                ;;
+            0) return 0 ;;
+            *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+menu_uninstall() {
+    while true; do
+        clear
+        echo -e "${RED}==============================================================${NC}"
+        echo -e "${RED}                   UNINSTALLATION MENU                        ${NC}"
+        echo -e "${RED}==============================================================${NC}"
+        echo "  1) Uninstall Web Panel Only (leaves tunnel intact)"
+        echo "  2) Uninstall Tunnel Components Only (GRE + FRP, leaves Web Panel)"
+        echo "  3) Uninstall FRP Only (removes frps/frpc services and configs)"
+        echo "  4) Uninstall GRE Only (teardown GRE tunnel interfaces and systemd units)"
+        echo "  5) Full Uninstall (Wipe everything: tunnel + panel + 'hashem' CLI)"
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select an option [0-5]: " UN_OPT
+        case "$UN_OPT" in
+            1)
+                read -p "Are you sure you want to uninstall Web Panel? [y/N]: " C_P
+                if [[ "$C_P" =~ ^[Yy]$ ]]; then
+                    systemctl stop gre-panel 2>/dev/null || true
+                    systemctl disable gre-panel 2>/dev/null || true
+                    rm -f /etc/systemd/system/gre-panel.service /usr/local/bin/gre-panel /usr/local/bin/grepanel
+                    systemctl daemon-reload
+                    echo -e "${GREEN}[✔️] Web Panel uninstalled.${NC}"
+                fi
+                pause_prompt
+                ;;
+            2)
+                read -p "Are you sure you want to remove Tunnel components? [y/N]: " C_T
+                if [[ "$C_T" =~ ^[Yy]$ ]]; then
+                    remove_tunnel_force
+                    echo -e "${GREEN}[✔️] Tunnel components removed.${NC}"
+                fi
+                pause_prompt
+                ;;
+            3)
+                read -p "Are you sure you want to remove FRP services? [y/N]: " C_F
+                if [[ "$C_F" =~ ^[Yy]$ ]]; then
+                    systemctl stop frps frpc 2>/dev/null || true
+                    systemctl disable frps frpc 2>/dev/null || true
+                    rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc*.service
+                    rm -rf /etc/frp
+                    systemctl daemon-reload
+                    echo -e "${GREEN}[✔️] FRP uninstalled.${NC}"
+                fi
+                pause_prompt
+                ;;
+            4)
+                read -p "Are you sure you want to teardown GRE interface? [y/N]: " C_G
+                if [[ "$C_G" =~ ^[Yy]$ ]]; then
+                    systemctl stop gre-tunnel 2>/dev/null || true
+                    systemctl disable gre-tunnel 2>/dev/null || true
+                    rm -f /etc/systemd/system/gre-*.service
+                    ip link del "$TUNNEL_NAME" 2>/dev/null || ip tunnel del "$TUNNEL_NAME" 2>/dev/null || true
+                    systemctl daemon-reload
+                    echo -e "${GREEN}[✔️] GRE uninstalled.${NC}"
+                fi
+                pause_prompt
+                ;;
+            5)
+                read -p "ARE YOU SURE you want to WIPE EVERYTHING? [y/N]: " C_ALL
+                if [[ "$C_ALL" =~ ^[Yy]$ ]]; then
+                    uninstall_all_force
+                    echo -e "${GREEN}[✔️] Complete uninstall finished.${NC}"
+                    exit 0
+                fi
+                pause_prompt
+                ;;
+            0) return 0 ;;
+            *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+menu_loop() {
+    trap 'echo -e "\n\n${YELLOW}[*] Operation interrupted. Returning to menu...${NC}"; sleep 1' INT
+    while true; do
+        clear
+        echo -e "${CYAN}"
+        echo "=========================================================="
+        echo "       GRE + FRP Reverse Tunnel Manager (Iran <-> Kharej)"
+        echo "     Layer 3 GRE Tunnel + Encrypted TLS FRP Reverse Relay"
+        echo "=========================================================="
+        echo -e "${NC}"
+        echo "MAIN MENU"
+        echo "  1) Installation"
+        echo "  2) Tunnel Management"
+        echo "  3) Server Management"
+        echo "  4) Bundle Management"
+        echo "  5) Diagnostics"
+        echo "  6) Update"
+        echo "  7) Uninstall"
+        echo "  8) Exit (or 0)"
+        echo ""
+        read -p "Select an option [1-8]: " MAIN_OPT
+        case "$MAIN_OPT" in
+            1) menu_installation ;;
+            2) menu_tunnel ;;
+            3) menu_server ;;
+            4) menu_bundle ;;
+            5) menu_diagnostics ;;
+            6) menu_update ;;
+            7) menu_uninstall ;;
+            8|0|exit|q)
+                echo -e "${CYAN}Exiting Hashem Manager. Goodbye!${NC}"
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}[!] Invalid option.${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+main_menu() {
+    menu_loop
+}
+
 # Non-interactive CLI: hashem.sh setup-iran|setup-foreign with flags.
 # The setup_*_noninteractive + _setup_foreign_full functions above are the
 # SINGLE source of truth — menu, CLI, and web panel all run the same steps.
@@ -4687,17 +5596,16 @@ cli_setup_foreign() {
     esac
     if [[ -n "$BUNDLE" ]]; then
         bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad --bundle (want hsh1_<IRAN_PUB>_<PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]).${NC}"; return 1; }
-        [[ -z "$TOKEN" ]] && TOKEN=$B_TOKEN
-        # setup-foreign runs on Foreign: bundle Iran pub is OUR remote,
-        # bundle foreign GRE is OUR local, bundle Iran GRE is OUR peer.
-        [[ -z "$REMOTE_PUB" ]] && REMOTE_PUB=$B_IRAN_PUB
-        [[ -z "$FRP_PORT" ]] && FRP_PORT=$B_FRP_PORT
-        [[ -z "$LOCAL_GRE" ]] && LOCAL_GRE=$B_FOREIGN_GRE
-        [[ -z "$PEER_GRE" ]] && PEER_GRE=$B_IRAN_GRE
+        TOKEN=$B_TOKEN
+        REMOTE_PUB=$B_IRAN_PUB
+        # Bundle FRP server port is the absolute source of truth
+        FRP_PORT=$B_FRP_PORT
+        LOCAL_GRE=$B_FOREIGN_GRE
+        PEER_GRE=$B_IRAN_GRE
         [[ -z "$PORTS" ]] && PORTS=$B_PORTS
         carrier_set_fou_ports "$B_FOU_P1" "$B_FOU_P2" 2>/dev/null || true
         carrier_init_kernel 2>/dev/null || true
-        echo -e "${CYAN}[*] Bundle applied: fields auto-filled (explicit flags kept).${NC}"
+        echo -e "${CYAN}[*] Bundle applied: Source of Truth enforced (Iran ${REMOTE_PUB}, FRP port ${FRP_PORT}).${NC}"
     fi
     # --bundle replaces --token as the required secret
     [[ -z "$TOKEN" && -n "$BUNDLE" ]] && TOKEN=$B_TOKEN
@@ -4715,6 +5623,13 @@ cli_setup_foreign() {
     done
     CLEANED=$(echo "$CLEANED" | xargs)
     [[ -n "$CLEANED" ]] || { echo -e "${RED}[!] --ports needs at least one valid port (e.g. \"443, 2083\").${NC}"; return 1; }
+
+    # Port availability check before proceeding
+    FRP_PORT=$(ensure_port_available "$FRP_PORT" "FRP Server Port" ${BUNDLE:+1}) || return 1
+    for p in $CLEANED; do
+        ensure_port_available "$p" "Reverse Proxy Port :$p" ${BUNDLE:+1} >/dev/null || return 1
+    done
+
     if tunnel_present && [[ "$FORCE" -ne 1 ]]; then
         echo -e "${RED}[!] Tunnel already exists — pass --force to overwrite.${NC}"
         return 1
@@ -4723,6 +5638,18 @@ cli_setup_foreign() {
 }
 
 if [[ $# -gt 0 ]]; then
+    case "$1" in
+        -h|--help|help) usage_cli; exit 0 ;;
+        bundle)
+            shift
+            case "${1:-}" in
+                inspect) shift; cli_bundle_inspect "$@" ;;
+                *) echo "Usage: hashem bundle inspect <bundle> [--show-token]"; exit 1 ;;
+            esac
+            exit $?
+            ;;
+    esac
+
     check_root
     case "$1" in
         setup-iran) shift; cli_setup_iran "$@" ;;
@@ -4758,9 +5685,11 @@ if [[ $# -gt 0 ]]; then
         uninstall)
             if [[ "${2:-}" == "--force" ]]; then uninstall_all_force; else uninstall_all; fi ;;
         show-panel-url) show_panel_url ;;
-        -h|--help|help) usage_cli ;;
         *) echo -e "${RED}[!] Unknown command: $1${NC}"; usage_cli; exit 1 ;;
     esac
     exit $?
 fi
+
+check_root
 main_menu
+
