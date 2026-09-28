@@ -240,6 +240,8 @@ func main() {
 	mux.HandleFunc("POST "+base+"/api/perf", requireAuth(handlePerfPost))
 	mux.HandleFunc("GET "+base+"/api/carrier", requireAuth(handleCarrierGet))
 	mux.HandleFunc("POST "+base+"/api/carrier", requireAuth(handleCarrierPost))
+	mux.HandleFunc("GET "+base+"/api/doctor", requireAuth(handleDoctorGet))
+	mux.HandleFunc("POST "+base+"/api/doctor", requireAuth(handleDoctorPost))
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("gre-panel listening on %s under /%s", addr, cfg.BasePath)

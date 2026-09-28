@@ -508,6 +508,33 @@
     .wd-backup-item { flex-direction:column; align-items:flex-start; }
     .wd-backup-acts { width:100%; justify-content:flex-end; }
   }
+
+  /* Diagnostics & Doctor */
+  .doc-hero { display:grid; grid-template-columns:auto 1fr auto; gap:20px; align-items:center; }
+  .doc-score-circle { width:88px; height:88px; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:var(--sunk); border:3px solid var(--ln); position:relative; box-shadow:var(--lift-sm); flex:none; }
+  .doc-score-circle.excellent { border-color:var(--ok); color:var(--ok); }
+  .doc-score-circle.good { border-color:var(--ac); color:var(--ac); }
+  .doc-score-circle.warning { border-color:var(--wr); color:var(--wr); }
+  .doc-score-circle.critical { border-color:var(--er); color:var(--er); }
+  .doc-score-num { font-size:28px; font-weight:800; line-height:1; font-family:var(--font-mono); color:var(--tx); }
+  .doc-score-total { font-size:11px; color:var(--mu); font-weight:600; margin-top:2px; }
+  .doc-hero-meta { display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .doc-hero-acts { display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+  .doc-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px; margin-top:14px; }
+  .doc-card { background:var(--s2); border:1px solid var(--ln); border-radius:var(--r-md); padding:16px; display:flex; flex-direction:column; gap:12px; }
+  .doc-card-head { display:flex; justify-content:space-between; align-items:center; }
+  .doc-card-title { font-size:var(--fs-body); font-weight:600; color:var(--tx); display:flex; align-items:center; gap:8px; }
+  .doc-stat-val { font-size:22px; font-weight:700; color:var(--tx); font-family:var(--font-mono); }
+  .doc-stat-sub { font-size:var(--fs-small); color:var(--mu); }
+  .doc-issues-box { background:var(--sunk); border:1px solid var(--ln); border-radius:var(--r); padding:12px 14px; margin-top:8px; display:flex; flex-direction:column; gap:8px; }
+  .doc-issue-item { display:flex; align-items:flex-start; gap:8px; font-size:var(--fs-small); color:var(--tx2); line-height:1.4; }
+  .doc-pulse { animation:docPulseAnim 1.4s infinite ease-in-out; }
+  @keyframes docPulseAnim { 0%, 100% { opacity:1; } 50% { opacity:0.5; } }
+  @media (max-width:768px) {
+    .doc-hero { grid-template-columns:1fr; text-align:center; justify-items:center; }
+    .doc-hero-acts { width:100%; align-items:stretch; }
+  }
 </style>
 </head>
 <body data-t="dark">
@@ -576,6 +603,7 @@
       <div class="nav-sec">System</div>
       <button class="nav-item" data-tab="perf" id="perfNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Performance</span></button>
       <button class="nav-item" data-tab="watchdog" id="watchdogNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span>Watchdog</span></button>
+      <button class="nav-item" data-tab="doctor" id="doctorNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span>Diagnostics</span></button>
       <button class="nav-item" data-tab="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg><span>Update</span><span class="badge info hidden u-ml-auto" id="updBadge" >new</span></button>
       <button class="nav-item" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg><span>Settings</span></button>
       <button class="nav-item hidden" data-tab="terminal" id="termNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span>Terminal</span><span class="term-live hidden u-ml-auto" id="termLiveDot" ></span></button>
@@ -1146,6 +1174,146 @@
           </div>
         </div>
       </section>
+      <!-- Tab: Diagnostics & Speed Test (Doctor) -->
+      <section id="tab-doctor" hidden>
+        <!-- Hero score card -->
+        <div class="tunnel-card">
+          <div class="doc-hero">
+            <div class="doc-score-circle" id="docScoreCircle">
+              <span class="doc-score-num" id="docScoreVal">—</span>
+              <span class="doc-score-total">/100</span>
+            </div>
+            <div class="doc-hero-meta">
+              <div class="u-flex-center-wrap10">
+                <span class="tc-title">Tunnel Diagnostics &amp; Health</span>
+                <span class="badge dim" id="docRatingBadge">—</span>
+              </div>
+              <div class="qs-hint" id="docMetaSub">Target: — · Role: — · Checked: —</div>
+              <div class="qs-hint u-mt-4" id="docSummaryMsg">Click &quot;Run Diagnostics&quot; to perform a complete latency, jitter, MTU sweep and throughput audit.</div>
+            </div>
+            <div class="doc-hero-acts">
+              <button class="hashem-btn hashem-btn-primary" id="docRunBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                <span>Run Diagnostics</span>
+              </button>
+              <button class="hashem-btn hashem-btn-secondary hidden" id="docFixBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                <span>Fix All Issues</span>
+              </button>
+              <button class="hashem-btn hashem-btn-ghost u-btn-xs" id="docIperfBtn">
+                <svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                <span id="docIperfTxt">Start iPerf3 Server</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 Diagnostic Cards Grid -->
+        <div class="doc-grid">
+          <!-- Card 1: Latency & Jitter -->
+          <div class="doc-card">
+            <div class="doc-card-head">
+              <span class="doc-card-title">
+                <svg viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                Latency &amp; Jitter
+              </span>
+              <span class="badge dim" id="docPingBadge">—</span>
+            </div>
+            <div class="doc-stat-val" id="docAvgRttVal">— ms</div>
+            <div class="doc-stat-sub" id="docPingSub">Loss: — · Min: — · Max: —</div>
+            <div class="trow u-mt-4">
+              <span class="k">Jitter (mdev)</span>
+              <span class="v" id="docJitterVal">— ms</span>
+            </div>
+            <div class="trow">
+              <span class="k">Packets Transmitted</span>
+              <span class="v" id="docPacketsVal">—</span>
+            </div>
+          </div>
+
+          <!-- Card 2: Path MTU Discovery -->
+          <div class="doc-card">
+            <div class="doc-card-head">
+              <span class="doc-card-title">
+                <svg viewBox="0 0 24 24" width="18" height="18"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                Path MTU
+              </span>
+              <span class="badge dim" id="docMtuBadge">—</span>
+            </div>
+            <div class="doc-stat-val" id="docMtuVal">—</div>
+            <div class="doc-stat-sub">Optimal unfragmented packet size</div>
+            <div class="trow u-mt-4">
+              <span class="k">MTU 1420 (Standard)</span>
+              <span class="v" id="docMtu1420Val">—</span>
+            </div>
+            <div class="trow">
+              <span class="k">MTU 1400 (Safe)</span>
+              <span class="v" id="docMtu1400Val">—</span>
+            </div>
+            <div class="trow">
+              <span class="k">MTU 1360 (Conservative)</span>
+              <span class="v" id="docMtu1360Val">—</span>
+            </div>
+          </div>
+
+          <!-- Card 3: Throughput & Speed -->
+          <div class="doc-card">
+            <div class="doc-card-head">
+              <span class="doc-card-title">
+                <svg viewBox="0 0 24 24" width="18" height="18"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+                Throughput Speed
+              </span>
+              <span class="badge dim" id="docSpeedBadge">—</span>
+            </div>
+            <div class="doc-stat-val" id="docSpeedVal">— Mbps</div>
+            <div class="doc-stat-sub" id="docSpeedSub">Real tunnel bandwidth capacity</div>
+            <div class="trow u-mt-4">
+              <span class="k">Test Method</span>
+              <span class="v" id="docSpeedMode">—</span>
+            </div>
+            <div class="trow">
+              <span class="k">iPerf3 Server (:5201)</span>
+              <span class="v" id="docIperfStatusVal">—</span>
+            </div>
+          </div>
+
+          <!-- Card 4: Kernel & Stack Audit -->
+          <div class="doc-card">
+            <div class="doc-card-head">
+              <span class="doc-card-title">
+                <svg viewBox="0 0 24 24" width="18" height="18"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
+                Kernel &amp; TCP Stack
+              </span>
+              <span class="badge dim" id="docKernelBadge">—</span>
+            </div>
+            <div class="doc-stat-val" id="docCongestionVal">—</div>
+            <div class="doc-stat-sub">Congestion control algorithm</div>
+            <div class="trow u-mt-4">
+              <span class="k">BBR Algorithm</span>
+              <span class="v" id="docBbrVal">—</span>
+            </div>
+            <div class="trow">
+              <span class="k">TCP MSS Clamping</span>
+              <span class="v" id="docMssVal">—</span>
+            </div>
+            <div class="trow">
+              <span class="k">IPv4 Forwarding</span>
+              <span class="v" id="docIpFwdVal">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Issues and Recommendations Card -->
+        <div class="tunnel-card u-mt-14">
+          <div class="tc-header">
+            <p class="tc-title">Issues &amp; Recommendations</p>
+            <span class="qs-hint" id="docIssuesCount">0 issues detected</span>
+          </div>
+          <div class="doc-issues-box" id="docIssuesBox">
+            <div class="qs-hint">No diagnostic report loaded. Click &quot;Run Diagnostics&quot; to inspect the connection.</div>
+          </div>
+        </div>
+      </section>
       <section id="tab-update" hidden>
         <div class="tunnel-card">
           <div class="tc-header"><p class="tc-title">Panel update</p><span class="status-indicator" id="updDot"><span class="dot"></span><span id="updDotTxt">—</span></span></div>
@@ -1331,13 +1499,14 @@ function goTab(name) {
   if (name === 'terminal' && !$('termNav').classList.contains('hidden') && $('tab-terminal').hidden && !termState.ready) { /* allowed: overlay shows connect */ }
   if (name === 'terminal' && $('termNav').classList.contains('hidden')) return; // flag off: tab doesn't exist
   if (name === 'add-peer') { goTab('setup'); const c = $('setupAddPeerStep'); if (c && c.scrollIntoView) c.scrollIntoView({behavior: 'smooth', block: 'start'}); return; }
-  ['dashboard','tunnel','setup','logs','perf','watchdog','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
+  ['dashboard','tunnel','setup','logs','perf','watchdog','doctor','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
   document.querySelectorAll('.sidebar-nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   const dr = $('drawerNav');
   if (dr) dr.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   if (name === 'perf') { loadPerf(); loadCarrier(); }
   if (name === 'tunnel') loadCarrier();
   if (name === 'watchdog') loadWatchdog();
+  if (name === 'doctor') loadDoctor();
   if (name === 'update') loadVersion();
   if (name === 'logs') { refreshLogPeers(); loadLogs(); loadErrors(); armLogFollow(); }
   if (name === 'terminal') termOnShow();
@@ -3782,6 +3951,210 @@ $('tlsRenewBtn').onclick = async () => {
   } catch(e) { toastErr('renew failed', e.message); }
   b.disabled = false; b.textContent = 'Renew now';
 };
+
+// ---------- Diagnostics & Doctor (tab-doctor) ----------
+let doctorData = null;
+let doctorRunning = false;
+
+async function loadDoctor(forceRun = false) {
+  try {
+    let rep;
+    if (forceRun) {
+      rep = await api('/api/doctor', { action: 'run' });
+    } else {
+      rep = await api('/api/doctor');
+    }
+    renderDoctor(rep);
+  } catch(e) {
+    toastErr('Diagnostics failed', e.message);
+  }
+}
+
+function renderDoctor(rep) {
+  if (!rep) return;
+  doctorData = rep;
+
+  // Score & Rating
+  const scoreVal = $('docScoreVal');
+  const scoreCircle = $('docScoreCircle');
+  if (scoreVal) scoreVal.textContent = rep.score != null ? rep.score : '—';
+  if (scoreCircle) {
+    scoreCircle.className = 'doc-score-circle ' + (rep.rating || '');
+  }
+
+  const ratingBadge = $('docRatingBadge');
+  if (ratingBadge) {
+    ratingBadge.textContent = (rep.rating || 'UNKNOWN').toUpperCase();
+    let bClass = 'dim';
+    if (rep.rating === 'excellent') bClass = 'ok';
+    else if (rep.rating === 'good') bClass = 'info';
+    else if (rep.rating === 'warning') bClass = 'warn';
+    else if (rep.rating === 'critical') bClass = 'err';
+    ratingBadge.className = 'badge ' + bClass;
+  }
+
+  // Meta subtitle
+  const metaSub = $('docMetaSub');
+  if (metaSub) {
+    const roleTxt = rep.role ? rep.role.toUpperCase() : 'NO TUNNEL';
+    metaSub.textContent = `Peer GRE: ${rep.peer_gre_ip || 'None'} · Role: ${roleTxt} · Checked: ${rep.timestamp || 'Never'}`;
+  }
+
+  // Fix button visibility
+  const fixBtn = $('docFixBtn');
+  if (fixBtn) {
+    fixBtn.classList.toggle('hidden', !rep.fix_available);
+  }
+
+  // Ping Card
+  const ping = rep.ping_result || {};
+  if ($('docAvgRttVal')) $('docAvgRttVal').textContent = ping.success ? (ping.avg_rtt.toFixed(1) + ' ms') : 'Unreachable';
+  if ($('docPingSub')) $('docPingSub').textContent = `Loss: ${(ping.packet_loss || 0).toFixed(0)}% · Min: ${(ping.min_rtt || 0).toFixed(1)} ms · Max: ${(ping.max_rtt || 0).toFixed(1)} ms`;
+  if ($('docJitterVal')) $('docJitterVal').textContent = (ping.jitter || 0).toFixed(2) + ' ms';
+  if ($('docPacketsVal')) $('docPacketsVal').textContent = `${ping.received || 0} / ${ping.sent || 0}`;
+  const pingBadge = $('docPingBadge');
+  if (pingBadge) {
+    if (!ping.success) { pingBadge.textContent = 'OFFLINE'; pingBadge.className = 'badge err'; }
+    else if (ping.packet_loss > 10) { pingBadge.textContent = 'HIGH LOSS'; pingBadge.className = 'badge warn'; }
+    else if (ping.avg_rtt > 120) { pingBadge.textContent = 'HIGH RTT'; pingBadge.className = 'badge warn'; }
+    else { pingBadge.textContent = 'OPTIMAL'; pingBadge.className = 'badge ok'; }
+  }
+
+  // MTU Card
+  const mtu = rep.mtu_result || {};
+  if ($('docMtuVal')) $('docMtuVal').textContent = mtu.optimal ? (mtu.optimal + ' bytes') : '—';
+  if ($('docMtu1420Val')) $('docMtu1420Val').innerHTML = mtu.mtu_1420 ? '<span class="badge ok">Pass</span>' : '<span class="badge warn">Fragmented</span>';
+  if ($('docMtu1400Val')) $('docMtu1400Val').innerHTML = mtu.mtu_1400 ? '<span class="badge ok">Pass</span>' : '<span class="badge warn">Fragmented</span>';
+  if ($('docMtu1360Val')) $('docMtu1360Val').innerHTML = mtu.mtu_1360 ? '<span class="badge ok">Pass</span>' : '<span class="badge err">Blocked</span>';
+  const mtuBadge = $('docMtuBadge');
+  if (mtuBadge) {
+    if (mtu.optimal >= 1400) { mtuBadge.textContent = 'OPTIMAL'; mtuBadge.className = 'badge ok'; }
+    else if (mtu.optimal > 0) { mtuBadge.textContent = 'REDUCED'; mtuBadge.className = 'badge warn'; }
+    else { mtuBadge.textContent = 'UNKNOWN'; mtuBadge.className = 'badge dim'; }
+  }
+
+  // Speed Card
+  const speed = rep.speed_result || {};
+  if ($('docSpeedVal')) $('docSpeedVal').textContent = speed.tested ? ((speed.throughput_mbps || 0).toFixed(1) + ' Mbps') : '—';
+  if ($('docSpeedSub')) $('docSpeedSub').textContent = speed.detail || 'Real tunnel bandwidth capacity';
+  if ($('docSpeedMode')) $('docSpeedMode').textContent = speed.mode ? speed.mode.toUpperCase() : 'None';
+  if ($('docIperfStatusVal')) $('docIperfStatusVal').innerHTML = speed.server_active ? '<span class="badge ok">Listening (:5201)</span>' : '<span class="badge dim">Stopped</span>';
+  const speedBadge = $('docSpeedBadge');
+  if (speedBadge) {
+    if (!speed.tested) { speedBadge.textContent = 'NOT TESTED'; speedBadge.className = 'badge dim'; }
+    else if (speed.throughput_mbps > 50) { speedBadge.textContent = 'FAST'; speedBadge.className = 'badge ok'; }
+    else if (speed.throughput_mbps > 15) { speedBadge.textContent = 'MODERATE'; speedBadge.className = 'badge info'; }
+    else { speedBadge.textContent = 'SLOW'; speedBadge.className = 'badge warn'; }
+  }
+  const iperfTxt = $('docIperfTxt');
+  if (iperfTxt) iperfTxt.textContent = speed.server_active ? 'Stop iPerf3 Server' : 'Start iPerf3 Server';
+
+  // Kernel Card
+  const k = rep.kernel_audit || {};
+  if ($('docCongestionVal')) $('docCongestionVal').textContent = k.congestion_alg ? k.congestion_alg.toUpperCase() : '—';
+  if ($('docBbrVal')) $('docBbrVal').innerHTML = k.bbr_enabled ? '<span class="badge ok">Active</span>' : '<span class="badge warn">Disabled (Cubic)</span>';
+  if ($('docMssVal')) $('docMssVal').innerHTML = k.mss_clamping ? '<span class="badge ok">Clamped</span>' : '<span class="badge warn">Inactive</span>';
+  if ($('docIpFwdVal')) $('docIpFwdVal').innerHTML = k.ip_forwarding ? '<span class="badge ok">Enabled</span>' : '<span class="badge err">Disabled</span>';
+  const kBadge = $('docKernelBadge');
+  if (kBadge) {
+    if (k.bbr_enabled && k.mss_clamping && k.ip_forwarding) { kBadge.textContent = 'TUNED'; kBadge.className = 'badge ok'; }
+    else { kBadge.textContent = 'NEEDS TUNE'; kBadge.className = 'badge warn'; }
+  }
+
+  // Issues Box
+  const issuesBox = $('docIssuesBox');
+  const issuesCount = $('docIssuesCount');
+  const issues = rep.issues || [];
+  const recs = rep.recommendations || [];
+  if (issuesCount) issuesCount.textContent = `${issues.length} issue${issues.length === 1 ? '' : 's'} detected`;
+  if (issuesBox) {
+    if (issues.length === 0) {
+      issuesBox.innerHTML = '<div class="qs-hint u-color-ok">✓ All diagnostic tests passed with zero bottlenecks. Connection is operating at peak performance.</div>';
+    } else {
+      let html = '';
+      for (let i = 0; i < issues.length; i++) {
+        const iss = issues[i];
+        const rec = recs[i] || '';
+        html += `<div class="doc-issue-item">
+          <span class="badge warn u-btn-xs u-flex-none">!</span>
+          <div>
+            <b>${esc(iss)}</b>
+            ${rec ? `<div class="qs-hint u-mt-2">${esc(rec)}</div>` : ''}
+          </div>
+        </div>`;
+      }
+      issuesBox.innerHTML = html;
+    }
+  }
+}
+
+async function runDoctor() {
+  if (doctorRunning) return;
+  doctorRunning = true;
+  const btn = $('docRunBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('doc-pulse');
+    btn.querySelector('span').textContent = 'Diagnosing… (sweep MTU & ping)';
+  }
+  try {
+    await loadDoctor(true);
+    toastOk('Diagnostics complete', `Health score: ${doctorData ? doctorData.score : '—'}/100`);
+  } catch(e) {
+    toastErr('Diagnostics failed', e.message);
+  } finally {
+    doctorRunning = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('doc-pulse');
+      btn.querySelector('span').textContent = 'Run Diagnostics';
+    }
+  }
+}
+
+async function fixDoctor() {
+  if (!await entConfirm('Apply Automated Optimizations?', 'This will enable TCP BBR, configure MSS clamping on the tunnel interface, ensure IPv4 forwarding, and restart the tunnel to apply optimal MTU settings.', 'Fix Everything')) return;
+  const btn = $('docFixBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Applying fixes…';
+  }
+  try {
+    const res = await api('/api/doctor', { action: 'fix' });
+    toastOk('Optimizations applied', (res.applied || []).join(', ') || 'System stack optimized');
+    if (res.report) renderDoctor(res.report);
+    else await loadDoctor(true);
+  } catch(e) {
+    toastErr('Fix failed', e.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><span>Fix All Issues</span>';
+    }
+  }
+}
+
+async function toggleIperf() {
+  if (!doctorData) return;
+  const isRunning = doctorData.speed_result && doctorData.speed_result.server_active;
+  const action = isRunning ? 'iperf-stop' : 'iperf-start';
+  const btn = $('docIperfBtn');
+  if (btn) btn.disabled = true;
+  try {
+    await api('/api/doctor', { action });
+    toastOk(isRunning ? 'iPerf3 Stopped' : 'iPerf3 Started', isRunning ? 'Server listener stopped' : 'Listening on port 5201');
+    await loadDoctor(false);
+  } catch(e) {
+    toastErr('iPerf3 action failed', e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+if ($('docRunBtn')) $('docRunBtn').onclick = runDoctor;
+if ($('docFixBtn')) $('docFixBtn').onclick = fixDoctor;
+if ($('docIperfBtn')) $('docIperfBtn').onclick = toggleIperf;
+
 // boot: if already logged in, status works; else show login
 (async () => {
   try { await api('/api/status'); showApp(); refresh(); loadSetupDefaults(); loadVersion(); termFlagRefresh(); tlsRefresh(); }

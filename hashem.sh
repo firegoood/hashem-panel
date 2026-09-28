@@ -2316,6 +2316,248 @@ restart_all() {
     echo -e "${GREEN}[✔️] All services restarted.${NC}"
 }
 
+ensure_doctor_tools() {
+    local NEED_INSTALL=0
+    for cmd in iperf3 ping curl; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            NEED_INSTALL=1
+            break
+        fi
+    done
+    if [[ "$NEED_INSTALL" -eq 1 ]]; then
+        echo -e "${CYAN}[*] Installing diagnostic tools (iperf3, iputils-ping, curl)...${NC}"
+        apt-get update -qq && apt-get install -y -qq iperf3 iputils-ping curl || echo -e "${YELLOW}[!] Warning: failed to install some diagnostic tools.${NC}"
+    fi
+}
+
+doctor_diagnostics() {
+    ensure_doctor_tools
+
+    echo -e "\n${CYAN}==========================================================${NC}"
+    echo -e "${CYAN}      Hashem Diagnostics & Speed Test (Doctor Suite)      ${NC}"
+    echo -e "${CYAN}==========================================================${NC}\n"
+
+    # 1. Determine Peer IP
+    local ROLE="unknown"
+    local TARGET_IP=""
+    local LOCAL_IP=""
+
+    if ip addr show dev "$TUNNEL_NAME" 2>/dev/null | grep -q "$IRAN_GRE_IP"; then
+        ROLE="Iran (Server)"
+        LOCAL_IP="$IRAN_GRE_IP"
+        TARGET_IP="$FOREIGN_GRE_IP"
+    elif ip addr show dev "$TUNNEL_NAME" 2>/dev/null | grep -q "$FOREIGN_GRE_IP"; then
+        ROLE="Foreign (Client)"
+        LOCAL_IP="$FOREIGN_GRE_IP"
+        TARGET_IP="$IRAN_GRE_IP"
+    else
+        local IFACE
+        IFACE=$(ip -o link show type gre 2>/dev/null | awk -F': ' '{print $2}' | head -n1)
+        if [[ -n "$IFACE" ]]; then
+            LOCAL_IP=$(ip -o -4 addr show dev "$IFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+            if [[ "$LOCAL_IP" =~ \.1$ ]]; then
+                TARGET_IP="${LOCAL_IP%.*}.2"
+                ROLE="Foreign"
+            elif [[ "$LOCAL_IP" =~ \.2$ ]]; then
+                TARGET_IP="${LOCAL_IP%.*}.1"
+                ROLE="Iran"
+            fi
+        fi
+    fi
+
+    echo -e "  ${YELLOW}Role:${NC}        ${ROLE}"
+    echo -e "  ${YELLOW}Tunnel:${NC}      ${TUNNEL_NAME:-gre-tunnel}"
+    echo -e "  ${YELLOW}Local IP:${NC}    ${LOCAL_IP:-N/A}"
+    echo -e "  ${YELLOW}Peer IP:${NC}     ${TARGET_IP:-N/A}\n"
+
+    if [[ -z "$TARGET_IP" ]]; then
+        echo -e "${RED}[!] Tunnel interface is not active or peer IP cannot be determined.${NC}"
+        return 1
+    fi
+
+    # 2. Ping & Jitter Test (10 packets)
+    echo -e "${CYAN}[1/4] Measuring Latency, Packet Loss & Jitter (10 packets)...${NC}"
+    local PING_OUT
+    PING_OUT=$(ping -c 10 -W 2 "$TARGET_IP" 2>&1)
+    local LOSS
+    LOSS=$(echo "$PING_OUT" | awk -F',' '/packet loss/ {for(i=1;i<=NF;i++) if($i~/packet loss/) print $(i-0)}' | tr -dc '0-9.')
+    local RTT_LINE
+    RTT_LINE=$(echo "$PING_OUT" | grep -E '(rtt|round-trip) min/avg/max')
+
+    local MIN_RTT="0" AVG_RTT="0" MAX_RTT="0" JITTER="0"
+    if [[ -n "$RTT_LINE" ]]; then
+        local STATS
+        STATS=$(echo "$RTT_LINE" | awk -F'=' '{print $2}' | tr -d ' ' | cut -d'/' -f1-4)
+        MIN_RTT=$(echo "$STATS" | cut -d'/' -f1)
+        AVG_RTT=$(echo "$STATS" | cut -d'/' -f2)
+        MAX_RTT=$(echo "$STATS" | cut -d'/' -f3)
+        JITTER=$(echo "$STATS" | cut -d'/' -f4)
+    fi
+
+    local LOSS_INT="${LOSS%%.*}"
+    LOSS_INT="${LOSS_INT:-0}"
+
+    echo -e "  • Packet Loss:  ${LOSS:-0}%"
+    echo -e "  • Min RTT:      ${MIN_RTT} ms"
+    echo -e "  • Avg RTT:      ${AVG_RTT} ms"
+    echo -e "  • Max RTT:      ${MAX_RTT} ms"
+    echo -e "  • Jitter (mdev):${JITTER} ms"
+
+    if [[ "$LOSS_INT" -eq 0 ]]; then
+        echo -e "  ${GREEN}[✔️] Ping test passed with zero packet loss.${NC}\n"
+    elif [[ "$LOSS_INT" -le 10 ]]; then
+        echo -e "  ${YELLOW}[⚠️] Mild packet loss (${LOSS}%).${NC}\n"
+    else
+        echo -e "  ${RED}[!] High packet loss detected (${LOSS}%).${NC}\n"
+    fi
+
+    # 3. Path MTU Discovery
+    echo -e "${CYAN}[2/4] Testing Path MTU & Fragmentation...${NC}"
+    local OPTIMAL_MTU=0
+    # 1420
+    if ping -c 2 -W 2 -M do -s 1392 "$TARGET_IP" >/dev/null 2>&1; then
+        echo -e "  • MTU 1420: ${GREEN}PASS (Unfragmented)${NC}"
+        OPTIMAL_MTU=1420
+    else
+        echo -e "  • MTU 1420: ${YELLOW}FRAGMENTED${NC}"
+    fi
+
+    # 1400
+    if ping -c 2 -W 2 -M do -s 1372 "$TARGET_IP" >/dev/null 2>&1; then
+        echo -e "  • MTU 1400: ${GREEN}PASS (Unfragmented)${NC}"
+        [[ "$OPTIMAL_MTU" -eq 0 ]] && OPTIMAL_MTU=1400
+    else
+        echo -e "  • MTU 1400: ${YELLOW}FRAGMENTED${NC}"
+    fi
+
+    # 1360
+    if ping -c 2 -W 2 -M do -s 1332 "$TARGET_IP" >/dev/null 2>&1; then
+        echo -e "  • MTU 1360: ${GREEN}PASS (Unfragmented)${NC}"
+        [[ "$OPTIMAL_MTU" -eq 0 ]] && OPTIMAL_MTU=1360
+    else
+        echo -e "  • MTU 1360: ${RED}FAILED${NC}"
+    fi
+
+    echo -e "  ${GREEN}[✔️] Optimal Recommended MTU: ${OPTIMAL_MTU:-1400} bytes.${NC}\n"
+
+    # 4. Kernel TCP Stack Audit
+    echo -e "${CYAN}[3/4] Auditing Kernel TCP Stack & Forwarding...${NC}"
+    local CC
+    CC=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "unknown")
+    local FWD
+    FWD=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || echo "0")
+    local MSS_COUNT
+    MSS_COUNT=$(iptables -t mangle -L -v -n 2>/dev/null | grep -c "TCPMSS" || echo "0")
+
+    if [[ "$CC" == "bbr" ]]; then
+        echo -e "  • TCP Congestion Control: ${GREEN}BBR (Active)${NC}"
+    else
+        echo -e "  • TCP Congestion Control: ${YELLOW}${CC} (BBR not enabled)${NC}"
+    fi
+
+    if [[ "$FWD" == "1" ]]; then
+        echo -e "  • IPv4 Forwarding:        ${GREEN}Enabled${NC}"
+    else
+        echo -e "  • IPv4 Forwarding:        ${RED}Disabled${NC}"
+    fi
+
+    if [[ "$MSS_COUNT" -gt 0 ]]; then
+        echo -e "  • TCP MSS Clamping:       ${GREEN}Active (${MSS_COUNT} rules)${NC}\n"
+    else
+        echo -e "  • TCP MSS Clamping:       ${YELLOW}Not configured${NC}\n"
+    fi
+
+    # 5. Throughput / iPerf3 Test
+    echo -e "${CYAN}[4/4] Bandwidth & Throughput Speed Test...${NC}"
+    if command -v iperf3 >/dev/null 2>&1; then
+        echo -e "  Attempting 3-second throughput benchmark to ${TARGET_IP}:5201..."
+        local IPERF_OUT
+        IPERF_OUT=$(iperf3 -c "$TARGET_IP" -t 3 -J 2>/dev/null)
+        if [[ -n "$IPERF_OUT" ]] && echo "$IPERF_OUT" | grep -q '"bits_per_second"'; then
+            local BPS
+            BPS=$(echo "$IPERF_OUT" | awk -F'"bits_per_second":' '/"bits_per_second"/ {print $2}' | tr -dc '0-9.' | head -n1)
+            local MBPS
+            MBPS=$(awk -v b="$BPS" 'BEGIN { if (b > 0) printf "%.2f", b / 1000000; else print "0" }')
+            echo -e "  ${GREEN}[✔️] Throughput Speed: ${MBPS} Mbps${NC}\n"
+        else
+            echo -e "  ${YELLOW}[i] Remote iperf3 server not running on ${TARGET_IP}:5201.${NC}"
+            echo -e "      (Run 'hashem doctor server' on the remote server to enable direct speed tests).\n"
+        fi
+    fi
+
+    # 6. Overall Rating & Recommendations
+    local SCORE=100
+    if [[ "$LOSS_INT" -gt 0 ]]; then
+        SCORE=$((SCORE - LOSS_INT * 2))
+    fi
+    if [[ "$AVG_RTT" != "0" ]] && awk -v r="$AVG_RTT" 'BEGIN { exit (r > 100 ? 0 : 1) }'; then
+        SCORE=$((SCORE - 15))
+    fi
+    if [[ "$CC" != "bbr" ]]; then
+        SCORE=$((SCORE - 15))
+    fi
+    if [[ "$FWD" != "1" ]]; then
+        SCORE=$((SCORE - 20))
+    fi
+    if [[ "$MSS_COUNT" -eq 0 ]]; then
+        SCORE=$((SCORE - 10))
+    fi
+    if [[ "$OPTIMAL_MTU" -lt 1400 && "$OPTIMAL_MTU" -gt 0 ]]; then
+        SCORE=$((SCORE - 10))
+    fi
+    [[ "$SCORE" -lt 0 ]] && SCORE=0
+
+    echo -e "${CYAN}==========================================================${NC}"
+    echo -e "  ${YELLOW}Overall Health Score:${NC} ${SCORE}/100"
+    if [[ "$SCORE" -ge 85 ]]; then
+        echo -e "  ${GREEN}Status: EXCELLENT — Tunnel is fully optimized.${NC}"
+    elif [[ "$SCORE" -ge 70 ]]; then
+        echo -e "  ${CYAN}Status: GOOD — Minor optimizations recommended.${NC}"
+    elif [[ "$SCORE" -ge 50 ]]; then
+        echo -e "  ${YELLOW}Status: WARNING — Packet loss or kernel bottlenecks present.${NC}"
+    else
+        echo -e "  ${RED}Status: CRITICAL — Major network or routing issues detected.${NC}"
+    fi
+    echo -e "${CYAN}==========================================================${NC}\n"
+
+    if [[ "$SCORE" -lt 85 ]]; then
+        read -p "Would you like to automatically apply recommended fixes (BBR, MSS, MTU)? [y/N]: " DO_FIX
+        if [[ "$DO_FIX" =~ ^[Yy]$ ]]; then
+            doctor_apply_fixes
+        fi
+    fi
+}
+
+doctor_apply_fixes() {
+    echo -e "\n${CYAN}[*] Applying automated optimizations...${NC}"
+    tune_apply
+    echo -e "${GREEN}[✔️] Optimizations applied successfully.${NC}\n"
+}
+
+doctor_start_server() {
+    ensure_doctor_tools
+    if pgrep -x iperf3 >/dev/null 2>&1; then
+        echo -e "${YELLOW}[i] iperf3 server is already running.${NC}"
+    else
+        iperf3 -s -D
+        echo -e "${GREEN}[✔️] iperf3 server started in background on port 5201.${NC}"
+    fi
+}
+
+doctor_stop_server() {
+    pkill -f "iperf3 -s" >/dev/null 2>&1 || true
+    echo -e "${GREEN}[✔️] iperf3 server stopped.${NC}"
+}
+
+cli_doctor() {
+    case "${1:-}" in
+        server) doctor_start_server ;;
+        stop-server) doctor_stop_server ;;
+        fix) doctor_apply_fixes ;;
+        *) doctor_diagnostics ;;
+    esac
+}
+
 uninstall_all() {
     echo -e "\n${RED}=== Uninstalling EVERYTHING (tunnel + panel + hashem command) ===${NC}"
     read -p "Are you sure? This removes GRE & FRP, the web panel AND the 'hashem' command. (y/N): " CONFIRM
@@ -4060,6 +4302,7 @@ main_menu() {
     echo "  7) View FRP Live Logs"
     echo "  8) Restart Tunnel Services"
     echo "  9) Remove Tunnel (GRE + FRP, panel stays)"
+    echo " 24) Diagnostics & Speed Test (Doctor / عیب‌یابی و تست سرعت)"
     echo ""
     echo -e "${YELLOW}── Tune ──${NC}"
     echo " 10) Optimize Tunnel (BBR + buffers + MTU/MSS, with backup)"
@@ -4080,7 +4323,7 @@ main_menu() {
     echo " 18) Uninstall Everything (tunnel + panel + 'hashem' command)"
     echo "  0) Exit"
     echo ""
-    read -p "Select an option [0-23]: " OPTION
+    read -p "Select an option [0-24]: " OPTION
 
     case "$OPTION" in
         1)
@@ -4152,6 +4395,9 @@ main_menu() {
         23)
             menu_carrier
             ;;
+        24)
+            doctor_diagnostics
+            ;;
         0)
             echo "Exiting..."
             exit 0
@@ -4186,6 +4432,7 @@ Usage:
   hashem watchdog on|off|status|test|tick      # tunnel watchdog monitoring & alerts
   hashem backup now [--keep N] | restore <f> | schedule ... | status
   hashem tgsend "msg"                          # send Telegram alert manually
+  hashem doctor [server|stop-server|fix]       # full latency, jitter, MTU & speed diagnostics
   hashem update | update-all                   # update script + panel to latest release
   hashem free-ram                              # cap journald + drop cache + 1GB swap
 
@@ -4317,6 +4564,7 @@ if [[ $# -gt 0 ]]; then
             while [[ $# -gt 0 ]]; do case "$1" in --id) ID="$2"; shift 2 ;; *) shift ;; esac; done
             peer_token "$ID" ;;
         status) check_status ;;
+        doctor|test|diagnose) shift; cli_doctor "$@" ;;
         panel-tls) shift; panel_tls_issue "$@" ;;
         carrier) shift; cli_carrier "$@" ;;
         carrier-kernel-init) carrier_init_kernel ;;

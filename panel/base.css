@@ -160,4 +160,6 @@ button, a, input, select, textarea, [role="button"], [role="menuitem"] {
 .u-max-w-260 { max-width: 260px; }
 .u-min-w-180 { min-width: 180px; }
 .u-items-start { align-items: flex-start; }
+.u-color-ok { color: var(--ok); }
+.u-flex-none { flex: none; }
 
