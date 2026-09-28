@@ -4135,19 +4135,23 @@ async function fixDoctor() {
 }
 
 async function toggleIperf() {
-  if (!doctorData) return;
-  const isRunning = doctorData.speed_result && doctorData.speed_result.server_active;
+  const isRunning = doctorData && doctorData.speed_result && doctorData.speed_result.server_active;
   const action = isRunning ? 'iperf-stop' : 'iperf-start';
   const btn = $('docIperfBtn');
+  const txt = $('docIperfTxt');
   if (btn) btn.disabled = true;
+  if (txt) txt.textContent = isRunning ? 'Stopping…' : 'Starting…';
   try {
-    await api('/api/doctor', { action });
-    toastOk(isRunning ? 'iPerf3 Stopped' : 'iPerf3 Started', isRunning ? 'Server listener stopped' : 'Listening on port 5201');
+    const res = await api('/api/doctor', { action });
+    toastOk(isRunning ? 'iPerf3 Stopped' : 'iPerf3 Started', (res && res.message) || (isRunning ? 'Server listener stopped' : 'Listening on port 5201'));
     await loadDoctor(false);
   } catch(e) {
     toastErr('iPerf3 action failed', e.message);
   } finally {
     if (btn) btn.disabled = false;
+    if (txt && doctorData && doctorData.speed_result) {
+      txt.textContent = doctorData.speed_result.server_active ? 'Stop iPerf3 Server' : 'Start iPerf3 Server';
+    }
   }
 }
 

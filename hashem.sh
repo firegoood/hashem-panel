@@ -2857,6 +2857,7 @@ free_ram() {
 
 install_panel() {
     echo -e "${CYAN}[*] Installing Hashem web panel...${NC}"
+    ensure_doctor_tools
 
     ARCH=$(uname -m)
     case "$ARCH" in

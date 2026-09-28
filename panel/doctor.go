@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -442,8 +443,21 @@ func isIperfServerRunning() bool {
 	if runtime.GOOS == "windows" {
 		return false
 	}
-	out, err := exec.Command("pgrep", "-x", "iperf3").CombinedOutput()
-	return err == nil && len(strings.TrimSpace(string(out))) > 0
+	// 1. Direct TCP probe on port 5201 (fastest & most accurate)
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:5201", 200*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		return true
+	}
+	// 2. Check pgrep if available
+	if out, err := exec.Command("pgrep", "-x", "iperf3").CombinedOutput(); err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		return true
+	}
+	// 3. Check pidof if available
+	if out, err := exec.Command("pidof", "iperf3").CombinedOutput(); err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		return true
+	}
+	return false
 }
 
 func startIperfServer() (string, error) {
@@ -453,10 +467,36 @@ func startIperfServer() (string, error) {
 	if isIperfServerRunning() {
 		return "iperf3 server already running on port 5201", nil
 	}
-	cmd := exec.Command("iperf3", "-s", "-D")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return string(out), err
+
+	// Ensure iperf3 is installed
+	if _, err := exec.LookPath("iperf3"); err != nil {
+		// Attempt automatic installation on Debian/Ubuntu
+		_ = exec.Command("apt-get", "update", "-qq").Run()
+		_ = exec.Command("apt-get", "install", "-y", "-qq", "iperf3").Run()
+		if _, err := exec.LookPath("iperf3"); err != nil {
+			return "", fmt.Errorf("iperf3 is not installed on this server. Run 'apt update && apt install -y iperf3'")
+		}
 	}
+
+	// Launch iperf3 as daemon
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "iperf3", "-s", "-D")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		time.Sleep(250 * time.Millisecond)
+		if isIperfServerRunning() {
+			return "iperf3 server active on port 5201", nil
+		}
+		errMsg := strings.TrimSpace(string(out))
+		if errMsg != "" {
+			return "", fmt.Errorf("%s", errMsg)
+		}
+		return "", fmt.Errorf("failed to start iperf3: %w", err)
+	}
+
+	time.Sleep(250 * time.Millisecond)
 	return "iperf3 daemon started on port 5201", nil
 }
 
@@ -464,8 +504,10 @@ func stopIperfServer() (string, error) {
 	if runtime.GOOS == "windows" {
 		return "Mock: iperf3 server stopped", nil
 	}
-	cmd := exec.Command("pkill", "-x", "iperf3")
-	_ = cmd.Run()
+	_ = exec.Command("pkill", "-x", "iperf3").Run()
+	_ = exec.Command("killall", "-9", "iperf3").Run()
+	_ = exec.Command("fuser", "-k", "5201/tcp").Run()
+	time.Sleep(200 * time.Millisecond)
 	return "iperf3 daemon stopped", nil
 }
 
