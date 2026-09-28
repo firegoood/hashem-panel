@@ -238,6 +238,8 @@ func main() {
 	mux.HandleFunc("POST "+base+"/api/watchdog/backup-download", requireAuth(handleBackupDownload))
 	mux.HandleFunc("GET "+base+"/api/perf", requireAuth(handlePerfGet))
 	mux.HandleFunc("POST "+base+"/api/perf", requireAuth(handlePerfPost))
+	mux.HandleFunc("GET "+base+"/api/carrier", requireAuth(handleCarrierGet))
+	mux.HandleFunc("POST "+base+"/api/carrier", requireAuth(handleCarrierPost))
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("gre-panel listening on %s under /%s", addr, cfg.BasePath)

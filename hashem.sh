@@ -28,6 +28,7 @@ FOREIGN_GRE_IP="10.10.10.1"
 TUNNEL_NAME="gre-tunnel"
 WATCHDOG_FILE="/etc/gre-panel/watchdog.json"
 PERF_FILE="/etc/gre-panel/perf.json"
+CARRIER_FILE="/etc/gre-panel/carrier.json"
 BACKUP_DIR="/var/backups/hashem"
 
 # ---- Performance / Obfuscation Configuration (/etc/gre-panel/perf.json) ----
@@ -274,32 +275,240 @@ gen_random_port() { # random port 20000-60000 for FRP
     fi
 }
 
+# ---- Carrier & Multi-Protocol Failover (Direct GRE <-> FOU UDP) ----
+init_carrier_json() {
+    mkdir -p /etc/gre-panel
+    if [[ ! -f "$CARRIER_FILE" ]]; then
+        cat << 'EOF' > "$CARRIER_FILE"
+{
+  "mode": "auto",
+  "active_carrier": "direct",
+  "fou_port1": 443,
+  "fou_port2": 55555,
+  "candidates": [
+    "direct",
+    "fou:443",
+    "fou:55555"
+  ],
+  "last_switch": "",
+  "switch_count": 0
+}
+EOF
+        chmod 600 "$CARRIER_FILE" 2>/dev/null || true
+    fi
+}
+
+carrier_get_mode() {
+    init_carrier_json
+    python3 -c '
+import json
+try:
+    with open("'"$CARRIER_FILE"'") as f:
+        print(json.load(f).get("mode", "auto"))
+except Exception:
+    print("auto")
+' 2>/dev/null || echo "auto"
+}
+
+carrier_get_active() {
+    init_carrier_json
+    python3 -c '
+import json
+try:
+    with open("'"$CARRIER_FILE"'") as f:
+        print(json.load(f).get("active_carrier", "direct"))
+except Exception:
+    print("direct")
+' 2>/dev/null || echo "direct"
+}
+
+carrier_get_fou_ports() {
+    init_carrier_json
+    python3 -c '
+import json
+try:
+    with open("'"$CARRIER_FILE"'") as f:
+        d = json.load(f)
+        p1 = d.get("fou_port1", 443)
+        p2 = d.get("fou_port2", 55555)
+        print(f"{p1} {p2}")
+except Exception:
+    print("443 55555")
+' 2>/dev/null || echo "443 55555"
+}
+
+carrier_set_mode() {
+    local M="$1"
+    [[ "$M" == "auto" || "$M" == "direct" || "$M" == fou:* ]] || return 1
+    init_carrier_json
+    python3 -c '
+import json, sys
+p = "'"$CARRIER_FILE"'"
+try:
+    with open(p) as f:
+        d = json.load(f)
+except Exception:
+    d = {}
+d["mode"] = sys.argv[1]
+with open(p + ".tmp", "w") as f:
+    json.dump(d, f, indent=2)
+import os
+os.replace(p + ".tmp", p)
+os.chmod(p, 0o600)
+' "$M" 2>/dev/null || true
+}
+
+carrier_set_fou_ports() {
+    local P1=$1 P2=$2
+    is_valid_port "$P1" || return 1
+    is_valid_port "$P2" || return 1
+    init_carrier_json
+    python3 -c '
+import json, sys
+p = "'"$CARRIER_FILE"'"
+p1 = int(sys.argv[1])
+p2 = int(sys.argv[2])
+try:
+    with open(p) as f:
+        d = json.load(f)
+except Exception:
+    d = {}
+d["fou_port1"] = p1
+d["fou_port2"] = p2
+d["candidates"] = ["direct", f"fou:{p1}", f"fou:{p2}"]
+with open(p + ".tmp", "w") as f:
+    json.dump(d, f, indent=2)
+import os
+os.replace(p + ".tmp", p)
+os.chmod(p, 0o600)
+' "$P1" "$P2" 2>/dev/null || true
+}
+
+carrier_init_kernel() {
+    modprobe fou >/dev/null 2>&1 || true
+    modprobe ip_gre >/dev/null 2>&1 || true
+    local P1 P2
+    read -r P1 P2 <<< "$(carrier_get_fou_ports)"
+    if is_valid_port "$P1"; then
+        ip fou add port "$P1" ipproto 47 >/dev/null 2>&1 || true
+        iptables -C INPUT -p udp --dport "$P1" -j ACCEPT >/dev/null 2>&1 || \
+            iptables -I INPUT 1 -p udp --dport "$P1" -j ACCEPT >/dev/null 2>&1 || true
+        if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+            ufw allow "$P1"/udp >/dev/null 2>&1 || true
+        fi
+    fi
+    if is_valid_port "$P2" && [[ "$P2" != "$P1" ]]; then
+        ip fou add port "$P2" ipproto 47 >/dev/null 2>&1 || true
+        iptables -C INPUT -p udp --dport "$P2" -j ACCEPT >/dev/null 2>&1 || \
+            iptables -I INPUT 1 -p udp --dport "$P2" -j ACCEPT >/dev/null 2>&1 || true
+        if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+            ufw allow "$P2"/udp >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
+carrier_apply() {
+    local TARGET="$1"
+    local IFNAME="${2:-$TUNNEL_NAME}"
+    [[ -z "$TARGET" ]] && TARGET="direct"
+    carrier_init_kernel
+
+    local APPLIED=0
+    if ip link show "$IFNAME" >/dev/null 2>&1; then
+        if [[ "$TARGET" == "direct" ]]; then
+            ip link set dev "$IFNAME" type gre encap none >/dev/null 2>&1 && APPLIED=1
+        elif [[ "$TARGET" == fou:* ]]; then
+            local DPORT="${TARGET#fou:}"
+            if is_valid_port "$DPORT"; then
+                ip fou add port "$DPORT" ipproto 47 >/dev/null 2>&1 || true
+                ip link set dev "$IFNAME" type gre encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1 && APPLIED=1
+            fi
+        fi
+    fi
+
+    python3 -c '
+import json, time, sys
+p = "'"$CARRIER_FILE"'"
+try:
+    with open(p) as f:
+        d = json.load(f)
+except Exception:
+    d = {}
+d["active_carrier"] = sys.argv[1]
+d["last_switch"] = time.strftime("%Y-%m-%d %H:%M:%S")
+d["switch_count"] = int(d.get("switch_count", 0)) + 1
+with open(p + ".tmp", "w") as f:
+    json.dump(d, f, indent=2)
+import os
+os.replace(p + ".tmp", p)
+os.chmod(p, 0o600)
+' "$TARGET" 2>/dev/null || true
+
+    if [[ $APPLIED -eq 1 ]]; then
+        return 0
+    fi
+    systemctl restart "${IFNAME}.service" >/dev/null 2>&1 || true
+    return 0
+}
+
+carrier_apply_active() {
+    local IFNAME="${1:-$TUNNEL_NAME}"
+    local ACT
+    ACT=$(carrier_get_active)
+    carrier_apply "$ACT" "$IFNAME"
+}
+
+carrier_cycle_next() {
+    init_carrier_json
+    local NEXT
+    NEXT=$(python3 -c '
+import json
+path = "'"$CARRIER_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    cur = d.get("active_carrier", "direct")
+    cands = d.get("candidates", ["direct", "fou:443", "fou:55555"])
+    if cur in cands:
+        idx = (cands.index(cur) + 1) % len(cands)
+        next_cand = cands[idx]
+    else:
+        next_cand = cands[0] if cands else "direct"
+    print(next_cand)
+except Exception:
+    print("direct")
+' 2>/dev/null || echo "direct")
+
+    carrier_apply "$NEXT"
+    echo "$NEXT"
+}
+
 # ---- setup bundle: one readable string with everything foreign needs ----
-# Format: hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
-# PORTS optional, dash-separated (443-2083). Legacy 32-char tokens (no hsh1_
-# prefix) keep working everywhere — bundle_parse rejects them, callers fall
-# back to manual fields.
+# Format: hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>][_fou<P1>-<P2>]
 BUNDLE_PREFIX="hsh1_"
-bundle_make() { # $1=iran_pub $2=frp_port $3=iran_gre $4=foreign_gre $5=token [$6="p1 p2"]
-    local IRAN_PUB=$1 FRP_PORT=$2 IRAN_GRE=$3 FOREIGN_GRE=$4 TOKEN=$5 PORTS_SP=${6:-}
+bundle_make() { # $1=iran_pub $2=frp_port $3=iran_gre $4=foreign_gre $5=token [$6="p1 p2"] [$7="p1-p2"]
+    local IRAN_PUB=$1 FRP_PORT=$2 IRAN_GRE=$3 FOREIGN_GRE=$4 TOKEN=$5 PORTS_SP=${6:-} FOU_ARG=${7:-}
     local PORTS_DASH=""
     if [[ -n "$PORTS_SP" ]]; then
         PORTS_DASH=$(echo "$PORTS_SP" | xargs | tr ' ' '-')
     fi
+    if [[ -z "$FOU_ARG" ]]; then
+        local P1 P2
+        read -r P1 P2 <<< "$(carrier_get_fou_ports 2>/dev/null || echo '443 55555')"
+        FOU_ARG="${P1}-${P2}"
+    fi
     if [[ -n "$PORTS_DASH" ]]; then
-        echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}_${PORTS_DASH}"
+        echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}_${PORTS_DASH}_fou${FOU_ARG}"
     else
-        echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}"
+        echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}__fou${FOU_ARG}"
     fi
 }
-# bundle_parse $1: sets B_IRAN_PUB B_FRP_PORT B_IRAN_GRE B_FOREIGN_GRE B_TOKEN
-# B_PORTS (space-separated, may be empty). Returns 0 on valid bundle.
 bundle_parse() {
-    B_IRAN_PUB=""; B_FRP_PORT=""; B_IRAN_GRE=""; B_FOREIGN_GRE=""; B_TOKEN=""; B_PORTS=""
-    local IN=$1 rest a b c d e f
+    B_IRAN_PUB=""; B_FRP_PORT=""; B_IRAN_GRE=""; B_FOREIGN_GRE=""; B_TOKEN=""; B_PORTS=""; B_FOU_P1=443; B_FOU_P2=55555
+    local IN=$1 rest a b c d e f g
     [[ "$IN" == ${BUNDLE_PREFIX}* ]] || return 1
     rest=${IN#${BUNDLE_PREFIX}}
-    IFS=_ read -r a b c d e f <<<"$rest"
+    IFS=_ read -r a b c d e f g <<<"$rest"
     [[ -n "$a" && -n "$b" && -n "$c" && -n "$d" && -n "$e" ]] || return 1
     is_valid_ip "$a" || return 1
     is_valid_port "$b" || return 1
@@ -307,12 +516,22 @@ bundle_parse() {
     is_valid_ip "$d" || return 1
     [[ ${#e} -ge 1 && ${#e} -le 128 ]] || return 1
     local CLEANED="" p
-    if [[ -n "${f:-}" ]]; then
+    if [[ -n "${f:-}" && "$f" != fou* ]]; then
         for p in $(echo "$f" | tr -- '-,' '  '); do
             is_valid_port "$p" && CLEANED="$CLEANED $((10#$p))"
         done
         CLEANED=$(echo "$CLEANED" | xargs)
         [[ -n "$CLEANED" ]] || return 1
+    fi
+    local FOU_RAW="${g:-}"
+    if [[ -z "$FOU_RAW" && "${f:-}" == fou* ]]; then
+        FOU_RAW="$f"
+    fi
+    if [[ -n "$FOU_RAW" && "$FOU_RAW" == fou* ]]; then
+        local FP1 FP2
+        IFS=- read -r FP1 FP2 <<< "${FOU_RAW#fou}"
+        is_valid_port "$FP1" && B_FOU_P1=$((10#$FP1))
+        is_valid_port "$FP2" && B_FOU_P2=$((10#$FP2))
     fi
     B_IRAN_PUB=$a; B_FRP_PORT=$((10#$b)); B_IRAN_GRE=$c; B_FOREIGN_GRE=$d; B_TOKEN=$e; B_PORTS=$CLEANED
     return 0
@@ -482,8 +701,10 @@ After=network.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+ExecStartPre=-/usr/local/bin/hashem carrier-kernel-init
 ExecStartPre=-/sbin/ip tunnel del ${IFNAME}
 ExecStart=/bin/sh -c "/sbin/ip tunnel add ${IFNAME} mode gre local ${LOCAL_IP} remote ${REMOTE_IP} ttl 255 nopmtudisc && /sbin/ip link set dev ${IFNAME} up mtu 1380 && /sbin/ip addr add ${GRE_INTERNAL_IP}/30 dev ${IFNAME}"
+ExecStartPost=-/usr/local/bin/hashem carrier-apply-active ${IFNAME}
 ExecStop=-/sbin/ip tunnel del ${IFNAME}
 
 [Install]
@@ -496,6 +717,7 @@ EOF
         echo -e "${RED}[!] GRE interface ${IFNAME} failed to start — check: ip tunnel show; journalctl -u ${IFNAME}.service${NC}"
         return 1
     fi
+    carrier_apply_active "${IFNAME}" >/dev/null 2>&1 || true
 
     # Enable packet forwarding & MSS clamping to avoid fragmentation
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
@@ -1953,6 +2175,8 @@ setup_foreign_server() {
             LOCAL_GRE_SET=$B_FOREIGN_GRE; PEER_GRE_SET=$B_IRAN_GRE
             INPUT_PORTS=$(echo "$B_PORTS" | tr ' ' ',')
             BUNDLE_USED=1
+            carrier_set_fou_ports "$B_FOU_P1" "$B_FOU_P2" 2>/dev/null || true
+            carrier_init_kernel 2>/dev/null || true
             echo -e "${GREEN}[✔️] Bundle applied: Iran ${IP_IRAN}:${SERVER_PORT}, token set, ports: ${INPUT_PORTS:-— (enter below)}${NC}"
         else
             echo -e "${RED}[!] Bad bundle — falling back to manual fields.${NC}"
@@ -2822,10 +3046,43 @@ print(action)
 ' 2>/dev/null)
 
         if [[ "$DECISION" == DOWN* ]]; then
-            if [[ "$DECISION" == "DOWN" ]]; then
-                watchdog_send "🔴 Tunnel DOWN: ${DETAIL} (attempting tunnel restart)" || true
+            local CMODE
+            CMODE=$(carrier_get_mode)
+            if [[ "$CMODE" == "auto" ]]; then
+                local OLD_C NEW_C
+                OLD_C=$(carrier_get_active)
+                NEW_C=$(carrier_cycle_next)
+                sleep 2
+                local PGRE
+                PGRE=$(watchdog_get_peer_gre)
+                if [[ -n "$PGRE" ]] && ping -c 1 -W 2 "$PGRE" >/dev/null 2>&1; then
+                    watchdog_send "⚡ Auto-Failover: Switched carrier from ${OLD_C} to ${NEW_C} — Tunnel link restored!" || true
+                    python3 -c '
+import json
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["consec_fails"] = 0
+    d["last_alert"] = "up"
+    d["down_since"] = 0
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+except Exception:
+    pass
+' 2>/dev/null || true
+                    DECISION="RECOVERED 0"
+                fi
             fi
-            restart_all_lite
+
+            if [[ "$DECISION" == DOWN* ]]; then
+                if [[ "$DECISION" == "DOWN" ]]; then
+                    watchdog_send "🔴 Tunnel DOWN: ${DETAIL} (attempting tunnel restart)" || true
+                fi
+                restart_all_lite
+            fi
         elif [[ "$DECISION" == RECOVERED* ]]; then
             local DMIN
             DMIN=$(echo "$DECISION" | awk '{print $2}')
@@ -3629,6 +3886,101 @@ except Exception:
     echo -e "${GREEN}[✔️] Update complete — script + panel are latest (panel: ${PANEL_VER}). Re-run the script to use the new menu.${NC}"
 }
 
+cli_carrier() {
+    init_carrier_json
+    local SUB="${1:-status}"
+    case "$SUB" in
+        status)
+            local MODE ACT P1 P2
+            MODE=$(carrier_get_mode)
+            ACT=$(carrier_get_active)
+            read -r P1 P2 <<< "$(carrier_get_fou_ports)"
+            local PGRE PING_OUT="no peer"
+            PGRE=$(watchdog_get_peer_gre 2>/dev/null)
+            if [[ -n "$PGRE" ]]; then
+                if ping -c 1 -W 2 "$PGRE" >/dev/null 2>&1; then
+                    local RTT
+                    RTT=$(ping -c 1 -W 2 "$PGRE" 2>/dev/null | sed -n 's/.*time=\([0-9.]*\) *ms.*/\1/p' | head -n1)
+                    PING_OUT="${GREEN}OK (${RTT}ms to ${PGRE})${NC}"
+                else
+                    PING_OUT="${RED}FAIL (no reply from ${PGRE})${NC}"
+                fi
+            fi
+
+            echo -e "\n${CYAN}==========================================================${NC}"
+            echo -e "${CYAN}         Tunnel Carrier & Multi-Protocol Failover         ${NC}"
+            echo -e "${CYAN}==========================================================${NC}"
+            echo -e "Failover Mode:    ${YELLOW}${MODE}${NC} (auto / direct / manual)"
+            echo -e "Active Carrier:   ${GREEN}${ACT}${NC}"
+            echo -e "FOU Listeners:    UDP ${P1} / UDP ${P2} (Kernel FOU / ipproto 47)"
+            echo -e "Tunnel Health:    ${PING_OUT}"
+            python3 -c '
+import json
+try:
+    with open("'"$CARRIER_FILE"'") as f:
+        d = json.load(f)
+    cands = ", ".join(d.get("candidates", []))
+    print(f"Candidates:       {cands}")
+    print(f"Total Switches:   {d.get(\"switch_count\", 0)}")
+    last = d.get("last_switch", "") or "never"
+    print(f"Last Switch:      {last}")
+except Exception:
+    pass
+' 2>/dev/null
+            echo -e "${CYAN}==========================================================${NC}\n"
+            ;;
+        mode)
+            local TARGET="${2:-auto}"
+            carrier_set_mode "$TARGET"
+            echo -e "${GREEN}[✔️] Carrier mode set to: ${TARGET}${NC}"
+            if [[ "$TARGET" != "auto" ]]; then
+                carrier_apply "$TARGET"
+                echo -e "${GREEN}[✔️] Active carrier applied: ${TARGET}${NC}"
+            fi
+            ;;
+        set)
+            local TARGET="${2:-direct}"
+            carrier_apply "$TARGET"
+            echo -e "${GREEN}[✔️] Switched active carrier to: ${TARGET}${NC}"
+            ;;
+        next)
+            local NEW_C
+            NEW_C=$(carrier_cycle_next)
+            echo -e "${GREEN}[✔️] Cycled carrier to: ${NEW_C}${NC}"
+            ;;
+        kernel-init)
+            carrier_init_kernel
+            ;;
+        *)
+            echo "Usage: hashem carrier [status|mode <auto|direct|fou:PORT>|set <direct|fou:PORT>|next]"
+            return 1
+            ;;
+    esac
+}
+
+menu_carrier() {
+    cli_carrier status
+    echo -e "${YELLOW}Select an action:${NC}"
+    echo "  1) Set Mode to Auto (Automatic Round-Robin on failure)"
+    echo "  2) Force Direct GRE (Raw Protocol 47)"
+    echo "  3) Force FOU UDP (Port 443)"
+    echo "  4) Force FOU UDP (Port 55555)"
+    echo "  5) Cycle to Next Candidate Now"
+    echo "  0) Back to Main Menu"
+    echo ""
+    read -p "Select an option [0-5]: " C_OPT
+    case "$C_OPT" in
+        1) cli_carrier mode auto ;;
+        2) cli_carrier set direct ;;
+        3) cli_carrier set fou:443 ;;
+        4) cli_carrier set fou:55555 ;;
+        5) cli_carrier next ;;
+        0) return 0 ;;
+        *) echo -e "${RED}[!] Invalid option.${NC}" ;;
+    esac
+    read -p "Press Enter to return to menu..."
+}
+
 main_menu() {
     clear
     echo -e "${CYAN}"
@@ -3660,6 +4012,7 @@ main_menu() {
     echo " 20) Watchdog & Backup (Telegram alerts, route direct/tunnel, encrypted backup)"
     echo " 21) DPI Shield (rate-limit reverse ports against flood: on/off/status)"
     echo " 22) Performance & Obfuscation Toggles (proxy crypto/comp, forced TLS, DPI rate)"
+    echo " 23) Carrier & Failover (Direct GRE ↔ FOU UDP: auto/manual/status)"
     echo ""
     echo -e "${YELLOW}── Panel & System ──${NC}"
     echo " 13) Show Panel URL + Username + Password"
@@ -3670,7 +4023,7 @@ main_menu() {
     echo " 18) Uninstall Everything (tunnel + panel + 'hashem' command)"
     echo "  0) Exit"
     echo ""
-    read -p "Select an option [0-22]: " OPTION
+    read -p "Select an option [0-23]: " OPTION
 
     case "$OPTION" in
         1)
@@ -3739,6 +4092,9 @@ main_menu() {
         22)
             menu_perf
             ;;
+        23)
+            menu_carrier
+            ;;
         0)
             echo "Exiting..."
             exit 0
@@ -3756,7 +4112,7 @@ check_root
 usage_cli() {
     cat <<EOF
 Usage:
-  hashem                                    # interactive menu (options 0-22)
+  hashem                                    # interactive menu (options 0-23)
   hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--chaff low|mid|off] [--force]
   hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--chaff low|mid|off] [--force]
                        # ... or: hashem setup-foreign --bundle hsh1_...  (fills everything; explicit flags win)
@@ -3766,6 +4122,7 @@ Usage:
   hashem remove-peer --id N [--force] | peer-list | peer-token --id N
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
+  hashem carrier [status|mode auto|direct|fou:P|set direct|fou:P|next] # multi-carrier failover
   hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply
   hashem chaff on|off|status                   # traffic obfuscation (idle-gap filler)
   hashem dpi-shield on|off|status              # rate-limit reverse ports against DPI flood
@@ -3854,6 +4211,8 @@ cli_setup_foreign() {
         [[ -z "$LOCAL_GRE" ]] && LOCAL_GRE=$B_FOREIGN_GRE
         [[ -z "$PEER_GRE" ]] && PEER_GRE=$B_IRAN_GRE
         [[ -z "$PORTS" ]] && PORTS=$B_PORTS
+        carrier_set_fou_ports "$B_FOU_P1" "$B_FOU_P2" 2>/dev/null || true
+        carrier_init_kernel 2>/dev/null || true
         echo -e "${CYAN}[*] Bundle applied: fields auto-filled (explicit flags kept).${NC}"
     fi
     # --bundle replaces --token as the required secret
@@ -3902,6 +4261,9 @@ if [[ $# -gt 0 ]]; then
             peer_token "$ID" ;;
         status) check_status ;;
         panel-tls) shift; panel_tls_issue "$@" ;;
+        carrier) shift; cli_carrier "$@" ;;
+        carrier-kernel-init) carrier_init_kernel ;;
+        carrier-apply-active) shift; carrier_apply_active "$1" ;;
         optimize) tune_apply ;;
         restore) tune_restore ;;
         tune-status) tune_status ;;

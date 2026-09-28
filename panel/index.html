@@ -677,6 +677,7 @@
             <button class="hashem-btn hashem-btn-secondary" data-act="ping">Ping peer</button>
             <button class="hashem-btn hashem-btn-secondary" data-act="restart-gre">Restart GRE</button>
             <button class="hashem-btn hashem-btn-secondary" data-act="restart-frps" id="frpRestartBtn">Restart frps</button>
+            <button class="hashem-btn hashem-btn-secondary" id="tunnelCarrierCycleBtn" title="Cycle encapsulation carrier (Direct GRE / FOU UDP)">⚡ Carrier: <span id="tunnelCarrierTxt">GRE</span></button>
             <button class="hashem-btn hashem-btn-primary" id="optimizeBtn">⚡ Optimize tunnel</button>
             <button class="hashem-btn hashem-btn-secondary hidden" id="restoreBtn">Restore pre-optimize</button>
             <button class="hashem-btn hashem-btn-danger" id="removeTunnelBtn">Remove tunnel</button>
@@ -932,6 +933,70 @@
               <span class="badge" id="perfDpiRateBadge">300/min (burst 100)</span>
             </div>
             <div class="ent-help" id="perfDpiHelp">Uses iptables hashlimit to protect reverse ports against high-rate active probing while allowing normal user traffic.</div>
+          </div>
+        </div>
+
+        <!-- Multi-Carrier Failover (Direct GRE <-> FOU UDP) Card -->
+        <div class="tunnel-card" id="carrierCard">
+          <div class="tc-header">
+            <div style="display:flex;align-items:center;gap:10px">
+              <p class="tc-title">Carrier &amp; UDP Encapsulation (FOU)</p>
+              <span class="badge info" id="carrierActiveBadge">🟢 Direct GRE</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button class="hashem-btn hashem-btn-secondary" id="carrierCycleBtn" title="Switch immediately to next carrier">⚡ Cycle Carrier</button>
+              <button class="hashem-btn hashem-btn-primary" id="carrierApplyBtn">Apply Active</button>
+            </div>
+          </div>
+          <div class="qs-hint">
+            Dynamic transport switching between raw GRE (Protocol 47) and Kernel-Native Foo-over-UDP (FOU). 
+            Bypasses DPI protocol-47 throttling and random IP drops by wrapping GRE inside symmetric UDP packets.
+          </div>
+
+          <div class="wd-hero-grid" style="margin-top:12px">
+            <div class="wd-stat-box">
+              <span class="wd-stat-label">Active Carrier</span>
+              <div class="wd-stat-val" id="carrierActiveVal" style="font-size:18px">—</div>
+              <span class="wd-stat-sub" id="carrierActiveSub">Kernel encapsulation</span>
+            </div>
+            <div class="wd-stat-box">
+              <span class="wd-stat-label">Configured Mode</span>
+              <div class="wd-stat-val" id="carrierModeVal" style="font-size:18px">—</div>
+              <span class="wd-stat-sub" id="carrierModeSub">Failover policy</span>
+            </div>
+            <div class="wd-stat-box">
+              <span class="wd-stat-label">FOU Listeners</span>
+              <div class="wd-stat-val" id="carrierPortsVal" style="font-size:18px">—</div>
+              <span class="wd-stat-sub" id="carrierPortsSub">UDP ipproto 47</span>
+            </div>
+          </div>
+
+          <div class="fg" style="margin-top:16px">
+            <label for="carrierModeSelect">Carrier Selection / Policy</label>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <select class="hashem-input" id="carrierModeSelect" style="max-width:260px">
+                <option value="auto">Auto (Failover on drops)</option>
+                <option value="direct">Direct GRE (Protocol 47)</option>
+                <option value="fou:443">FOU UDP : 443 (HTTPS disguise)</option>
+                <option value="fou:55555">FOU UDP : 55555 (Alternate port)</option>
+              </select>
+              <button class="hashem-btn hashem-btn-secondary" id="carrierSaveModeBtn">Save Mode</button>
+              <span class="status-indicator" id="carrierStatusInd"><span class="dot"></span><span id="carrierStatusTxt">—</span></span>
+            </div>
+            <div class="ent-help">
+              <strong>Auto mode:</strong> When the watchdog detects GRE packet loss or timeout, it automatically round-robins between Direct GRE and configured FOU UDP ports before attempting service restarts.
+            </div>
+          </div>
+
+          <div class="fg" style="margin-top:16px">
+            <label for="carrierPortsInput">FOU UDP Ports (comma-separated)</label>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <input type="text" class="hashem-input" id="carrierPortsInput" value="443, 55555" style="max-width:260px" placeholder="443, 55555">
+              <button class="hashem-btn hashem-btn-secondary" id="carrierSavePortsBtn">Update FOU Ports</button>
+            </div>
+            <div class="ent-help">
+              Symmetric UDP ports opened on both Iran and Foreign VPS via kernel <code>ip fou add port &lt;P&gt; ipproto 47</code>.
+            </div>
           </div>
         </div>
       </section>
@@ -1260,7 +1325,8 @@ function goTab(name) {
   document.querySelectorAll('.sidebar-nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   const dr = $('drawerNav');
   if (dr) dr.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
-  if (name === 'perf') loadPerf();
+  if (name === 'perf') { loadPerf(); loadCarrier(); }
+  if (name === 'tunnel') loadCarrier();
   if (name === 'watchdog') loadWatchdog();
   if (name === 'update') loadVersion();
   if (name === 'logs') { refreshLogPeers(); loadLogs(); loadErrors(); armLogFollow(); }
@@ -1559,6 +1625,7 @@ async function refresh() {
     }
   } catch(e) { if (!/session|expired|unauthorized/i.test(e.message)) toastErr('refresh failed', e.message); }
   refreshDash();
+  loadCarrier().catch(() => {});
 }
 // peer add-form: prefill Iran IP + suggest next control port / GRE pair
 async function updatePeerHints(s) {
@@ -3202,6 +3269,147 @@ if (perfDpiToggleBtn) {
       toastErr('DPI shield error', e.message);
     } finally {
       perfDpiToggleBtn.disabled = false;
+    }
+  };
+}
+
+// ---------- Multi-Carrier & UDP Encapsulation (FOU) ----------
+let carrierState = { mode: 'auto', active: 'direct', fou_ports: [443, 55555], direct_gre: true, watchdog_auto: true };
+
+async function loadCarrier() {
+  try {
+    const s = await api('/api/carrier');
+    carrierState = s;
+
+    const badge = $('carrierActiveBadge');
+    if (badge) {
+      if (s.active && s.active.startsWith('fou:')) {
+        badge.textContent = '⚡ ' + s.active.toUpperCase();
+        badge.className = 'badge ok';
+      } else {
+        badge.textContent = '🟢 Direct GRE';
+        badge.className = 'badge info';
+      }
+    }
+
+    if ($('carrierActiveVal')) {
+      $('carrierActiveVal').textContent = s.active ? s.active.toUpperCase() : 'DIRECT';
+    }
+    if ($('carrierModeVal')) {
+      $('carrierModeVal').textContent = s.mode ? s.mode.toUpperCase() : 'AUTO';
+    }
+    if ($('carrierPortsVal')) {
+      $('carrierPortsVal').textContent = (s.fou_ports && s.fou_ports.length > 0) ? s.fou_ports.join(', ') : 'None';
+    }
+
+    if ($('carrierModeSelect')) {
+      $('carrierModeSelect').value = s.mode || 'auto';
+    }
+
+    if ($('carrierPortsInput') && document.activeElement !== $('carrierPortsInput')) {
+      $('carrierPortsInput').value = (s.fou_ports && s.fou_ports.length > 0) ? s.fou_ports.join(', ') : '443, 55555';
+    }
+
+    const ind = $('carrierStatusInd');
+    if (ind) {
+      ind.className = 'status-indicator active';
+      $('carrierStatusTxt').textContent = s.status_text || 'Active';
+    }
+
+    const tunCarrier = $('tunnelCarrierTxt');
+    if (tunCarrier) tunCarrier.textContent = s.active ? s.active.toUpperCase() : 'GRE';
+  } catch (e) {
+    const ind = $('carrierStatusInd');
+    if (ind) {
+      ind.className = 'status-indicator offline';
+      $('carrierStatusTxt').textContent = 'Error';
+    }
+  }
+}
+
+const carrierCycleBtn = $('carrierCycleBtn');
+if (carrierCycleBtn) {
+  carrierCycleBtn.onclick = async () => {
+    carrierCycleBtn.disabled = true;
+    try {
+      const res = await api('/api/carrier', { action: 'cycle' });
+      toastOk('Carrier Switched', 'Active: ' + (res.active || 'updated'));
+      await loadCarrier();
+    } catch (e) {
+      toastErr('Switch failed', e.message);
+    } finally {
+      carrierCycleBtn.disabled = false;
+    }
+  };
+}
+
+const tunnelCarrierCycleBtn = $('tunnelCarrierCycleBtn');
+if (tunnelCarrierCycleBtn) {
+  tunnelCarrierCycleBtn.onclick = async () => {
+    tunnelCarrierCycleBtn.disabled = true;
+    try {
+      const res = await api('/api/carrier', { action: 'cycle' });
+      toastOk('Carrier Switched', 'Active: ' + (res.active || 'updated'));
+      await loadCarrier();
+    } catch (e) {
+      toastErr('Switch failed', e.message);
+    } finally {
+      tunnelCarrierCycleBtn.disabled = false;
+    }
+  };
+}
+
+const carrierApplyBtn = $('carrierApplyBtn');
+if (carrierApplyBtn) {
+  carrierApplyBtn.onclick = async () => {
+    carrierApplyBtn.disabled = true;
+    try {
+      const res = await api('/api/carrier', { action: 'apply' });
+      toastOk('Carrier Applied', res.detail || 'Encapsulation refreshed');
+      await loadCarrier();
+    } catch (e) {
+      toastErr('Apply failed', e.message);
+    } finally {
+      carrierApplyBtn.disabled = false;
+    }
+  };
+}
+
+const carrierSaveModeBtn = $('carrierSaveModeBtn');
+if (carrierSaveModeBtn) {
+  carrierSaveModeBtn.onclick = async () => {
+    const m = $('carrierModeSelect') ? $('carrierModeSelect').value : 'auto';
+    carrierSaveModeBtn.disabled = true;
+    try {
+      const res = await api('/api/carrier', { action: 'set-mode', mode: m });
+      toastOk('Carrier Policy Updated', 'Mode set to: ' + m);
+      await loadCarrier();
+    } catch (e) {
+      toastErr('Save mode failed', e.message);
+    } finally {
+      carrierSaveModeBtn.disabled = false;
+    }
+  };
+}
+
+const carrierSavePortsBtn = $('carrierSavePortsBtn');
+if (carrierSavePortsBtn) {
+  carrierSavePortsBtn.onclick = async () => {
+    const val = $('carrierPortsInput') ? $('carrierPortsInput').value : '';
+    const parts = val.split(/[,\s]+/).map(p => parseInt(p, 10)).filter(p => !isNaN(p) && p > 0 && p < 65536);
+    if (parts.length === 0) {
+      toastErr('Invalid ports', 'Enter at least one valid port number (e.g. 443, 55555)');
+      return;
+    }
+    carrierSavePortsBtn.disabled = true;
+    try {
+      const res = await api('/api/carrier', { action: 'set-ports', fou_ports: parts });
+      toastOk('FOU Ports Updated', 'Ports: ' + parts.join(', '));
+      await loadCarrier();
+    } catch (e) {
+      toastErr('Save ports failed', e.message);
+    } finally {
+      carrierSavePortsBtn.disabled = false;
     }
   };
 }
