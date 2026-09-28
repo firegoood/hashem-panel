@@ -15,11 +15,11 @@
   .badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
     font-size:var(--fs-small);font-weight:600;line-height:1.6;border:1px solid transparent;white-space:nowrap}
   .badge .dot{width:6px;height:6px;border-radius:50%;background:currentColor;margin:0;flex:none}
-  .badge.ok{background:var(--ok-soft);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 30%,transparent)}
+  .badge.ok{background:var(--ok-soft);color:var(--ok);border-color:var(--ok-badge-b)}
   .badge.ok .dot{box-shadow:0 0 6px color-mix(in srgb,var(--ok) 70%,transparent)}
-  .badge.err{background:var(--er-soft);color:var(--er);border-color:color-mix(in srgb,var(--er) 30%,transparent)}
-  .badge.warn{background:var(--wr-soft);color:var(--wr);border-color:color-mix(in srgb,var(--wr) 35%,transparent)}
-  .badge.info{background:var(--info-soft);color:var(--info);border-color:color-mix(in srgb,var(--info) 30%,transparent)}
+  .badge.err{background:var(--er-soft);color:var(--er);border-color:var(--er-badge-b)}
+  .badge.warn{background:var(--wr-soft);color:var(--wr);border-color:var(--wr-badge-b)}
+  .badge.info{background:var(--info-soft);color:var(--info);border-color:var(--info-badge-b)}
   .badge.dim{background:var(--sunk);color:var(--dim);border-color:var(--ln)}
 
   /* Card section title */
@@ -70,13 +70,13 @@
 }
 
 .btn.primary:hover {
-  background: color-mix(in srgb, var(--ac) 90%, black);
-  border-color: color-mix(in srgb, var(--ac) 90%, black);
+  background: var(--ac-btn-dark);
+  border-color: var(--ac-btn-dark);
 }
 
 .btn.danger {
   color: var(--er);
-  border-color: color-mix(in srgb, var(--er) 40%, transparent);
+  border-color: var(--er-btn-b40);
   background: color-mix(in srgb, var(--er) 10%, transparent);
 }
 
