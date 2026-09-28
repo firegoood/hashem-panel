@@ -1,6 +1,6 @@
 <div align="center">
 
-![Hashem Panel Banner](docs/banner.jpg)
+![Hashem Panel Dashboard](docs/dashboard.png)
 
 # Hashem Panel 🇮🇷 ↔ 🌍
 
