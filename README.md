@@ -1,6 +1,5 @@
 <div align="center">
 
-![Hashem Panel Dashboard](docs/dashboard.png)
 
 # Hashem Panel 🇮🇷 ↔ 🌍
 
