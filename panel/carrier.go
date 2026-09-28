@@ -12,37 +12,43 @@ import (
 )
 
 type carrierConfig struct {
-	Mode          string   `json:"mode"`           // "auto", "direct", "fou:PORT"
-	ActiveCarrier string   `json:"active_carrier"` // "direct", "fou:443", "fou:55555"
+	Mode          string   `json:"mode"`           // "auto", "direct", "fou:PORT", "wss:PORT"
+	ActiveCarrier string   `json:"active_carrier"` // "direct", "fou:443", "fou:55555", "wss:8443"
 	FOUPort1      int      `json:"fou_port1"`
 	FOUPort2      int      `json:"fou_port2"`
+	WSSPort       int      `json:"wss_port"`
 	Candidates    []string `json:"candidates"`
 	LastSwitch    string   `json:"last_switch"`
 	SwitchCount   int      `json:"switch_count"`
 }
 
 type carrierStatusResponse struct {
-	Mode          string   `json:"mode"`
-	Active        string   `json:"active"`
-	ActiveCarrier string   `json:"active_carrier"`
-	FOUPort1      int      `json:"fou_port1"`
-	FOUPort2      int      `json:"fou_port2"`
-	FouPorts      []int    `json:"fou_ports"`
-	Candidates    []string `json:"candidates"`
-	LastSwitch    string   `json:"last_switch"`
-	SwitchCount   int      `json:"switch_count"`
-	PingStatus    string   `json:"ping_status"`
-	PingRTT       string   `json:"ping_rtt"`
-	StatusText    string   `json:"status_text"`
+	Mode          string           `json:"mode"`
+	Active        string           `json:"active"`
+	ActiveCarrier string           `json:"active_carrier"`
+	FOUPort1      int              `json:"fou_port1"`
+	FOUPort2      int              `json:"fou_port2"`
+	WSSPort       int              `json:"wss_port"`
+	FouPorts      []int            `json:"fou_ports"`
+	Candidates    []string         `json:"candidates"`
+	LastSwitch    string           `json:"last_switch"`
+	SwitchCount   int              `json:"switch_count"`
+	PingStatus    string           `json:"ping_status"`
+	PingRTT       string           `json:"ping_rtt"`
+	StatusText    string           `json:"status_text"`
+	WSS           wssCarrierStatus `json:"wss"`
 }
 
 type carrierPostRequest struct {
-	Action   string `json:"action"` // "set_mode", "set-mode", "set_active", "apply", "cycle_next", "cycle", "set-ports"
-	Mode     string `json:"mode,omitempty"`
-	Target   string `json:"target,omitempty"`
-	FouPorts []int  `json:"fou_ports,omitempty"`
-	FOUPort1 int    `json:"fou_port1,omitempty"`
-	FOUPort2 int    `json:"fou_port2,omitempty"`
+	Action    string `json:"action"` // "set_mode", "set-mode", "set_active", "apply", "cycle_next", "cycle", "set-ports", "set_wss"
+	Mode      string `json:"mode,omitempty"`
+	Target    string `json:"target,omitempty"`
+	FouPorts  []int  `json:"fou_ports,omitempty"`
+	FOUPort1  int    `json:"fou_port1,omitempty"`
+	FOUPort2  int    `json:"fou_port2,omitempty"`
+	WSSPort   int    `json:"wss_port,omitempty"`
+	WSSRemote string `json:"wss_remote,omitempty"`
+	WSSSNI    string `json:"wss_sni,omitempty"`
 }
 
 func carrierConfigPath() string {
@@ -55,7 +61,8 @@ func defaultCarrierConfig() carrierConfig {
 		ActiveCarrier: "direct",
 		FOUPort1:      443,
 		FOUPort2:      55555,
-		Candidates:    []string{"direct", "fou:443", "fou:55555"},
+		WSSPort:       8443,
+		Candidates:    []string{"direct", "fou:443", "fou:55555", "wss:8443"},
 		LastSwitch:    "",
 		SwitchCount:   0,
 	}
@@ -83,8 +90,11 @@ func loadCarrierConfig() carrierConfig {
 	if c.FOUPort2 <= 0 {
 		c.FOUPort2 = 55555
 	}
+	if c.WSSPort <= 0 {
+		c.WSSPort = 8443
+	}
 	if len(c.Candidates) == 0 {
-		c.Candidates = []string{"direct", "fou:" + strconv.Itoa(c.FOUPort1), "fou:" + strconv.Itoa(c.FOUPort2)}
+		c.Candidates = []string{"direct", "fou:" + strconv.Itoa(c.FOUPort1), "fou:" + strconv.Itoa(c.FOUPort2), "wss:" + strconv.Itoa(c.WSSPort)}
 	}
 	return c
 }
@@ -131,7 +141,6 @@ func getCarrierPingStatus() (string, string) {
 	}
 	str := string(out)
 	if strings.Contains(str, "1 received") || strings.Contains(str, "1 packets received") {
-		// Parse RTT e.g. time=24.5 ms
 		if idx := strings.Index(str, "time="); idx != -1 {
 			sub := str[idx+5:]
 			if end := strings.Index(sub, " "); end != -1 {
@@ -156,6 +165,7 @@ func handleCarrierGet(w http.ResponseWriter, r *http.Request) {
 		ActiveCarrier: cfg.ActiveCarrier,
 		FOUPort1:      cfg.FOUPort1,
 		FOUPort2:      cfg.FOUPort2,
+		WSSPort:       cfg.WSSPort,
 		FouPorts:      []int{cfg.FOUPort1, cfg.FOUPort2},
 		Candidates:    cfg.Candidates,
 		LastSwitch:    cfg.LastSwitch,
@@ -163,6 +173,7 @@ func handleCarrierGet(w http.ResponseWriter, r *http.Request) {
 		PingStatus:    st,
 		PingRTT:       rtt,
 		StatusText:    statusText,
+		WSS:           getWSSStatus(),
 	}
 	writeJSON(w, resp)
 }
@@ -180,8 +191,8 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 	switch act {
 	case "set_mode", "set-mode":
 		m := strings.TrimSpace(req.Mode)
-		if m != "auto" && m != "direct" && !strings.HasPrefix(m, "fou:") {
-			writeAPIError(w, r, "E-ACTION-01", "invalid mode: want auto, direct, or fou:PORT")
+		if m != "auto" && m != "direct" && !strings.HasPrefix(m, "fou:") && !strings.HasPrefix(m, "wss") {
+			writeAPIError(w, r, "E-ACTION-01", "invalid mode: want auto, direct, fou:PORT, or wss:PORT")
 			return
 		}
 		cfg.Mode = m
@@ -189,6 +200,14 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 			cfg.ActiveCarrier = m
 			cfg.LastSwitch = time.Now().Format("2006-01-02 15:04:05")
 			cfg.SwitchCount++
+			if strings.HasPrefix(m, "wss") {
+				wssCfg := loadWSSConfig()
+				wssCfg.Enabled = true
+				_ = saveWSSConfig(wssCfg)
+				_ = startWSSCarrier(wssCfg)
+			} else {
+				_ = stopWSSCarrier()
+			}
 			_ = exec.Command("/usr/local/bin/hashem", "carrier", "set", m).Run()
 		} else {
 			_ = exec.Command("/usr/local/bin/hashem", "carrier", "mode", "auto").Run()
@@ -201,12 +220,20 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 		if t == "" && req.Mode != "" {
 			t = strings.TrimSpace(req.Mode)
 		}
-		if t != "direct" && !strings.HasPrefix(t, "fou:") {
+		if t != "direct" && !strings.HasPrefix(t, "fou:") && !strings.HasPrefix(t, "wss") {
 			t = cfg.ActiveCarrier
 		}
 		cfg.ActiveCarrier = t
 		cfg.LastSwitch = time.Now().Format("2006-01-02 15:04:05")
 		cfg.SwitchCount++
+		if strings.HasPrefix(t, "wss") {
+			wssCfg := loadWSSConfig()
+			wssCfg.Enabled = true
+			_ = saveWSSConfig(wssCfg)
+			_ = startWSSCarrier(wssCfg)
+		} else {
+			_ = stopWSSCarrier()
+		}
 		_ = saveCarrierConfig(cfg)
 		_ = exec.Command("/usr/local/bin/hashem", "carrier", "set", t).Run()
 		writeJSON(w, map[string]any{"status": "ok", "active": cfg.ActiveCarrier, "active_carrier": cfg.ActiveCarrier, "detail": "Applied carrier " + t})
@@ -218,7 +245,7 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 		} else {
 			cands := cfg.Candidates
 			if len(cands) == 0 {
-				cands = []string{"direct", "fou:443", "fou:55555"}
+				cands = []string{"direct", "fou:443", "fou:55555", "wss:8443"}
 			}
 			idx := 0
 			for i, c := range cands {
@@ -230,6 +257,14 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 			cfg.ActiveCarrier = cands[idx]
 			cfg.LastSwitch = time.Now().Format("2006-01-02 15:04:05")
 			cfg.SwitchCount++
+			if strings.HasPrefix(cfg.ActiveCarrier, "wss") {
+				wssCfg := loadWSSConfig()
+				wssCfg.Enabled = true
+				_ = saveWSSConfig(wssCfg)
+				_ = startWSSCarrier(wssCfg)
+			} else {
+				_ = stopWSSCarrier()
+			}
 			_ = saveCarrierConfig(cfg)
 			_ = exec.Command("/usr/local/bin/hashem", "carrier", "set", cfg.ActiveCarrier).Run()
 		}
@@ -249,12 +284,31 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg.FOUPort1 = p1
 		cfg.FOUPort2 = p2
-		cfg.Candidates = []string{"direct", "fou:" + strconv.Itoa(p1), "fou:" + strconv.Itoa(p2)}
+		cfg.Candidates = []string{"direct", "fou:" + strconv.Itoa(p1), "fou:" + strconv.Itoa(p2), "wss:" + strconv.Itoa(cfg.WSSPort)}
 		_ = saveCarrierConfig(cfg)
 		_ = exec.Command("/usr/local/bin/hashem", "carrier", "set-ports", strconv.Itoa(p1), strconv.Itoa(p2)).Run()
 		writeJSON(w, map[string]any{"status": "ok", "fou_port1": p1, "fou_port2": p2, "fou_ports": []int{p1, p2}})
 
+	case "set_wss", "set-wss":
+		wssCfg := loadWSSConfig()
+		if req.WSSPort > 0 {
+			wssCfg.ListenPort = req.WSSPort
+			cfg.WSSPort = req.WSSPort
+			_ = saveCarrierConfig(cfg)
+		}
+		if req.WSSRemote != "" {
+			wssCfg.RemoteAddr = req.WSSRemote
+		}
+		if req.WSSSNI != "" {
+			wssCfg.SNI = req.WSSSNI
+		}
+		_ = saveWSSConfig(wssCfg)
+		if strings.HasPrefix(cfg.ActiveCarrier, "wss") {
+			_ = startWSSCarrier(wssCfg)
+		}
+		writeJSON(w, map[string]any{"status": "ok", "wss": wssCfg})
+
 	default:
-		writeAPIError(w, r, "E-ACTION-01", "unknown action: want set_mode, set_active, cycle_next, or set_ports")
+		writeAPIError(w, r, "E-ACTION-01", "unknown action: want set_mode, set_active, cycle_next, set_ports, or set_wss")
 	}
 }

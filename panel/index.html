@@ -1013,16 +1013,17 @@
             <label for="carrierModeSelect">Carrier Selection / Policy</label>
             <div class="u-flex-center-wrap10">
               <select class="hashem-input u-max-w-260" id="carrierModeSelect" >
-                <option value="auto">Auto (Failover on drops)</option>
+                <option value="auto">Auto (Failover on drops: Direct ➔ FOU ➔ WSS)</option>
                 <option value="direct">Direct GRE (Protocol 47)</option>
                 <option value="fou:443">FOU UDP : 443 (HTTPS disguise)</option>
                 <option value="fou:55555">FOU UDP : 55555 (Alternate port)</option>
+                <option value="wss:8443">WSS Carrier : 8443 (WebSocket over TLS)</option>
               </select>
               <button class="hashem-btn hashem-btn-secondary" id="carrierSaveModeBtn">Save Mode</button>
               <span class="status-indicator" id="carrierStatusInd"><span class="dot"></span><span id="carrierStatusTxt">—</span></span>
             </div>
             <div class="ent-help">
-              <strong>Auto mode:</strong> When the watchdog detects GRE packet loss or timeout, it automatically round-robins between Direct GRE and configured FOU UDP ports before attempting service restarts.
+              <strong>Auto mode:</strong> When the watchdog detects GRE packet loss or timeout, it automatically round-robins between Direct GRE, FOU UDP, and Obfuscated WSS before attempting service restarts.
             </div>
           </div>
 
@@ -1034,6 +1035,19 @@
             </div>
             <div class="ent-help">
               Symmetric UDP ports opened on both Iran and Foreign VPS via kernel <code>ip fou add port &lt;P&gt; ipproto 47</code>.
+            </div>
+          </div>
+
+          <div class="fg u-mt-16">
+            <label for="carrierWSSPortInput">WSS Obfuscated Carrier (WebSocket / TLS 1.3)</label>
+            <div class="u-flex-center-wrap10">
+              <input type="number" class="hashem-input u-max-w-140" id="carrierWSSPortInput" value="8443" placeholder="Port: 8443">
+              <input type="text" class="hashem-input u-max-w-180" id="carrierWSSSNIInput" placeholder="SNI Mask (optional)">
+              <button class="hashem-btn hashem-btn-secondary" id="carrierSaveWSSBtn">Save WSS Settings</button>
+            </div>
+            <div class="ent-help">
+              Encapsulates GRE packets inside an encrypted WebSocket stream. Completely indistinguishable from normal web browsing.
+              Status: <span id="carrierWSSTxt" class="u-fw-600">—</span>
             </div>
           </div>
         </div>
@@ -3483,7 +3497,10 @@ async function loadCarrier() {
 
     const badge = $('carrierActiveBadge');
     if (badge) {
-      if (curActive.startsWith('fou:')) {
+      if (curActive.startsWith('wss')) {
+        badge.textContent = '🛡️ ' + curActive.toUpperCase() + ' (TLS)';
+        badge.className = 'badge ok';
+      } else if (curActive.startsWith('fou:')) {
         badge.textContent = '⚡ ' + curActive.toUpperCase();
         badge.className = 'badge ok';
       } else {
@@ -3508,6 +3525,15 @@ async function loadCarrier() {
 
     if ($('carrierPortsInput') && document.activeElement !== $('carrierPortsInput')) {
       $('carrierPortsInput').value = (curPorts && curPorts.length > 0) ? curPorts.join(', ') : '443, 55555';
+    }
+
+    if ($('carrierWSSPortInput') && s.wss_port && document.activeElement !== $('carrierWSSPortInput')) {
+      $('carrierWSSPortInput').value = s.wss_port;
+    }
+    if ($('carrierWSSTxt') && s.wss) {
+      $('carrierWSSTxt').textContent = s.wss.running
+        ? (s.wss.connected ? `🟢 Connected (${s.wss.packets_sent || 0} pkts sent / ${s.wss.packets_recv || 0} recv)` : '🟡 Active / Listening')
+        : '⚪ Idle';
     }
 
     const ind = $('carrierStatusInd');
@@ -3610,6 +3636,24 @@ if (carrierSavePortsBtn) {
       toastErr('Save ports failed', e.message);
     } finally {
       carrierSavePortsBtn.disabled = false;
+    }
+  };
+}
+
+const carrierSaveWSSBtn = $('carrierSaveWSSBtn');
+if (carrierSaveWSSBtn) {
+  carrierSaveWSSBtn.onclick = async () => {
+    const p = parseInt($('carrierWSSPortInput') ? $('carrierWSSPortInput').value : '8443', 10);
+    const sni = $('carrierWSSSNIInput') ? $('carrierWSSSNIInput').value.trim() : '';
+    carrierSaveWSSBtn.disabled = true;
+    try {
+      await api('/api/carrier', { action: 'set_wss', wss_port: p, wss_sni: sni });
+      toastOk('WSS Settings Saved', `Port: ${p}${sni ? ' · SNI: ' + sni : ''}`);
+      await loadCarrier();
+    } catch (e) {
+      toastErr('Save WSS failed', e.message);
+    } finally {
+      carrierSaveWSSBtn.disabled = false;
     }
   };
 }

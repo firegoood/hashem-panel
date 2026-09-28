@@ -452,6 +452,17 @@ carrier_apply() {
                     fi
                     ANY_APPLIED=1
                 fi
+            elif [[ "$TARGET" == wss* ]]; then
+                local WPORT="8443"
+                [[ "$TARGET" == wss:* ]] && WPORT="${TARGET#wss:}"
+                # Encapsulate GRE into local bridge port 19998 (streamed by WSS Carrier)
+                ip fou add port 19998 ipproto 47 >/dev/null 2>&1 || true
+                if ! ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1; then
+                    ip link set dev "$dev" down >/dev/null 2>&1 || true
+                    ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1 || true
+                    ip link set dev "$dev" up mtu 1360 >/dev/null 2>&1 || true
+                fi
+                ANY_APPLIED=1
             fi
         fi
     done
@@ -4261,20 +4272,22 @@ except Exception:
 menu_carrier() {
     cli_carrier status
     echo -e "${YELLOW}Select an action:${NC}"
-    echo "  1) Set Mode to Auto (Automatic Round-Robin on failure)"
+    echo "  1) Set Mode to Auto (Automatic Round-Robin on failure: Direct -> FOU -> WSS)"
     echo "  2) Force Direct GRE (Raw Protocol 47)"
     echo "  3) Force FOU UDP (Port 443)"
     echo "  4) Force FOU UDP (Port 55555)"
-    echo "  5) Cycle to Next Candidate Now"
+    echo "  5) Force WSS Obfuscated Carrier (WebSocket over TLS / Port 8443)"
+    echo "  6) Cycle to Next Candidate Now"
     echo "  0) Back to Main Menu"
     echo ""
-    read -p "Select an option [0-5]: " C_OPT
+    read -p "Select an option [0-6]: " C_OPT
     case "$C_OPT" in
         1) cli_carrier mode auto ;;
         2) cli_carrier set direct ;;
         3) cli_carrier set fou:443 ;;
         4) cli_carrier set fou:55555 ;;
-        5) cli_carrier next ;;
+        5) cli_carrier set wss:8443 ;;
+        6) cli_carrier next ;;
         0) return 0 ;;
         *) echo -e "${RED}[!] Invalid option.${NC}" ;;
     esac
@@ -4426,7 +4439,7 @@ Usage:
   hashem remove-peer --id N [--force] | peer-list | peer-token --id N
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
-  hashem carrier [status|mode auto|direct|fou:P|set direct|fou:P|next] # multi-carrier failover
+  hashem carrier [status|mode auto|direct|fou:P|wss:P|set direct|fou:P|wss:P|next] # multi-carrier failover
   hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply
   hashem chaff on|off|status                   # traffic obfuscation (idle-gap filler)
   hashem dpi-shield on|off|status              # rate-limit reverse ports against DPI flood
