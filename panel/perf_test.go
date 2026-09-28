@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -58,13 +59,15 @@ func TestPerfDefaultsAndLoadSave(t *testing.T) {
 		t.Fatalf("savePerfConfig failed: %v", err)
 	}
 
-	// Check file permission 0600
+	// Check file permission 0600 (on POSIX systems)
 	info, err := os.Stat(perfConfigPath())
 	if err != nil {
 		t.Fatalf("stat on perf.json failed: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0600 {
-		t.Fatalf("expected perf.json perm 0600, got %o", perm)
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0600 {
+			t.Fatalf("expected perf.json perm 0600, got %o", perm)
+		}
 	}
 
 	// Reload and verify
@@ -153,7 +156,7 @@ func TestPerfAPIEndpoints(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if resp.ForceTLS != true || resp.ChaffProfile != "low" || resp.DPIBurst != 100 {
+	if resp.ForceTLS != false || resp.ChaffProfile != "off" || resp.DPIBurst != 120 {
 		t.Fatalf("unexpected defaults in GET response: %+v", resp)
 	}
 

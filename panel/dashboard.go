@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -221,13 +220,8 @@ func memInfo() map[string]any {
 }
 
 func diskPct(path string) any {
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
-		return nil
-	}
-	total := st.Blocks * uint64(st.Bsize)
-	free := st.Bavail * uint64(st.Bsize)
-	if total == 0 {
+	total, free, err := getDiskUsage(path)
+	if err != nil || total == 0 {
 		return nil
 	}
 	used := total - free
