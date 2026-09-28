@@ -2217,13 +2217,14 @@ EOF
     cat <<EOF > /etc/systemd/system/frps.service
 [Unit]
 Description=FRP Server Service
-After=network.target ${TUNNEL_NAME}.service
-Wants=${TUNNEL_NAME}.service
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=root
-Restart=always
+Restart=on-failure
 RestartSec=5s
 ExecStart=${INSTALL_DIR}/frps -c ${CONFIG_DIR}/frps.toml
 
@@ -2234,9 +2235,17 @@ EOF
     systemctl reset-failed frps >/dev/null 2>&1 || true
     systemctl enable frps >/dev/null 2>&1
     systemctl restart frps
-    sleep 1
 
-    if ! systemctl is-active --quiet frps; then
+    local _frps_ok=0
+    for _i in {1..5}; do
+        sleep 2
+        if systemctl is-active --quiet frps 2>/dev/null; then
+            _frps_ok=1
+            break
+        fi
+    done
+
+    if [[ "$_frps_ok" -ne 1 ]]; then
         STATUS_FRP="FAILED"
         FRP_ERR="frps service failed to start — check: journalctl -u frps"
         log_msg "tunnel" "ERROR" "frps service failed to start"
@@ -2399,13 +2408,14 @@ EOF
     cat <<EOF > /etc/systemd/system/frpc.service
 [Unit]
 Description=FRP Client Reverse Service
-After=network.target ${TUNNEL_NAME}.service
-Wants=${TUNNEL_NAME}.service
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=root
-Restart=always
+Restart=on-failure
 RestartSec=5s
 ExecStart=${INSTALL_DIR}/frpc -c ${CONFIG_DIR}/frpc.toml
 
@@ -2416,9 +2426,17 @@ EOF
     systemctl reset-failed frpc >/dev/null 2>&1 || true
     systemctl enable frpc >/dev/null 2>&1
     systemctl restart frpc
-    sleep 1
 
-    if ! systemctl is-active --quiet frpc; then
+    local _frpc_ok=0
+    for _i in {1..5}; do
+        sleep 2
+        if systemctl is-active --quiet frpc 2>/dev/null; then
+            _frpc_ok=1
+            break
+        fi
+    done
+
+    if [[ "$_frpc_ok" -ne 1 ]]; then
         STATUS_FRP="FAILED"
         FRP_ERR="frpc service failed to start — check: journalctl -u frpc"
         log_msg "tunnel" "ERROR" "frpc service failed to start"
@@ -5457,7 +5475,7 @@ menu_uninstall() {
 }
 
 menu_loop() {
-    trap 'echo -e "\n\n${YELLOW}[*] Operation interrupted. Returning to menu...${NC}"; sleep 1' INT
+    trap 'echo -e "\n\n${CYAN}[*] Exiting Hashem Manager. Goodbye!${NC}"; exit 0' INT
     while true; do
         clear
         echo -e "${CYAN}"
