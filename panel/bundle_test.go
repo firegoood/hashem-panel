@@ -64,4 +64,60 @@ func TestBundleMakeAndParse(t *testing.T) {
 	if bMade.IranPub != "85.1.2.3" || !reflect.DeepEqual(bMade.Ports, []int{443, 2083}) {
 		t.Fatalf("mismatch in bMade: %+v", bMade)
 	}
+
+	// Regression: exact bundle from user report (no ports, has fou)
+	userBundle := "hsh1_85.198.48.162_56261_10.10.10.2_10.10.10.1_sHwurcbG926fk4tLcexTF0MXzcNxoHkW__fou443-55555"
+	bUser, err := ParseBundle(userBundle)
+	if err != nil {
+		t.Fatalf("ParseBundle(userBundle) failed: %v", err)
+	}
+	if bUser.IranPub != "85.198.48.162" || bUser.FrpPort != 56261 {
+		t.Fatalf("unexpected user bundle fields: %+v", bUser)
+	}
+	if bUser.Token != "sHwurcbG926fk4tLcexTF0MXzcNxoHkW" {
+		t.Fatalf("wrong token in user bundle: %q", bUser.Token)
+	}
+	if len(bUser.Ports) != 0 {
+		t.Fatalf("user bundle should have no ports, got %+v", bUser.Ports)
+	}
+	if !reflect.DeepEqual(bUser.FouPorts, []int{443, 55555}) {
+		t.Fatalf("wrong fou ports in user bundle: %+v", bUser.FouPorts)
+	}
+}
+
+// TestApplyBundlePreservesUserPorts verifies that when a bundle has no ports,
+// applyBundle does not override any ports the user already typed.
+func TestApplyBundlePreservesUserPorts(t *testing.T) {
+	// Bundle with no ports segment
+	bundleNoPorts := "hsh1_85.198.48.162_56261_10.10.10.2_10.10.10.1_sHwurcbG926fk4tLcexTF0MXzcNxoHkW__fou443-55555"
+	b, err := ParseBundle(bundleNoPorts)
+	if err != nil {
+		t.Fatalf("ParseBundle failed: %v", err)
+	}
+
+	// Simulate user having typed "443, 2083" in the Reverse Ports field
+	body := setupRequest{
+		Role:  "foreign",
+		Ports: "443, 2083",
+		Token: bundleNoPorts, // the bundle string before applyBundle
+	}
+	body.OrigBundle = body.Token
+	applyBundle(&body, b)
+
+	// Ports must be preserved from user input (not wiped by empty bundle ports)
+	if body.Ports != "443, 2083" {
+		t.Fatalf("applyBundle wiped user ports: got %q, want %q", body.Ports, "443, 2083")
+	}
+	// Token must now be the inner token
+	if body.Token != "sHwurcbG926fk4tLcexTF0MXzcNxoHkW" {
+		t.Fatalf("wrong inner token after applyBundle: %q", body.Token)
+	}
+	// OrigBundle must be preserved
+	if body.OrigBundle != bundleNoPorts {
+		t.Fatalf("OrigBundle was changed: %q", body.OrigBundle)
+	}
+	// GRE addresses must be filled from bundle
+	if body.RemotePub != "85.198.48.162" {
+		t.Fatalf("RemotePub not filled from bundle: %q", body.RemotePub)
+	}
 }

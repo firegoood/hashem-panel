@@ -273,12 +273,22 @@ ensure_port_available() {
     local port=$1
     local purpose=${2:-"Required port"}
     local is_bundle=${3:-0}
+    # $4: if set to "warn-only", non-interactive mode will warn but not fail.
+    # Proxy ports on Foreign are declared in frpc config as localPort —
+    # frpc never binds them itself (Marzban/X-UI owns them), so a conflict
+    # is informational, not a hard blocker.
+    local warn_only=${4:-""}
     
     while is_port_in_use "$port"; do
-        echo -e "${RED}[!] ERROR: ${purpose} ${port} is already in use by another process.${NC}"
-        log_msg "tunnel" "ERROR" "${purpose} ${port} is in use"
+        echo -e "${YELLOW}[!] WARNING: ${purpose} ${port} is already in use by another process.${NC}"
+        log_msg "tunnel" "WARN" "${purpose} ${port} is in use"
         if [[ ! -t 0 ]]; then
-            return 1
+            # Non-interactive (panel / piped): just warn and continue.
+            # If this is the FRP control port, it's an actual conflict;
+            # for proxy ports it is expected (Marzban/X-UI is there).
+            echo -e "${CYAN}[*] Non-interactive mode: continuing despite port conflict (frpc will try to start anyway).${NC}"
+            echo "$port"
+            return 0
         fi
         echo "Options:"
         echo "  1) Retry (after stopping conflicting process)"
@@ -2856,14 +2866,7 @@ setup_foreign_server() {
         prompt_ports INPUT_PORTS "Enter Ports to Reverse-Tunnel"
     fi
 
-    # Check port availability before applying
-    SERVER_PORT=$(ensure_port_available "$SERVER_PORT" "FRP Server Port" "$BUNDLE_USED") || return 1
-
     PORTS_CLEANED=$(echo "$INPUT_PORTS" | tr ',' ' ')
-    local P
-    for P in $PORTS_CLEANED; do
-        ensure_port_available "$P" "Reverse Proxy Port :$P" "$BUNDLE_USED" >/dev/null || return 1
-    done
 
     # single source of truth: GRE + ping + frpc + panel all happen inside
     _setup_foreign_full "$IP_FOREIGN" "$IP_IRAN" "$SERVER_PORT" "$TOKEN" "$LOCAL_GRE_SET" "$PEER_GRE_SET" "$PORTS_CLEANED"
@@ -5602,7 +5605,9 @@ cli_setup_foreign() {
         FRP_PORT=$B_FRP_PORT
         LOCAL_GRE=$B_FOREIGN_GRE
         PEER_GRE=$B_IRAN_GRE
-        [[ -z "$PORTS" ]] && PORTS=$B_PORTS
+        # B_PORTS may be empty if bundle had no ports segment (e.g. hsh1_...token__fouXXX)
+        # Only override PORTS from bundle if not already provided via --ports and bundle has ports
+        [[ -z "$PORTS" && -n "$B_PORTS" ]] && PORTS=$B_PORTS
         carrier_set_fou_ports "$B_FOU_P1" "$B_FOU_P2" 2>/dev/null || true
         carrier_init_kernel 2>/dev/null || true
         echo -e "${CYAN}[*] Bundle applied: Source of Truth enforced (Iran ${REMOTE_PUB}, FRP port ${FRP_PORT}).${NC}"
@@ -5622,13 +5627,21 @@ cli_setup_foreign() {
         is_valid_port "$p" && CLEANED="$CLEANED $((10#$p))"
     done
     CLEANED=$(echo "$CLEANED" | xargs)
-    [[ -n "$CLEANED" ]] || { echo -e "${RED}[!] --ports needs at least one valid port (e.g. \"443, 2083\").${NC}"; return 1; }
+    if [[ -z "$CLEANED" ]]; then
+        # Bundle had empty ports segment — non-interactive path cannot prompt;
+        # the panel must always pass --ports explicitly when bundle has none.
+        echo -e "${RED}[!] --ports needs at least one valid port (e.g. \"443, 2083\"). The bundle did not include ports — pass --ports explicitly.${NC}"
+        return 1
+    fi
 
-    # Port availability check before proceeding
-    FRP_PORT=$(ensure_port_available "$FRP_PORT" "FRP Server Port" ${BUNDLE:+1}) || return 1
-    for p in $CLEANED; do
-        ensure_port_available "$p" "Reverse Proxy Port :$p" ${BUNDLE:+1} >/dev/null || return 1
-    done
+    # Port availability check.
+    # FRP control port: warn but continue non-interactively (frpc will report
+    # start failure in the summary if it truly cannot bind).
+    # Proxy ports: frpc only declares localPort in config — it does NOT bind
+    # those ports itself. Marzban/X-UI can and should own them. Skip check.
+    FRP_PORT=$(ensure_port_available "$FRP_PORT" "FRP Control Port" ${BUNDLE:+1}) || return 1
+    # (Proxy port check intentionally omitted for foreign: those ports belong
+    #  to the upstream service, not frpc.)
 
     if tunnel_present && [[ "$FORCE" -ne 1 ]]; then
         echo -e "${RED}[!] Tunnel already exists — pass --force to overwrite.${NC}"

@@ -2692,8 +2692,14 @@ async function doSetup() {
     }
     toastOk('setup done', 'iran');
     setupUnlocked = false;
-    refresh(); loadSetupDefaults();
-  } catch(e) { toastErr('setup failed', e.message); }
+  } catch(e) {
+    toastErr('setup failed', e.message);
+    if (e.steps && e.steps.length) {
+      const out = $('setupOut');
+      out.classList.remove('hidden');
+      out.textContent = e.steps.join('\n');
+    }
+  }
   btn.disabled = false;
   btn.textContent = oldTxt;
   renderSetupLock();
@@ -2753,6 +2759,12 @@ $('jToken').addEventListener('input', () => {
   set('fFrpPort', String(b.port));
   const adv = $('foreignAdv');
   if (adv && !adv.open) adv.open = true;
+  // Bundle with no ports segment: guide the user to enter ports manually
+  if (!b.ports.length) {
+    w.innerHTML = 'ℹ️ Bundle parsed (Iran: <b>' + esc(b.iranPub) + '</b>, FRP port: <b>' + b.port + '</b>). This bundle has no ports — enter the reverse ports (e.g. 443, 2083) in the field above.';
+    w.classList.remove('hidden');
+    w.style.color = 'var(--info, #38bdf8)';
+  }
 });
 $('joinBtn').onclick = async () => {
   const b = $('joinBtn');
@@ -2777,6 +2789,8 @@ $('joinBtn').onclick = async () => {
       }
       token = bundle.token;
       if (!$('jPorts').value.trim() && bundle.ports.length) $('jPorts').value = bundle.ports.join(', ');
+      // If bundle had no ports (empty segment like __fou...), jPorts stays empty —
+      // user must type ports manually; the warning below will guide them.
     }
     const ports = $('jPorts').value.trim() || ((st.proxy_ports || []).join(', ') || (st.proxies || []).join(', '));
     if (!token) {
@@ -2809,7 +2823,10 @@ $('joinBtn').onclick = async () => {
     };
     if (!body.ports) {
       const w = $('joinWarn');
-      w.innerHTML = '⚠️ Reverse ports are required (e.g. 443, 2083).';
+      const bundleNoPorts = bundle && bundle.ports.length === 0;
+      w.innerHTML = bundleNoPorts
+        ? '⚠️ This bundle does not include ports — enter the reverse ports (e.g. 443, 2083) in the Reverse Ports field above.'
+        : '⚠️ Reverse ports are required (e.g. 443, 2083).';
       w.classList.remove('hidden');
       b.disabled = false; b.textContent = oldTxt; return;
     }
@@ -2823,6 +2840,11 @@ $('joinBtn').onclick = async () => {
     const w = $('joinWarn');
     w.innerHTML = '⚠️ ' + esc(e.message);
     w.classList.remove('hidden');
+    if (e.steps && e.steps.length) {
+      const out = $('joinOut');
+      out.classList.remove('hidden');
+      out.textContent = e.steps.join('\n');
+    }
   }
   b.disabled = false;
   b.textContent = oldTxt;

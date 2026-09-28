@@ -116,16 +116,17 @@ func greScriptTarget() string {
 	return panelScriptName
 }
 
-// ensureAddPeerScript checks the script on disk supports the add-peer
-// CLI verb; if not (stale Sep-26 copy on older hosts), it pulls the
-// latest hashem.sh from main (bash -n verified) and replaces it — so an
-// add-peer request self-heals instead of failing with E-INSTALL-02.
-func ensureAddPeerScript(script string) {
+// ensureFreshScript checks the script on disk supports recent features
+// (add-peer CLI verb and --bundle flag in setup-foreign); if not (stale copy),
+// it pulls the latest hashem.sh from main (bash -n verified) and replaces it — so
+// setup requests self-heal instead of failing with E-INSTALL-02.
+func ensureFreshScript(script string) {
 	data, err := os.ReadFile(script)
 	if err != nil {
 		return
 	}
-	if strings.Contains(string(data), "add-peer") {
+	content := string(data)
+	if strings.Contains(content, "add-peer") && strings.Contains(content, "--bundle") {
 		return
 	}
 	syncPanelScript()
@@ -193,6 +194,11 @@ type setupRequest struct {
 	Ports     string `json:"ports"` // foreign/add-peer, e.g. "443, 2083, 8080"
 	Force     bool   `json:"force"`
 	Autogen   bool   `json:"autogen"` // add-peer: generate token server-side
+	// OrigBundle holds the raw hsh1_... string when setup-foreign is invoked
+	// via a bundle paste. applyBundle() fills every explicit field AND stores
+	// the bundle here so runInstaller can pass --bundle to hashem.sh (which
+	// handles carrier/FOU setup that the explicit flags do not cover).
+	OrigBundle string `json:"-"` // internal; not sent by client
 }
 
 func handleSetupPost(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +236,9 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, r, "E-SETUP-08", "bad setup bundle: "+err.Error())
 			return
 		}
+		// Preserve the original bundle string for runInstaller before
+		// applyBundle() replaces body.Token with the inner token.
+		body.OrigBundle = body.Token
 		applyBundle(&body, b)
 	}
 
@@ -332,12 +341,10 @@ func runInstaller(b setupRequest, ports []int) (string, string, []string, error)
 	if err != nil {
 		return "", "", nil, err
 	}
-	// Self-healing: if add-peer is invoked on a host whose hashem.sh is
-	// an old version (lacking the "add-peer" CLI verb), auto-sync the
+	// Self-healing: if setup or add-peer is invoked on a host whose hashem.sh is
+	// an old version (lacking the "add-peer" CLI verb or "--bundle"), auto-sync the
 	// script before shelling out so the user does not hit E-INSTALL-02.
-	if b.Role == "add-peer" {
-		ensureAddPeerScript(script)
-	}
+	ensureFreshScript(script)
 	token := ""
 	args := []string{}
 	switch b.Role {
@@ -379,7 +386,12 @@ func runInstaller(b setupRequest, ports []int) (string, string, []string, error)
 			"--token", b.Token,
 			"--ports", strings.Join(strs, ","),
 		}
-		if isBundle(b.Token) {
+		// Pass --bundle when available so hashem.sh can configure carrier/FOU
+		// ports (carrier_set_fou_ports) that are not covered by explicit flags.
+		if b.OrigBundle != "" {
+			args = append(args, "--bundle", b.OrigBundle)
+		} else if isBundle(b.Token) {
+			// Fallback: if applyBundle was not called (old client path)
 			args = append(args, "--bundle", b.Token)
 		}
 	}
@@ -634,16 +646,19 @@ func ParseBundle(s string) (setupBundle, error) {
 // (vs a legacy 32-char token, which must keep working as-is).
 func isBundle(s string) bool { return strings.HasPrefix(strings.TrimSpace(s), bundlePrefix) }
 
-// applyBundle fills empty foreign/add-peer fields from a parsed bundle.
-// Explicit fields always win. Mapping (foreign side view): bundle's Iran
-// public IP is OUR remote; bundle's foreign GRE is OUR local GRE;
-// bundle's Iran GRE is OUR peer GRE.
+// applyBundle fills foreign-setup fields from a parsed bundle.
+// Bundle is the authoritative Source of Truth for tunnel parameters.
+// Explicit body.Ports (from the user's Reverse Ports field) are preserved
+// if the bundle itself has no ports segment (e.g. hsh1_...token__fou...).
+// body.OrigBundle must be set BEFORE calling applyBundle so runInstaller
+// can still pass --bundle to hashem.sh for carrier/FOU configuration.
 func applyBundle(body *setupRequest, b setupBundle) {
-	// Bundle is the authoritative Source of Truth for tunnel parameters
 	body.RemotePub = b.IranPub
 	body.LocalGre = b.ForeignGre
 	body.PeerGre = b.IranGre
 	body.FrpPort = b.FrpPort
+	// Only override ports from bundle when bundle actually has ports;
+	// if the bundle's ports segment was empty, keep what the user typed.
 	if len(b.Ports) > 0 {
 		strs := make([]string, len(b.Ports))
 		for i, p := range b.Ports {
@@ -659,5 +674,7 @@ func applyBundle(body *setupRequest, b setupBundle) {
 		_ = saveCarrierConfig(cfg)
 		_, _ = runHashemCarrierCmd("set-ports", strconv.Itoa(cfg.FOUPort1), strconv.Itoa(cfg.FOUPort2))
 	}
+	// Replace body.Token with the inner token (not the full bundle string).
+	// The caller must have already saved OrigBundle = body.Token before calling.
 	body.Token = b.Token
 }
