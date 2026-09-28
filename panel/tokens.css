@@ -88,6 +88,13 @@ html{-webkit-text-size-adjust:100%}
   --ac: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
   --ac-on: #ffffff;
   --ac-soft: color-mix(in srgb, var(--ac) 12%, transparent);
+  --ac-b30: color-mix(in srgb, var(--ac) 30%, transparent);
+  --ac-b22: color-mix(in srgb, var(--ac) 22%, transparent);
+  --ac-out70: color-mix(in srgb, var(--ac) 70%, transparent);
+  --wr-b40: color-mix(in srgb, var(--wr) 40%, transparent);
+  --ok-b40: color-mix(in srgb, var(--ok) 40%, transparent);
+  --ok-b50: color-mix(in srgb, var(--ok) 50%, transparent);
+  --er-b45: color-mix(in srgb, var(--er) 45%, transparent);
 }
 
 /* Glass material — subtle, professional */
