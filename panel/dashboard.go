@@ -335,6 +335,7 @@ type trafficPoint struct {
 	Up    *uint64 `json:"up"`
 	Down  *uint64 `json:"down"`
 	Total *uint64 `json:"total"`
+	Conns *int    `json:"conns"`
 }
 
 var (
@@ -383,6 +384,10 @@ func recordTrafficSample(traffic map[string]any) {
 	if v, ok := traffic["total"].(uint64); ok {
 		c := v
 		pt.Total = &c
+	}
+	if v, ok := activeConns().(int); ok {
+		c := v
+		pt.Conns = &c
 	}
 	hist = append(hist, pt)
 	cutoff := now - 90*86400

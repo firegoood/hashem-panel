@@ -1142,7 +1142,7 @@ install_frp_binaries() {
 }
 
 setup_gre_systemd() {
-    setup_gre_iface "$TUNNEL_NAME" "$1" "$2" "$3"
+    setup_gre_iface "$TUNNEL_NAME" "$1" "$2" "$3" "$4"
 }
 
 # Generalized GRE interface setup: $1=ifname $2=local_pub $3=remote_pub $4=inner_ip.
@@ -1153,6 +1153,7 @@ setup_gre_iface() {
     local LOCAL_IP=$2
     local REMOTE_IP=$3
     local GRE_INTERNAL_IP=$4
+    local PEER_INNER=$5
 
     echo -e "${CYAN}[*] Configuring persistent GRE tunnel service (${IFNAME})...${NC}"
 
@@ -1183,11 +1184,12 @@ setup_gre_iface() {
         fi
     fi
 
-    local PEER_INNER=""
-    if [[ "$GRE_INTERNAL_IP" =~ \.2$ ]]; then
-        PEER_INNER="${GRE_INTERNAL_IP%.*}.1"
-    else
-        PEER_INNER="${GRE_INTERNAL_IP%.*}.2"
+    if [[ -z "$PEER_INNER" ]]; then
+        if [[ "$GRE_INTERNAL_IP" =~ \.2$ ]]; then
+            PEER_INNER="${GRE_INTERNAL_IP%.*}.1"
+        else
+            PEER_INNER="${GRE_INTERNAL_IP%.*}.2"
+        fi
     fi
 
     # Create systemd service for GRE
@@ -2190,7 +2192,7 @@ setup_iran_server_noninteractive() {
     local GRE_ERR="" FRP_ERR="" PANEL_ERR=""
 
     # 1. Setup GRE interface
-    if ! setup_gre_systemd "$IP_IRAN" "$IP_FOREIGN" "$LOCAL_GRE"; then
+    if ! setup_gre_systemd "$IP_IRAN" "$IP_FOREIGN" "$LOCAL_GRE" "$PEER_GRE"; then
         STATUS_GRE="FAILED"
         GRE_ERR="GRE interface failed to start or configure IP"
         log_msg "tunnel" "ERROR" "GRE setup failed on IRAN server"
@@ -2339,7 +2341,7 @@ _setup_foreign_full() {
     local GRE_ERR="" PING_ERR="" FRP_ERR="" PANEL_ERR=""
 
     carrier_init_kernel 2>/dev/null || true
-    if ! setup_gre_systemd "$IP_FOREIGN" "$IP_IRAN" "$LOCAL_GRE"; then
+    if ! setup_gre_systemd "$IP_FOREIGN" "$IP_IRAN" "$LOCAL_GRE" "$PEER_GRE"; then
         STATUS_GRE="FAILED"
         GRE_ERR="GRE interface failed to configure or initialize"
         log_msg "tunnel" "ERROR" "GRE setup failed on FOREIGN server"
@@ -2682,13 +2684,13 @@ cli_add_peer() {
     install_frp_binaries || return 1
     if [[ "$ID" -eq 1 ]] && ! tunnel_present; then
         # first tunnel keeps legacy names (gre-tunnel, frps) — old setups untouched
-        setup_gre_systemd "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE"
+        setup_gre_systemd "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE" "$PEER_GRE"
         peer_write_frps "" "$FRP_PORT" "$TOKEN"
         GRE_IF="$TUNNEL_NAME"; FRPS_SVC="frps"; LEGACY=true
         setup_chaff "" "$PEER_GRE"
     else
         GRE_IF="gre-t${ID}"; FRPS_SVC="frps-${ID}"; LEGACY=false
-        setup_gre_iface "$GRE_IF" "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE"
+        setup_gre_iface "$GRE_IF" "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE" "$PEER_GRE"
         peer_write_frps "-${ID}" "$FRP_PORT" "$TOKEN"
         # point the new unit at the right interface
         sed -i "s/After=network.target/After=network.target ${GRE_IF}.service/" /etc/systemd/system/${FRPS_SVC}.service
