@@ -13,10 +13,10 @@ trap 'exit 0' SIGTERM SIGINT
 
 while true; do
     if [[ "$PROFILE" == "mid" ]]; then
-        # mid: intervals 0.15-1.2s, size 200-1400
+        # mid: intervals 0.15-1.2s, size 200-1280 (fits within MTU 1380)
         ms=$(( 150 + RANDOM % 1051 ))
         sleep_sec=$(printf "%d.%03d" $((ms / 1000)) $((ms % 1000)))
-        size=$(( 200 + RANDOM % 1201 ))
+        size=$(( 200 + RANDOM % 1081 ))
     else
         # low (default): intervals 0.4-2.8s, size 64-1200
         ms=$(( 400 + RANDOM % 2401 ))

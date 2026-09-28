@@ -409,22 +409,48 @@ carrier_init_kernel() {
 
 carrier_apply() {
     local TARGET="$1"
-    local IFNAME="${2:-$TUNNEL_NAME}"
+    local SPECIFIC_IF="${2:-}"
     [[ -z "$TARGET" ]] && TARGET="direct"
     carrier_init_kernel
 
-    local APPLIED=0
-    if ip link show "$IFNAME" >/dev/null 2>&1; then
-        if [[ "$TARGET" == "direct" ]]; then
-            ip link set dev "$IFNAME" type gre encap none >/dev/null 2>&1 && APPLIED=1
-        elif [[ "$TARGET" == fou:* ]]; then
-            local DPORT="${TARGET#fou:}"
-            if is_valid_port "$DPORT"; then
-                ip fou add port "$DPORT" ipproto 47 >/dev/null 2>&1 || true
-                ip link set dev "$IFNAME" type gre encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1 && APPLIED=1
-            fi
+    local IFS_TO_APPLY=()
+    if [[ -n "$SPECIFIC_IF" ]]; then
+        IFS_TO_APPLY+=("$SPECIFIC_IF")
+    else
+        local dev
+        for dev in $(ip -o link show type gre 2>/dev/null | awk -F': ' '{print $2}' | cut -d'@' -f1); do
+            [[ "$dev" == "gre0" || "$dev" == "gretap0" ]] && continue
+            IFS_TO_APPLY+=("$dev")
+        done
+        if [[ ${#IFS_TO_APPLY[@]} -eq 0 ]]; then
+            IFS_TO_APPLY+=("$TUNNEL_NAME")
         fi
     fi
+
+    local ANY_APPLIED=0
+    for dev in "${IFS_TO_APPLY[@]}"; do
+        if ip link show "$dev" >/dev/null 2>&1; then
+            if [[ "$TARGET" == "direct" ]]; then
+                if ! ip link set dev "$dev" type gre encap none >/dev/null 2>&1; then
+                    ip link set dev "$dev" down >/dev/null 2>&1 || true
+                    ip link set dev "$dev" type gre encap none >/dev/null 2>&1 || true
+                    ip link set dev "$dev" up mtu 1380 >/dev/null 2>&1 || true
+                fi
+                ANY_APPLIED=1
+            elif [[ "$TARGET" == fou:* ]]; then
+                local DPORT="${TARGET#fou:}"
+                if is_valid_port "$DPORT"; then
+                    ip fou add port "$DPORT" ipproto 47 >/dev/null 2>&1 || true
+                    if ! ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1; then
+                        ip link set dev "$dev" down >/dev/null 2>&1 || true
+                        ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1 || true
+                        ip link set dev "$dev" up mtu 1380 >/dev/null 2>&1 || true
+                    fi
+                    ANY_APPLIED=1
+                fi
+            fi
+        fi
+    done
 
     python3 -c '
 import json, time, sys
@@ -444,15 +470,17 @@ os.replace(p + ".tmp", p)
 os.chmod(p, 0o600)
 ' "$TARGET" 2>/dev/null || true
 
-    if [[ $APPLIED -eq 1 ]]; then
+    if [[ $ANY_APPLIED -eq 1 ]]; then
         return 0
     fi
-    systemctl restart "${IFNAME}.service" >/dev/null 2>&1 || true
+    if [[ -n "${IFS_TO_APPLY[0]:-}" ]]; then
+        systemctl restart "${IFS_TO_APPLY[0]}.service" >/dev/null 2>&1 || true
+    fi
     return 0
 }
 
 carrier_apply_active() {
-    local IFNAME="${1:-$TUNNEL_NAME}"
+    local IFNAME="${1:-}"
     local ACT
     ACT=$(carrier_get_active)
     carrier_apply "$ACT" "$IFNAME"
@@ -479,7 +507,7 @@ except Exception:
     print("direct")
 ' 2>/dev/null || echo "direct")
 
-    carrier_apply "$NEXT"
+    carrier_apply "$NEXT" >/dev/null 2>&1
     echo "$NEXT"
 }
 
@@ -748,10 +776,10 @@ trap 'exit 0' SIGTERM SIGINT
 
 while true; do
     if [[ "$PROFILE" == "mid" ]]; then
-        # mid: intervals 0.15-1.2s, size 200-1400
+        # mid: intervals 0.15-1.2s, size 200-1280 (fits within MTU 1380)
         ms=$(( 150 + RANDOM % 1051 ))
         sleep_sec=$(printf "%d.%03d" $((ms / 1000)) $((ms % 1000)))
-        size=$(( 200 + RANDOM % 1201 ))
+        size=$(( 200 + RANDOM % 1081 ))
     else
         # low (default): intervals 0.4-2.8s, size 64-1200
         ms=$(( 400 + RANDOM % 2401 ))
@@ -3929,7 +3957,7 @@ except Exception:
 ' 2>/dev/null
             echo -e "${CYAN}==========================================================${NC}\n"
             ;;
-        mode)
+        mode|set-mode)
             local TARGET="${2:-auto}"
             carrier_set_mode "$TARGET"
             echo -e "${GREEN}[✔️] Carrier mode set to: ${TARGET}${NC}"
@@ -3938,21 +3966,27 @@ except Exception:
                 echo -e "${GREEN}[✔️] Active carrier applied: ${TARGET}${NC}"
             fi
             ;;
-        set)
+        set|set-active|apply)
             local TARGET="${2:-direct}"
             carrier_apply "$TARGET"
             echo -e "${GREEN}[✔️] Switched active carrier to: ${TARGET}${NC}"
             ;;
-        next)
+        next|cycle)
             local NEW_C
             NEW_C=$(carrier_cycle_next)
             echo -e "${GREEN}[✔️] Cycled carrier to: ${NEW_C}${NC}"
+            ;;
+        set-ports)
+            local P1="${2:-443}" P2="${3:-55555}"
+            carrier_set_fou_ports "$P1" "$P2"
+            carrier_init_kernel
+            echo -e "${GREEN}[✔️] FOU ports updated: ${P1} and ${P2}${NC}"
             ;;
         kernel-init)
             carrier_init_kernel
             ;;
         *)
-            echo "Usage: hashem carrier [status|mode <auto|direct|fou:PORT>|set <direct|fou:PORT>|next]"
+            echo "Usage: hashem carrier [status|mode <auto|direct|fou:PORT>|set <direct|fou:PORT>|next|cycle|set-ports <P1> <P2>]"
             return 1
             ;;
     esac

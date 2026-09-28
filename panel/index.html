@@ -3281,10 +3281,13 @@ async function loadCarrier() {
     const s = await api('/api/carrier');
     carrierState = s;
 
+    const curActive = s.active || s.active_carrier || 'direct';
+    const curPorts = s.fou_ports || [s.fou_port1 || 443, s.fou_port2 || 55555];
+
     const badge = $('carrierActiveBadge');
     if (badge) {
-      if (s.active && s.active.startsWith('fou:')) {
-        badge.textContent = '⚡ ' + s.active.toUpperCase();
+      if (curActive.startsWith('fou:')) {
+        badge.textContent = '⚡ ' + curActive.toUpperCase();
         badge.className = 'badge ok';
       } else {
         badge.textContent = '🟢 Direct GRE';
@@ -3293,13 +3296,13 @@ async function loadCarrier() {
     }
 
     if ($('carrierActiveVal')) {
-      $('carrierActiveVal').textContent = s.active ? s.active.toUpperCase() : 'DIRECT';
+      $('carrierActiveVal').textContent = curActive.toUpperCase();
     }
     if ($('carrierModeVal')) {
-      $('carrierModeVal').textContent = s.mode ? s.mode.toUpperCase() : 'AUTO';
+      $('carrierModeVal').textContent = (s.mode || 'auto').toUpperCase();
     }
     if ($('carrierPortsVal')) {
-      $('carrierPortsVal').textContent = (s.fou_ports && s.fou_ports.length > 0) ? s.fou_ports.join(', ') : 'None';
+      $('carrierPortsVal').textContent = (curPorts && curPorts.length > 0) ? curPorts.join(', ') : 'None';
     }
 
     if ($('carrierModeSelect')) {
@@ -3307,17 +3310,17 @@ async function loadCarrier() {
     }
 
     if ($('carrierPortsInput') && document.activeElement !== $('carrierPortsInput')) {
-      $('carrierPortsInput').value = (s.fou_ports && s.fou_ports.length > 0) ? s.fou_ports.join(', ') : '443, 55555';
+      $('carrierPortsInput').value = (curPorts && curPorts.length > 0) ? curPorts.join(', ') : '443, 55555';
     }
 
     const ind = $('carrierStatusInd');
     if (ind) {
       ind.className = 'status-indicator active';
-      $('carrierStatusTxt').textContent = s.status_text || 'Active';
+      $('carrierStatusTxt').textContent = s.status_text || (s.ping_status === 'ok' ? ('Ping ' + (s.ping_rtt || 'OK')) : 'Active');
     }
 
     const tunCarrier = $('tunnelCarrierTxt');
-    if (tunCarrier) tunCarrier.textContent = s.active ? s.active.toUpperCase() : 'GRE';
+    if (tunCarrier) tunCarrier.textContent = curActive.toUpperCase();
   } catch (e) {
     const ind = $('carrierStatusInd');
     if (ind) {
@@ -3333,7 +3336,7 @@ if (carrierCycleBtn) {
     carrierCycleBtn.disabled = true;
     try {
       const res = await api('/api/carrier', { action: 'cycle' });
-      toastOk('Carrier Switched', 'Active: ' + (res.active || 'updated'));
+      toastOk('Carrier Switched', 'Active: ' + (res.active || res.active_carrier || 'updated'));
       await loadCarrier();
     } catch (e) {
       toastErr('Switch failed', e.message);
@@ -3349,7 +3352,7 @@ if (tunnelCarrierCycleBtn) {
     tunnelCarrierCycleBtn.disabled = true;
     try {
       const res = await api('/api/carrier', { action: 'cycle' });
-      toastOk('Carrier Switched', 'Active: ' + (res.active || 'updated'));
+      toastOk('Carrier Switched', 'Active: ' + (res.active || res.active_carrier || 'updated'));
       await loadCarrier();
     } catch (e) {
       toastErr('Switch failed', e.message);

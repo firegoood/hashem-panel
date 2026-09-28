@@ -71,8 +71,11 @@ func TestCarrierAPIEndpoints(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Mode != "auto" || resp.ActiveCarrier != "direct" {
+	if resp.Mode != "auto" || resp.ActiveCarrier != "direct" || resp.Active != "direct" {
 		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if len(resp.FouPorts) != 2 || resp.FouPorts[0] != 443 || resp.FouPorts[1] != 55555 {
+		t.Fatalf("unexpected fou_ports: %+v", resp.FouPorts)
 	}
 
 	// POST cycle_next
@@ -96,5 +99,18 @@ func TestCarrierAPIEndpoints(t *testing.T) {
 	cfg := loadCarrierConfig()
 	if cfg.ActiveCarrier != "fou:443" {
 		t.Fatalf("expected active_carrier=fou:443 after cycle, got %s", cfg.ActiveCarrier)
+	}
+
+	// POST set-ports
+	portsBody, _ := json.Marshal(carrierPostRequest{Action: "set-ports", FouPorts: []int{8443, 60000}})
+	req = httptest.NewRequest("POST", "/api/carrier", bytes.NewReader(portsBody))
+	w = httptest.NewRecorder()
+	handleCarrierPost(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on set-ports, got %d", w.Code)
+	}
+	cfg = loadCarrierConfig()
+	if cfg.FOUPort1 != 8443 || cfg.FOUPort2 != 60000 {
+		t.Fatalf("expected ports 8443, 60000, got %d, %d", cfg.FOUPort1, cfg.FOUPort2)
 	}
 }

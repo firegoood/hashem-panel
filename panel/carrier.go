@@ -23,20 +23,26 @@ type carrierConfig struct {
 
 type carrierStatusResponse struct {
 	Mode          string   `json:"mode"`
+	Active        string   `json:"active"`
 	ActiveCarrier string   `json:"active_carrier"`
 	FOUPort1      int      `json:"fou_port1"`
 	FOUPort2      int      `json:"fou_port2"`
+	FouPorts      []int    `json:"fou_ports"`
 	Candidates    []string `json:"candidates"`
 	LastSwitch    string   `json:"last_switch"`
 	SwitchCount   int      `json:"switch_count"`
 	PingStatus    string   `json:"ping_status"`
 	PingRTT       string   `json:"ping_rtt"`
+	StatusText    string   `json:"status_text"`
 }
 
 type carrierPostRequest struct {
-	Action string `json:"action"` // "set_mode", "set_active", "cycle_next"
-	Mode   string `json:"mode,omitempty"`
-	Target string `json:"target,omitempty"`
+	Action   string `json:"action"` // "set_mode", "set-mode", "set_active", "apply", "cycle_next", "cycle", "set-ports"
+	Mode     string `json:"mode,omitempty"`
+	Target   string `json:"target,omitempty"`
+	FouPorts []int  `json:"fou_ports,omitempty"`
+	FOUPort1 int    `json:"fou_port1,omitempty"`
+	FOUPort2 int    `json:"fou_port2,omitempty"`
 }
 
 func carrierConfigPath() string {
@@ -140,16 +146,23 @@ func getCarrierPingStatus() (string, string) {
 func handleCarrierGet(w http.ResponseWriter, r *http.Request) {
 	cfg := loadCarrierConfig()
 	st, rtt := getCarrierPingStatus()
+	statusText := "Active"
+	if st == "fail" {
+		statusText = "Packet Loss / Link Down"
+	}
 	resp := carrierStatusResponse{
 		Mode:          cfg.Mode,
+		Active:        cfg.ActiveCarrier,
 		ActiveCarrier: cfg.ActiveCarrier,
 		FOUPort1:      cfg.FOUPort1,
 		FOUPort2:      cfg.FOUPort2,
+		FouPorts:      []int{cfg.FOUPort1, cfg.FOUPort2},
 		Candidates:    cfg.Candidates,
 		LastSwitch:    cfg.LastSwitch,
 		SwitchCount:   cfg.SwitchCount,
 		PingStatus:    st,
 		PingRTT:       rtt,
+		StatusText:    statusText,
 	}
 	writeJSON(w, resp)
 }
@@ -162,9 +175,10 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := loadCarrierConfig()
+	act := strings.ToLower(strings.TrimSpace(req.Action))
 
-	switch req.Action {
-	case "set_mode":
+	switch act {
+	case "set_mode", "set-mode":
 		m := strings.TrimSpace(req.Mode)
 		if m != "auto" && m != "direct" && !strings.HasPrefix(m, "fou:") {
 			writeAPIError(w, r, "E-ACTION-01", "invalid mode: want auto, direct, or fou:PORT")
@@ -180,27 +194,28 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 			_ = exec.Command("/usr/local/bin/hashem", "carrier", "mode", "auto").Run()
 		}
 		_ = saveCarrierConfig(cfg)
-		writeJSON(w, map[string]any{"status": "ok", "mode": cfg.Mode, "active_carrier": cfg.ActiveCarrier})
+		writeJSON(w, map[string]any{"status": "ok", "mode": cfg.Mode, "active": cfg.ActiveCarrier, "active_carrier": cfg.ActiveCarrier})
 
-	case "set_active":
+	case "set_active", "set-active", "apply", "set":
 		t := strings.TrimSpace(req.Target)
+		if t == "" && req.Mode != "" {
+			t = strings.TrimSpace(req.Mode)
+		}
 		if t != "direct" && !strings.HasPrefix(t, "fou:") {
-			writeAPIError(w, r, "E-ACTION-01", "invalid target carrier: want direct or fou:PORT")
-			return
+			t = cfg.ActiveCarrier
 		}
 		cfg.ActiveCarrier = t
 		cfg.LastSwitch = time.Now().Format("2006-01-02 15:04:05")
 		cfg.SwitchCount++
 		_ = saveCarrierConfig(cfg)
 		_ = exec.Command("/usr/local/bin/hashem", "carrier", "set", t).Run()
-		writeJSON(w, map[string]any{"status": "ok", "active_carrier": cfg.ActiveCarrier})
+		writeJSON(w, map[string]any{"status": "ok", "active": cfg.ActiveCarrier, "active_carrier": cfg.ActiveCarrier, "detail": "Applied carrier " + t})
 
-	case "cycle_next":
-		out, err := exec.Command("/usr/local/bin/hashem", "carrier", "next").CombinedOutput()
+	case "cycle_next", "cycle", "next":
+		out, err := exec.Command("/usr/local/bin/hashem", "carrier", "cycle").CombinedOutput()
 		if err == nil && len(out) > 0 {
 			cfg = loadCarrierConfig()
 		} else {
-			// Fallback Go-level cycle if hashem binary isn't installed in test environment
 			cands := cfg.Candidates
 			if len(cands) == 0 {
 				cands = []string{"direct", "fou:443", "fou:55555"}
@@ -216,10 +231,30 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 			cfg.LastSwitch = time.Now().Format("2006-01-02 15:04:05")
 			cfg.SwitchCount++
 			_ = saveCarrierConfig(cfg)
+			_ = exec.Command("/usr/local/bin/hashem", "carrier", "set", cfg.ActiveCarrier).Run()
 		}
-		writeJSON(w, map[string]any{"status": "ok", "active_carrier": cfg.ActiveCarrier})
+		writeJSON(w, map[string]any{"status": "ok", "active": cfg.ActiveCarrier, "active_carrier": cfg.ActiveCarrier})
+
+	case "set_ports", "set-ports":
+		p1, p2 := req.FOUPort1, req.FOUPort2
+		if len(req.FouPorts) >= 2 {
+			p1, p2 = req.FouPorts[0], req.FouPorts[1]
+		} else if len(req.FouPorts) == 1 {
+			p1 = req.FouPorts[0]
+			p2 = 55555
+		}
+		if p1 <= 0 || p1 > 65535 || p2 <= 0 || p2 > 65535 {
+			writeAPIError(w, r, "E-ACTION-01", "invalid ports: must be between 1 and 65535")
+			return
+		}
+		cfg.FOUPort1 = p1
+		cfg.FOUPort2 = p2
+		cfg.Candidates = []string{"direct", "fou:" + strconv.Itoa(p1), "fou:" + strconv.Itoa(p2)}
+		_ = saveCarrierConfig(cfg)
+		_ = exec.Command("/usr/local/bin/hashem", "carrier", "set-ports", strconv.Itoa(p1), strconv.Itoa(p2)).Run()
+		writeJSON(w, map[string]any{"status": "ok", "fou_port1": p1, "fou_port2": p2, "fou_ports": []int{p1, p2}})
 
 	default:
-		writeAPIError(w, r, "E-ACTION-01", "unknown action: want set_mode, set_active, or cycle_next")
+		writeAPIError(w, r, "E-ACTION-01", "unknown action: want set_mode, set_active, cycle_next, or set_ports")
 	}
 }
