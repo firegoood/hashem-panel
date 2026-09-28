@@ -1,6 +1,6 @@
 <div align="center">
 
-![Hashem Panel Dashboard](docs/dashboard.jpg)
+![Hashem Panel Dashboard](docs/performance.jpg)
 
 # Hashem Panel 🇮🇷 ↔ 🌍
 
