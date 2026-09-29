@@ -5589,7 +5589,9 @@ main_menu() {
 usage_cli() {
     cat <<EOF
 Usage:
-  hashem                                    # interactive menu (options 0-23)
+  hashem                                    # first run: auto-install (deps + FRP + panel) & show credentials
+                                            # after install: show panel credentials & exit
+  hashem menu                               # interactive management menu (all options)
   hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--chaff low|mid|off] [--force]
   hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--chaff low|mid|off] [--force]
                        # ... or: hashem setup-foreign --bundle hsh1_...  (fills everything; explicit flags win)
@@ -5617,6 +5619,7 @@ Setup bundle (one string with everything foreign needs):
   --bundle (CLI), the token prompt (menu), or the Foreign token field (panel).
 EOF
 }
+
 
 cli_setup_iran() {
     local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" LOCAL_GRE="$IRAN_GRE_IP" PEER_GRE="$FOREIGN_GRE_IP" TOKEN="" FORCE=0
@@ -5732,6 +5735,62 @@ cli_setup_foreign() {
     setup_foreign_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$CLEANED"
 }
 
+# ---- Auto-install: first-run installs everything, shows credentials, exits ----
+auto_install_and_show() {
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                                                              ║${NC}"
+    echo -e "${CYAN}║${NC}   ${GREEN}██╗  ██╗ █████╗ ███████╗██╗  ██╗███████╗███╗   ███╗${NC}       ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}   ${GREEN}██║  ██║██╔══██╗██╔════╝██║  ██║██╔════╝████╗ ████║${NC}       ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}   ${GREEN}███████║███████║███████╗███████║█████╗  ██╔████╔██║${NC}       ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}   ${GREEN}██╔══██║██╔══██║╚════██║██╔══██║██╔══╝  ██║╚██╔╝██║${NC}       ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}   ${GREEN}██║  ██║██║  ██║███████║██║  ██║███████╗██║ ╚═╝ ██║${NC}       ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}   ${GREEN}╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝${NC}       ${CYAN}║${NC}"
+    echo -e "${CYAN}║                                                              ║${NC}"
+    echo -e "${CYAN}║${NC}        ${YELLOW}GRE + FRP Reverse Tunnel — Auto Installer${NC}             ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    echo -e "${CYAN}[1/3]${NC} ${GREEN}Installing system dependencies...${NC}"
+    ensure_dependencies_smart
+
+    echo ""
+    echo -e "${CYAN}[2/3]${NC} ${GREEN}Installing FRP binaries (frps + frpc)...${NC}"
+    install_frp_binaries
+
+    echo ""
+    echo -e "${CYAN}[3/3]${NC} ${GREEN}Installing Hashem Web Panel...${NC}"
+    install_panel
+
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              ${GREEN}✔  INSTALLATION COMPLETE${NC}                       ${CYAN}║${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+    show_panel_url
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  ${YELLOW}Next steps:${NC}                                                ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  • Open the panel URL above in your browser                ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  • Login and setup your tunnel from the web panel           ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  • Run ${GREEN}hashem${NC} for the interactive management menu          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  • Run ${GREEN}hashem --help${NC} for CLI commands                      ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+# ---- show_credentials_and_exit: pretty credentials banner for already-installed panel ----
+show_credentials_and_exit() {
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              ${GREEN}✔  HASHEM PANEL IS RUNNING${NC}                      ${CYAN}║${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+    show_panel_url
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  • Run ${GREEN}hashem${NC} for the interactive management menu          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  • Run ${GREEN}hashem --help${NC} for CLI commands                      ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
 if [[ $# -gt 0 ]]; then
     case "$1" in
         -h|--help|help) usage_cli; exit 0 ;;
@@ -5747,6 +5806,7 @@ if [[ $# -gt 0 ]]; then
 
     check_root
     case "$1" in
+        menu) main_menu ;;
         setup-iran) shift; cli_setup_iran "$@" ;;
         setup-foreign) shift; cli_setup_foreign "$@" ;;
         add-peer) shift; cli_add_peer "$@" ;;
@@ -5785,6 +5845,72 @@ if [[ $# -gt 0 ]]; then
     exit $?
 fi
 
+# ---- No arguments: first-run auto-install OR interactive menu ----
 check_root
-main_menu
+
+PANEL_STATUS=$(get_component_status panel)
+case "$PANEL_STATUS" in
+    NOT_INSTALLED)
+        # First run: auto-install everything and show credentials
+        auto_install_and_show
+        exit 0
+        ;;
+    RUNNING)
+        # Already installed and healthy — show credentials and exit
+        show_credentials_and_exit
+        exit 0
+        ;;
+    STOPPED)
+        # Installed but stopped — start it, show credentials, exit
+        echo -e "${YELLOW}[*] Panel is installed but stopped. Starting...${NC}"
+        systemctl start gre-panel 2>/dev/null || true
+        sleep 2
+        if systemctl is-active --quiet gre-panel 2>/dev/null; then
+            show_credentials_and_exit
+            exit 0
+        else
+            echo -e "${RED}[!] Failed to start panel — entering interactive menu for troubleshooting.${NC}"
+            main_menu
+        fi
+        ;;
+    BROKEN)
+        # Broken panel — let user repair interactively
+        echo -e "${RED}[!] Panel is installed but BROKEN / UNHEALTHY.${NC}"
+        echo "Options:"
+        echo "  1) Repair (reset-failed & restart service)"
+        echo "  2) Reinstall (clean download & install)"
+        echo "  3) Enter interactive menu"
+        read -p "Select option [1-3]: " BROKEN_OPT
+        case "$BROKEN_OPT" in
+            1)
+                echo -e "${CYAN}[*] Attempting repair...${NC}"
+                systemctl reset-failed gre-panel >/dev/null 2>&1 || true
+                systemctl restart gre-panel >/dev/null 2>&1 || true
+                sleep 2
+                if systemctl is-active --quiet gre-panel; then
+                    echo -e "${GREEN}[✔️] Panel repaired and running!${NC}"
+                    show_credentials_and_exit
+                    exit 0
+                else
+                    echo -e "${RED}[!] Repair failed. Reinstalling...${NC}"
+                    backup_configs "panel_broken"
+                    auto_install_and_show
+                    exit 0
+                fi
+                ;;
+            2)
+                backup_configs "panel_reinstall"
+                auto_install_and_show
+                exit 0
+                ;;
+            3|*)
+                main_menu
+                ;;
+        esac
+        ;;
+    *)
+        # Unknown state — fall back to interactive menu
+        main_menu
+        ;;
+esac
 
