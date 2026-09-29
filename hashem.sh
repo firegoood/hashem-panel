@@ -2515,14 +2515,14 @@ EOF
     fi
     echo "=============================================================="
 
-    if [[ "$STATUS_GRE" == "OK" && "$STATUS_FRP" == "OK" ]]; then
+    if [[ "$STATUS_GRE" == "OK" && "$STATUS_FRP" == "OK" && "$STATUS_PING" == "OK" ]]; then
         echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC}\n"
         log_msg "tunnel" "INFO" "FOREIGN server setup completed successfully"
         return 0
     else
         echo -e "Overall Installation Status: ${RED}PARTIALLY FAILED${NC}"
         echo -e "${YELLOW}[!] Review component failure(s) above. Do NOT assume tunnel is ready.${NC}\n"
-        log_msg "tunnel" "ERROR" "FOREIGN server setup partially failed: GRE=${STATUS_GRE}, FRP=${STATUS_FRP}"
+        log_msg "tunnel" "ERROR" "FOREIGN server setup partially failed: GRE=${STATUS_GRE}, FRP=${STATUS_FRP}, PING=${STATUS_PING}"
         return 1
     fi
 }
@@ -2592,6 +2592,10 @@ peer_token() {
 peer_write_frps() {
     local SUF=$1 BIND_PORT=$2 TOKEN=$3
     local EFF_TLS=$(perf_get_tls)
+    local MAX_POOL=50
+    if [[ -f /etc/gre-panel/perf.json ]] && command -v python3 >/dev/null 2>&1; then
+        MAX_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 50))" 2>/dev/null || echo 50)
+    fi
     local TLS_LINE=""
     [[ "$EFF_TLS" == "1" ]] && TLS_LINE="transport.tls.force = true"
     cat <<EOF > "${CONFIG_DIR}/frps${SUF}.toml"
@@ -2720,6 +2724,11 @@ cli_add_peer() {
         sed -i "s/After=network.target/After=network.target ${GRE_IF}.service/" /etc/systemd/system/${FRPS_SVC}.service
         systemctl daemon-reload; systemctl restart "$FRPS_SVC"
         setup_chaff "-${ID}" "$PEER_GRE"
+    fi
+    sleep 1
+    if ! systemctl is-active --quiet "$FRPS_SVC"; then
+        echo -e "${RED}[!] Error: ${FRPS_SVC} failed to start. Generated configuration might be invalid.${NC}"
+        return 1
     fi
     # registry record (ports as JSON array)
     local PORTS_JSON
