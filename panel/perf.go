@@ -68,7 +68,7 @@ func defaultPerfConfig() perfConfig {
 		DPIRate:          "60/sec",
 		DPIBurst:         120,
 		FRPMaxPool:       50,
-		AutoTune:         true,
+		AutoTune:         false,
 	}
 }
 
@@ -129,7 +129,7 @@ func loadPerfConfig() perfConfig {
 func savePerfConfig(c perfConfig) error {
 	_ = os.MkdirAll(configDir, 0700)
 	if c.ChaffProfile == "" {
-		c.ChaffProfile = "low"
+		c.ChaffProfile = "off"
 	}
 	if c.DPIRate == "" {
 		c.DPIRate = "300/min"

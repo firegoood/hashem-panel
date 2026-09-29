@@ -4482,7 +4482,7 @@ if ($('docIperfBtn')) $('docIperfBtn').onclick = toggleIperf;
 
 // boot: if already logged in, status works; else show login
 (async () => {
-  try { await api('/api/status'); showApp(); refresh(); loadSetupDefaults(); loadVersion(); termFlagRefresh(); tlsRefresh(); }
+  try { await api('/api/status'); showApp(); refresh(); loadSetupDefaults(); loadVersion(); termFlagRefresh(); tlsRefresh(); if (!localStorage.getItem('v1_perf_alert')) { toastOk('Performance Defaults Updated', 'TLS, Chaff, and AutoTune are now disabled by default to minimize ping overhead. Opt back in via the Performance tab if needed.'); localStorage.setItem('v1_perf_alert', '1'); } }
   catch(e) { showLogin(); }
 })();
 // light pollers: skip when the tab is in the background (background tabs

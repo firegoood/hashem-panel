@@ -1356,7 +1356,7 @@ EOF
 }
 
 update_chaff_existing_tunnels() {
-    if [[ "${CHAFF_PROFILE:-low}" == "off" ]]; then
+    if [[ "${CHAFF_PROFILE:-off}" == "off" ]]; then
         return 0
     fi
     # 1. Multi-peer registry (/etc/gre-panel/peers.json)
@@ -1652,28 +1652,30 @@ dpi_shield_on() {
         iptables -N HASHEM-DPI
     fi
 
-    # Ensure jump from INPUT exists
-    if ! iptables -C INPUT -j HASHEM-DPI 2>/dev/null; then
-        iptables -I INPUT 1 -j HASHEM-DPI
-    fi
+    # Remove old blanket jump from INPUT (legacy: was sending ALL traffic through DPI chain)
+    while iptables -C INPUT -j HASHEM-DPI 2>/dev/null; do
+        iptables -D INPUT -j HASHEM-DPI
+    done
 
-    # 1. Always allow loopback traffic (localhost, internal proxying frpc <-> 3x-ui / local services)
-    iptables -A HASHEM-DPI -i lo -j ACCEPT
-
-    # 2. Always accept established and related connections so active traffic/downloads are NEVER throttled or dropped
-    iptables -A HASHEM-DPI -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
-        iptables -A HASHEM-DPI -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
-
-    # 3. Kernel SYN flood hardening (syncookies absorb connection spikes without dropping legitimate handshakes)
+    # 1. DPI chain rules: only SYN flood defense (ESTABLISHED traffic never enters this chain)
+    # Kernel SYN flood hardening
     sysctl -w net.ipv4.tcp_syncookies=1 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_max_syn_backlog=8192 >/dev/null 2>&1 || true
 
-    # 4. Anti-scanner flood defense per source IP (protects against high-rate port scanners without dropping normal users)
+    # 2. Per source IP hashlimit (blocks abusive scanners > 60/sec from one IP)
     local port
     for port in "${REVERSE_PORTS[@]}"; do
-        # Use hashlimit per source IP if supported (blocks abusive scanners > 60/sec from one IP, never drops normal clients)
         if ! iptables -A HASHEM-DPI -p tcp --dport "$port" --syn -m hashlimit --hashlimit-name "hsh_${port}" --hashlimit-mode srcip --hashlimit-above 60/sec --hashlimit-burst 120 -j DROP 2>/dev/null; then
             iptables -A HASHEM-DPI -p tcp --dport "$port" --syn -j ACCEPT 2>/dev/null || true
+        fi
+    done
+    # RETURN at end: non-matching packets pass through instantly
+    iptables -A HASHEM-DPI -j RETURN 2>/dev/null || true
+
+    # 3. Jump into HASHEM-DPI only for reverse tunnel port SYN packets (not ALL traffic)
+    for port in "${REVERSE_PORTS[@]}"; do
+        if ! iptables -C INPUT -p tcp --dport "$port" --syn -j HASHEM-DPI 2>/dev/null; then
+            iptables -I INPUT -p tcp --dport "$port" --syn -j HASHEM-DPI 2>/dev/null || true
         fi
     done
 
@@ -1711,14 +1713,30 @@ EOF
 }
 
 dpi_shield_off() {
+    # Read ports file before deletion so we can clean up per-port iptables rules
+    local SAVED_PORTS=()
+    if [[ -f "$DPI_PORTS_FILE" ]]; then
+        while read -r port; do
+            [[ -n "$port" ]] && SAVED_PORTS+=("$port")
+        done < "$DPI_PORTS_FILE"
+    fi
+
     # Disable and remove systemd persistence unit
     systemctl disable --now hashem-dpi.service >/dev/null 2>&1 || true
     rm -f /etc/systemd/system/hashem-dpi.service "$DPI_PORTS_FILE"
     systemctl daemon-reload
 
-    # Remove jump from INPUT
+    # Remove legacy blanket jump from INPUT
     while iptables -C INPUT -j HASHEM-DPI 2>/dev/null; do
         iptables -D INPUT -j HASHEM-DPI
+    done
+
+    # Remove per-port targeted jumps from INPUT (new format)
+    local port
+    for port in "${SAVED_PORTS[@]}"; do
+        while iptables -C INPUT -p tcp --dport "$port" --syn -j HASHEM-DPI 2>/dev/null; do
+            iptables -D INPUT -p tcp --dport "$port" --syn -j HASHEM-DPI
+        done
     done
 
     # Flush and delete HASHEM-DPI chain
@@ -2276,7 +2294,8 @@ EOF
         log_msg "tunnel" "ERROR" "frps service failed to start"
     fi
 
-    setup_chaff "" "$PEER_GRE"
+    # Chaff is now opt-in: users can enable it from Performance menu or `hashem chaff on`.
+    # Removed automatic activation to avoid unnecessary bandwidth and jitter overhead.
     if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
         ufw allow "${BIND_PORT}/tcp" >/dev/null 2>&1
     fi
@@ -2385,16 +2404,20 @@ _setup_foreign_full() {
     local EFF_TLS=$(perf_get_tls)
     local EFF_ENC=$(perf_get_enc)
     local EFF_COMP=$(perf_get_comp)
+    local TLS_ENABLE=""
     local TLS_CUSTOM=""
-    [[ "$EFF_TLS" == "1" ]] && TLS_CUSTOM="transport.tls.disableCustomTLSFirstByte = true"
+    if [[ "$EFF_TLS" == "1" ]]; then
+        TLS_ENABLE="transport.tls.enable = true"
+        TLS_CUSTOM="transport.tls.disableCustomTLSFirstByte = true"
+    fi
     mkdir -p "${CONFIG_DIR}"
     cat <<EOF > "${CONFIG_DIR}/frpc.toml"
 serverAddr = "${PEER_GRE}"
 serverPort = ${SERVER_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
-transport.tls.enable = true
-${TLS_CUSTOM:+$TLS_CUSTOM
+${TLS_ENABLE:+$TLS_ENABLE
+}${TLS_CUSTOM:+$TLS_CUSTOM
 }transport.tcpMux = true
 transport.tcpMuxKeepaliveInterval = 15
 transport.heartbeatInterval = 10
@@ -2402,11 +2425,10 @@ transport.heartbeatTimeout = 30
 transport.poolCount = 2
 
 EOF
+    # Per-proxy encryption/compression are NOT injected at setup time.
+    # They are only applied via `perf_apply` to avoid unnecessary overhead
+    # on the GRE inner network (point-to-point, no eavesdropping risk).
     local PORT
-    local ENC_LINE=""
-    [[ "$EFF_ENC" == "1" ]] && ENC_LINE="transport.useEncryption = true"
-    local COMP_LINE=""
-    [[ "$EFF_COMP" == "1" ]] && COMP_LINE="transport.useCompression = true"
     for PORT in $PORTS_CLEANED; do
         cat <<EOF >> "${CONFIG_DIR}/frpc.toml"
 [[proxies]]
@@ -2415,18 +2437,14 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = ${PORT}
 remotePort = ${PORT}
-${ENC_LINE:+$ENC_LINE
-}${COMP_LINE:+$COMP_LINE
-}
+
 [[proxies]]
 name = "udp_${PORT}"
 type = "udp"
 localIP = "127.0.0.1"
 localPort = ${PORT}
 remotePort = ${PORT}
-${ENC_LINE:+$ENC_LINE
-}${COMP_LINE:+$COMP_LINE
-}
+
 EOF
     done
 
@@ -2467,7 +2485,7 @@ EOF
         log_msg "tunnel" "ERROR" "frpc service failed to start"
     fi
 
-    setup_chaff "" "$PEER_GRE"
+    # Chaff is now opt-in: users can enable it from Performance menu or `hashem chaff on`.
     local DPI_EN=$(perf_get_dpi_enabled)
     if [[ "$DPI_EN" == "1" ]]; then
         dpi_shield_on >/dev/null 2>&1 || true
@@ -2715,7 +2733,7 @@ cli_add_peer() {
         setup_gre_systemd "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE" "$PEER_GRE"
         peer_write_frps "" "$FRP_PORT" "$TOKEN"
         GRE_IF="$TUNNEL_NAME"; FRPS_SVC="frps"; LEGACY=true
-        setup_chaff "" "$PEER_GRE"
+        # Chaff is now opt-in: not activated during setup.
     else
         GRE_IF="gre-t${ID}"; FRPS_SVC="frps-${ID}"; LEGACY=false
         setup_gre_iface "$GRE_IF" "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE" "$PEER_GRE"
@@ -2723,7 +2741,7 @@ cli_add_peer() {
         # point the new unit at the right interface
         sed -i "s/After=network.target/After=network.target ${GRE_IF}.service/" /etc/systemd/system/${FRPS_SVC}.service
         systemctl daemon-reload; systemctl restart "$FRPS_SVC"
-        setup_chaff "-${ID}" "$PEER_GRE"
+        # Chaff is now opt-in: not activated during setup.
     fi
     sleep 1
     if ! systemctl is-active --quiet "$FRPS_SVC"; then
@@ -5082,6 +5100,26 @@ update_all() {
             dpi_shield_off >/dev/null 2>&1 || true
         fi
     fi
+
+    # 6. Ping overhead migration for existing users
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c "
+import json
+path = '/etc/gre-panel/perf.json'
+try:
+    with open(path, 'r') as f:
+        d = json.load(f)
+    changed = False
+    if d.get('force_tls') != False: d['force_tls'] = False; changed = True
+    if d.get('chaff_profile') != 'off': d['chaff_profile'] = 'off'; changed = True
+    if d.get('auto_tune') != False: d['auto_tune'] = False; changed = True
+    if changed:
+        with open(path, 'w') as f: json.dump(d, f)
+except Exception:
+    pass
+" 2>/dev/null
+    fi
+    perf_apply >/dev/null 2>&1 || true
     if [[ -f "$WATCHDOG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
         local WD_EN
         WD_EN=$(python3 -c '
