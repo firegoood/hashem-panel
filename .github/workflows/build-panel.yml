@@ -35,8 +35,12 @@ jobs:
           fi
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.panelVersion=$VER" -o ${BIN}-linux-amd64 .
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.panelVersion=$VER" -o ${BIN}-linux-arm64 .
+          if [ "$BIN" != "gre-panel" ]; then
+            cp ${BIN}-linux-amd64 gre-panel-linux-amd64
+            cp ${BIN}-linux-arm64 gre-panel-linux-arm64
+          fi
           ./${BIN}-linux-amd64 --version
-          ls -la ${BIN}-linux-*
+          ls -la ${BIN}-linux-* gre-panel-linux-* 2>/dev/null || true
           echo "BIN_NAME=$BIN" >> $GITHUB_ENV
           echo "VER=$VER" >> $GITHUB_ENV
 
@@ -71,6 +75,8 @@ jobs:
           files: |
             panel/${{ env.BIN_NAME }}-linux-amd64
             panel/${{ env.BIN_NAME }}-linux-arm64
+            panel/gre-panel-linux-amd64
+            panel/gre-panel-linux-arm64
             panel/dist/hashem.sh
             panel/dist/hashem-chaff.sh
             panel/dist/grepanel

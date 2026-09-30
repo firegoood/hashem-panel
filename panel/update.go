@@ -136,6 +136,13 @@ func panelAsset() (arch, asset string, err error) {
 func downloadFile(url string, tmp *os.File) error {
 	client := &http.Client{Timeout: 90 * time.Second}
 	resp, err := client.Get(url)
+	if err != nil || (resp != nil && resp.StatusCode != http.StatusOK) {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		// Proxy fallback for Iran users (circumvent filtering / 404s due to DNS)
+		resp, err = client.Get("https://ghfast.top/" + url)
+	}
 	if err != nil {
 		return err
 	}
