@@ -1008,8 +1008,16 @@ prompt_required() { # $1=varname $2=label — must be non-empty
 
 prompt_token() { # $1=varname $2=label $3=default (empty accepts default)
     local __var=$1 __label=$2 __def=$3 __in
-    read -p "$__label [Press Enter for: $__def]: " __in
-    printf -v "$__var" '%s' "${__in:-$__def}"
+    while true; do
+        read -p "$__label [Press Enter for: $__def]: " __in
+        __in="${__in:-$__def}"
+        if [[ "$__in" == *"_"* ]]; then
+            echo -e "${RED}[!] Token cannot contain underscores ('_') as it breaks the bundle format.${NC}"
+        else
+            printf -v "$__var" '%s' "$__in"
+            return 0
+        fi
+    done
 }
 
 prompt_ports() { # $1=varname $2=label — at least one valid port
@@ -2693,6 +2701,9 @@ cli_add_peer() {
     validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$LOCAL_GRE" || return 1
     is_valid_ip "$PEER_GRE" || { echo -e "${RED}[!] Invalid peer GRE IP: '$PEER_GRE'${NC}"; return 1; }
     [[ "$LOCAL_GRE" != "$PEER_GRE" ]] || { echo -e "${RED}[!] Local and peer GRE IPs must differ.${NC}"; return 1; }
+    if grep -q "\"remote_pub\": *\"${REMOTE_PUB}\"" "$PEERS_FILE" 2>/dev/null; then
+        echo -e "${RED}[!] Foreign IP ${REMOTE_PUB} is already used by another tunnel. You cannot add multiple tunnels to the exact same server.${NC}"; return 1
+    fi
     [[ -n "$TOKEN" ]] || { echo -e "${RED}[!] --token is required (generate one per peer).${NC}"; return 1; }
     local CLEANED="" p
     for p in $(echo "$PORTS" | tr ',' ' '); do

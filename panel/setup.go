@@ -221,7 +221,13 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		if body.Autogen || body.Token == "" {
 			body.Token = randomToken(32)
 		}
-		if len(loadPeers()) >= 5 {
+		maxPeers := 10
+		if v := os.Getenv("GRE_MAX_PEERS"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+				maxPeers = parsed
+			}
+		}
+		if len(loadPeers()) >= maxPeers {
 			writeAPIError(w, r, "E-PEER-01", "")
 			return
 		}
@@ -291,6 +297,10 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 
 	// add-peer pre-check: reject ports another tunnel already serves (409 + peer name)
 	if body.Role == "add-peer" {
+		if clash := peerDuplicateIPClash(body.RemotePub, -1); clash != "" {
+			writeAPIError(w, r, "E-PEER-04", "Foreign IP is already used by tunnel '"+clash+"' — you cannot add multiple tunnels to the exact same server")
+			return
+		}
 		if clash := peerPortClash(ports, -1); clash != "" {
 			writeAPIError(w, r, "E-PEER-02", "port "+clash+" is already served by another tunnel — pick a different port")
 			return
@@ -503,6 +513,20 @@ func peerPortClash(want []int, excludeID int) string {
 	for _, port := range want {
 		if name, ok := claimed[port]; ok {
 			return fmt.Sprintf("%d (peer %s)", port, name)
+		}
+	}
+	return ""
+}
+
+// peerDuplicateIPClash reports the name of an existing peer that already
+// uses the given remote IP, skipping excludeID.
+func peerDuplicateIPClash(remoteIP string, excludeID int) string {
+	for _, p := range loadPeers() {
+		if p.ID == excludeID {
+			continue
+		}
+		if p.RemotePub == remoteIP {
+			return p.Name
 		}
 	}
 	return ""

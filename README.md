@@ -86,7 +86,14 @@ hashem            # Opens the full interactive tunnel menu
 hashem status     # Shows tunnel health and status
 hashem logs       # Tails the live FRP logs
 hashem optimize   # Automates BBR tuning, MTU adjustments, and sysctl buffers
+hashem doctor     # Full network diagnostics (latency, jitter, MTU, speed)
+hashem carrier    # Multi-carrier failover (auto, direct, fou, wss)
+hashem backup now # Backups the tunnel configuration
+hashem chaff on   # Enables traffic obfuscation (idle-gap filler)
+hashem dpi-shield # Enables DPI Shield (rate-limits reverse ports)
+hashem free-ram   # Frees up system RAM and clears cache
 hashem update     # Updates the script and web panel to the latest version
+hashem uninstall  # Full wipe: removes the tunnel, panel, and CLI tool
 ```
 
 ---

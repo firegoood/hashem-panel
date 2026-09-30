@@ -55,7 +55,7 @@ var errCatalog = map[string]errInfo{
 	"E-SETUP-09": {400, "token too long (max 128, bundles longer than 256 rejected)", "Paste the token/bundle as-is; do not add extra text."},
 	"E-SETUP-10": {400, "at least one reverse port is required (e.g. 443, 2083)", "Add the ports clients will connect to. If your bundle has no ports (e.g. ends with __fou...), enter ports manually in the Reverse Ports field."},
 	// peers
-	"E-PEER-01": {409, "peer table full (max 5 foreign servers)", "Remove one peer card before adding another."},
+	"E-PEER-01": {409, "peer table full (maximum foreign servers reached)", "Remove one peer card before adding another, or increase GRE_MAX_PEERS in environment variables."},
 	"E-PEER-02": {409, "reverse port already served by another tunnel", "Pick a different port — the conflicting peer is named in the message."},
 	"E-PEER-03": {409, "tunnel already exists on this server", "Resubmit with force:true to overwrite, or remove it first."},
 	"E-PEER-04": {404, "unknown peer id", "Refresh the page; the peer may have been removed."},
@@ -254,7 +254,7 @@ func matchLogCode(line string) (code, hint string) {
 		return "E-AUTH-02", errCatalog["E-AUTH-02"].Hint
 	case has("port", "already") && has("served", "peer", "tunnel"):
 		return "E-PEER-02", errCatalog["E-PEER-02"].Hint
-	case has("peer table full", "max 5"):
+	case has("peer table full"):
 		return "E-PEER-01", errCatalog["E-PEER-01"].Hint
 	}
 	return "", ""
