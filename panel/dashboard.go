@@ -127,32 +127,75 @@ func peerOr(st tunnelStatus) string {
 	return st.GrePeer
 }
 
+var trafficStateMu sync.Mutex
+var lastRawUp, lastRawDown uint64
+var lifetimeUp, lifetimeDown uint64
+var trafficStateInit bool
+
 // ---- traffic: rx/tx bytes summed across GRE interfaces ----
 // Multi-peer: sum counters of every registered gre interface (gre-tunnel,
 // gre-t2, ...). Legacy single installs read gre-tunnel as before.
 func greTraffic() map[string]any {
+	var rawUp, rawDown uint64
+	var have bool
+
 	if peers := loadPeers(); len(peers) > 0 {
-		var up, down uint64
-		have := false
 		for _, q := range peers {
 			rx, tx := ifaceTraffic(q.GreIf)
 			if rx == nil || tx == nil {
 				continue
 			}
 			have = true
-			down += *rx
-			up += *tx
+			rawDown += *rx
+			rawUp += *tx
 		}
-		if !have {
-			return map[string]any{"up": nil, "down": nil, "total": nil}
+	} else {
+		rx, tx := ifaceTraffic("gre-tunnel")
+		if rx != nil && tx != nil {
+			have = true
+			rawDown = *rx
+			rawUp = *tx
 		}
-		return map[string]any{"up": up, "down": down, "total": up + down}
 	}
-	rx, tx := ifaceTraffic("gre-tunnel")
-	if rx == nil || tx == nil {
+
+	if !have {
 		return map[string]any{"up": nil, "down": nil, "total": nil}
 	}
-	return map[string]any{"up": *tx, "down": *rx, "total": *tx + *rx}
+
+	trafficStateMu.Lock()
+	defer trafficStateMu.Unlock()
+
+	if !trafficStateInit {
+		hist := loadHistory()
+		if len(hist) > 0 {
+			last := hist[len(hist)-1]
+			if last.Up != nil {
+				lifetimeUp = *last.Up
+			}
+			if last.Down != nil {
+				lifetimeDown = *last.Down
+			}
+		}
+		lastRawUp = rawUp
+		lastRawDown = rawDown
+		trafficStateInit = true
+	}
+
+	dU := rawUp
+	if rawUp >= lastRawUp {
+		dU = rawUp - lastRawUp
+	}
+	dD := rawDown
+	if rawDown >= lastRawDown {
+		dD = rawDown - lastRawDown
+	}
+
+	lifetimeUp += dU
+	lifetimeDown += dD
+	lastRawUp = rawUp
+	lastRawDown = rawDown
+
+	return map[string]any{"up": lifetimeUp, "down": lifetimeDown, "total": lifetimeUp + lifetimeDown}
 }
 
 // ---- uptime: system + panel + frp service ----
