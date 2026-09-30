@@ -139,22 +139,29 @@ func greTraffic() map[string]any {
 	var rawUp, rawDown uint64
 	var have bool
 
-	if peers := loadPeers(); len(peers) > 0 {
-		for _, q := range peers {
-			rx, tx := ifaceTraffic(q.GreIf)
-			if rx == nil || tx == nil {
+	data, err := os.ReadFile("/proc/net/dev")
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.Contains(line, ":") {
 				continue
 			}
+			ifname := strings.Split(line, ":")[0]
+			if strings.HasPrefix(ifname, "lo") || strings.HasPrefix(ifname, "gre") || strings.HasPrefix(ifname, "tun") || strings.HasPrefix(ifname, "tap") || strings.HasPrefix(ifname, "veth") || strings.HasPrefix(ifname, "br-") || strings.HasPrefix(ifname, "docker") {
+				continue
+			}
+			f := strings.Fields(strings.TrimPrefix(line, ifname+":"))
+			if len(f) < 9 {
+				continue
+			}
+			var r, t uint64
+			if _, err := fmt.Sscanf(f[0], "%d", &r); err == nil {
+				rawDown += r
+			}
+			if _, err := fmt.Sscanf(f[8], "%d", &t); err == nil {
+				rawUp += t
+			}
 			have = true
-			rawDown += *rx
-			rawUp += *tx
-		}
-	} else {
-		rx, tx := ifaceTraffic("gre-tunnel")
-		if rx != nil && tx != nil {
-			have = true
-			rawDown = *rx
-			rawUp = *tx
 		}
 	}
 
@@ -484,3 +491,4 @@ func trafficHistory(rng string) []trafficPoint {
 	}
 	return out
 }
+

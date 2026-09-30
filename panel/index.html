@@ -2215,19 +2215,9 @@ function drawChart(hist, isDown) {
   cv._t0 = t0;
   cv._t1 = t1;
 
-  // Build smoothed point sequences with Catmull-Rom & de-spiking
+  // Build precise point sequences
   const getSeq = key => {
-    const seq = series.map((p, i) => p ? { x: X(p.t), y: Y(p[key]), val: p[key], i, t: p.t } : null).filter(Boolean);
-    if (seq.length > 1) {
-      // de-spike: clamp any single-sample jump to neighbours
-      for (let i = 1; i < seq.length - 1; i++) {
-        const prev = seq[i-1].y, cur = seq[i].y, next = seq[i+1].y;
-        const base = (prev + next) / 2, span = Math.abs(next - prev);
-        const dev = Math.abs(cur - base), lim = Math.max(ih * 0.03, span * 1.0 + ih * 0.005);
-        if (dev > lim) seq[i].y = base + (cur > base ? lim : -lim);
-      }
-    }
-    return seq;
+    return series.map((p, i) => p ? { x: X(p.t), y: Y(p[key]), val: p[key], i, t: p.t } : null).filter(Boolean);
   };
 
   const seqUl = getSeq('up');
@@ -4548,5 +4538,7 @@ setTimeout(refreshRightSidebarLogs, 500);
 </script>
 </body>
 </html>
+
+
 
 
