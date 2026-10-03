@@ -694,7 +694,7 @@ func applyBundle(body *setupRequest, b setupBundle) {
 		cfg := loadCarrierConfig()
 		cfg.FOUPort1 = b.FouPorts[0]
 		cfg.FOUPort2 = b.FouPorts[1]
-		cfg.Candidates = []string{"direct", fmt.Sprintf("fou:%d", cfg.FOUPort1), fmt.Sprintf("fou:%d", cfg.FOUPort2), fmt.Sprintf("wss:%d", cfg.WSSPort)}
+		cfg.Candidates = []string{"direct", fmt.Sprintf("wss:%d", cfg.WSSPort)}
 		_ = saveCarrierConfig(cfg)
 		_, _ = runHashemCarrierCmd("set-ports", strconv.Itoa(cfg.FOUPort1), strconv.Itoa(cfg.FOUPort2))
 	}

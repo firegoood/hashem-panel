@@ -1182,17 +1182,14 @@
             <label for="carrierModeSelect">Carrier Selection / Policy</label>
             <div class="u-flex-center-wrap10">
               <select class="hashem-input u-max-w-260" id="carrierModeSelect" >
-                <option value="auto">Auto (Failover on drops: Direct ➔ FOU ➔ WSS)</option>
-                <option value="direct">Direct GRE (Protocol 47)</option>
-                <option value="fou:443">FOU UDP : 443 (HTTPS disguise)</option>
-                <option value="fou:55555">FOU UDP : 55555 (Alternate port)</option>
+                <option value="direct" selected>Direct GRE (Protocol 47)</option>
                 <option value="wss:8443">WSS Carrier : 8443 (WebSocket over TLS)</option>
               </select>
               <button class="hashem-btn hashem-btn-secondary" id="carrierSaveModeBtn">Save Mode</button>
               <span class="status-indicator" id="carrierStatusInd"><span class="dot"></span><span id="carrierStatusTxt">—</span></span>
             </div>
             <div class="ent-help">
-              <strong>Auto mode:</strong> When the watchdog detects GRE packet loss or timeout, it automatically round-robins between Direct GRE, FOU UDP, and Obfuscated WSS before attempting service restarts.
+              <strong>Direct GRE mode:</strong> Uses raw GRE (Protocol 47) for the lowest latency. Switch to WSS if your provider throttles protocol-47.
             </div>
           </div>
 
@@ -2981,7 +2978,9 @@ function parseBundleClient(s) {
   }
   return {iranPub, port, iranGre, foreignGre, token, ports, fouPorts};
 }
-// pasting a bundle auto-fills ports + advanced fields (explicit edits win)
+// pasting a bundle auto-fills ports + advanced fields
+// NOTE: always overrides advanced fields from bundle so that pasting a
+// second/third peer bundle correctly replaces the previous peer's values.
 $('jToken').addEventListener('input', () => {
   const w = $('joinWarn');
   const raw = $('jToken').value.trim();
@@ -2993,12 +2992,14 @@ $('jToken').addEventListener('input', () => {
     return;
   }
   w.classList.add('hidden');
-  if (!$('jPorts').value.trim() && b.ports.length) $('jPorts').value = b.ports.join(', ');
-  const set = (id, v) => { const el = $(id); if (el && !el.value.trim()) el.value = v; };
-  set('fRemotePub', b.iranPub);
-  set('fLocalGre', b.foreignGre);
-  set('fPeerGre', b.iranGre);
-  set('fFrpPort', String(b.port));
+  // Always override ALL fields from bundle — new paste = new peer's full config.
+  // This ensures peer-2 or peer-3 bundle replaces every value from a previous paste.
+  const forceSet = (id, v) => { const el = $(id); if (el) el.value = v; };
+  forceSet('jPorts', b.ports.length ? b.ports.join(', ') : '');
+  forceSet('fRemotePub', b.iranPub);
+  forceSet('fLocalGre', b.foreignGre);
+  forceSet('fPeerGre', b.iranGre);
+  forceSet('fFrpPort', String(b.port));
   const adv = $('foreignAdv');
   if (adv && !adv.open) adv.open = true;
   // Bundle with no ports segment: guide the user to enter ports manually
@@ -3041,16 +3042,18 @@ $('joinBtn').onclick = async () => {
       w.classList.remove('hidden');
       b.disabled = false; b.textContent = oldTxt; return;
     }
-    // bundle paste: explicit advanced > bundle > live status > Iran-form value.
+    // bundle paste: bundle values are authoritative for the peer-specific fields
+    // (remote IP, GRE IPs, FRP port). This ensures pasting peer-2 or peer-3
+    // bundles always uses that peer's correct values regardless of any previous paste.
     // legacy manual token path: live status first (back-compat).
     const m = (st.gre || {});
     const adv = id => { const el = $(id); return el ? el.value.trim() : ''; };
     const body = bundle ? {
       role: 'foreign',
-      local_public: m.local || adv('fLocalPub') || d.local_public || '',
-      remote_public: adv('fRemotePub') || bundle.iranPub || m.peer_ip || '',
-      local_gre: adv('fLocalGre') || bundle.foreignGre || (m.inner || '').split('/')[0] || '',
-      peer_gre: adv('fPeerGre') || bundle.iranGre || '',
+      local_public: adv('fLocalPub') || m.local || d.local_public || '',
+      remote_public: bundle.iranPub || m.peer_ip || '',
+      local_gre: bundle.foreignGre || (m.inner || '').split('/')[0] || '',
+      peer_gre: bundle.iranGre || '',
       frp_port: bundle.port,
       token: rawToken,
       ports, force: true,
@@ -3760,7 +3763,7 @@ if (perfResetBtn) {
 }
 
 // ---------- Multi-Carrier & UDP Encapsulation (FOU) ----------
-let carrierState = { mode: 'auto', active: 'direct', fou_ports: [443, 55555], direct_gre: true, watchdog_auto: true };
+let carrierState = { mode: 'direct', active: 'direct', fou_ports: [], direct_gre: true, watchdog_auto: false };
 
 async function loadCarrier() {
   try {
@@ -3795,7 +3798,7 @@ async function loadCarrier() {
     }
 
     if ($('carrierModeSelect')) {
-      $('carrierModeSelect').value = s.mode || 'auto';
+      $('carrierModeSelect').value = s.mode || 'direct';
     }
 
     if ($('carrierPortsInput') && document.activeElement !== $('carrierPortsInput')) {
@@ -3879,7 +3882,7 @@ if (carrierApplyBtn) {
 const carrierSaveModeBtn = $('carrierSaveModeBtn');
 if (carrierSaveModeBtn) {
   carrierSaveModeBtn.onclick = async () => {
-    const m = $('carrierModeSelect') ? $('carrierModeSelect').value : 'auto';
+    const m = $('carrierModeSelect') ? $('carrierModeSelect').value : 'direct';
     carrierSaveModeBtn.disabled = true;
     try {
       const res = await api('/api/carrier', { action: 'set-mode', mode: m });

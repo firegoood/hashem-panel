@@ -617,14 +617,12 @@ init_carrier_json() {
     if [[ ! -f "$CARRIER_FILE" ]]; then
         cat << 'EOF' > "$CARRIER_FILE"
 {
-  "mode": "auto",
+  "mode": "direct",
   "active_carrier": "direct",
   "fou_port1": 443,
   "fou_port2": 55555,
   "candidates": [
-    "direct",
-    "fou:443",
-    "fou:55555"
+    "direct"
   ],
   "last_switch": "",
   "switch_count": 0
@@ -640,10 +638,10 @@ carrier_get_mode() {
 import json
 try:
     with open("'"$CARRIER_FILE"'") as f:
-        print(json.load(f).get("mode", "auto"))
+        print(json.load(f).get("mode", "direct"))
 except Exception:
-    print("auto")
-' 2>/dev/null || echo "auto"
+    print("direct")
+' 2>/dev/null || echo "direct"
 }
 
 carrier_get_active() {
@@ -712,7 +710,7 @@ except Exception:
 wp = d.get("wss_port", 8443)
 d["fou_port1"] = p1
 d["fou_port2"] = p2
-d["candidates"] = ["direct", f"fou:{p1}", f"fou:{p2}", f"wss:{wp}"]
+d["candidates"] = ["direct", f"wss:{wp}"]
 with open(p + ".tmp", "w") as f:
     json.dump(d, f, indent=2)
 import os
@@ -2430,7 +2428,7 @@ ${TLS_ENABLE:+$TLS_ENABLE
 transport.tcpMuxKeepaliveInterval = 15
 transport.heartbeatInterval = 10
 transport.heartbeatTimeout = 30
-transport.poolCount = 2
+transport.poolCount = 8
 
 EOF
     # Per-proxy encryption/compression are NOT injected at setup time.
@@ -3496,7 +3494,8 @@ tune_backup_once() {
              net.core.netdev_max_backlog net.core.somaxconn net.ipv4.tcp_max_syn_backlog \
              net.ipv4.tcp_slow_start_after_idle net.ipv4.tcp_window_scaling net.ipv4.tcp_mtu_probing \
              net.ipv4.tcp_keepalive_time net.ipv4.tcp_keepalive_intvl net.ipv4.tcp_keepalive_probes \
-             net.core.default_qdisc net.ipv4.tcp_congestion_control; do
+             net.core.default_qdisc net.ipv4.tcp_congestion_control \
+             net.ipv4.tcp_fastopen net.ipv4.ip_local_port_range; do
         v=$(sysctl -n "$k" 2>/dev/null) || v=""
         echo "$k=$v" >> "$TUNE_BACKUP"
     done
@@ -3541,14 +3540,19 @@ tune_apply() {
     sysctl -w net.ipv4.tcp_max_syn_backlog=8192 >/dev/null 2>&1
     echo -e "${GREEN}[✔️] Network backlog → 10000 / 8192${NC}"
 
-    # 4. Anti-stall and keepalive tuning
+    # 4. Anti-stall, keepalive, and fast connection tuning
     sysctl -w net.ipv4.tcp_slow_start_after_idle=0 >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_mtu_probing=1 >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_keepalive_time=30 >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_keepalive_intvl=10 >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_keepalive_probes=5 >/dev/null 2>&1
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
-    echo -e "${GREEN}[✔️] TCP keepalive (30s) + MTU probe + slow-start idle off${NC}"
+    # TCP Fast Open: eliminate 1 RTT on new connections (client+server)
+    sysctl -w net.ipv4.tcp_fastopen=3 >/dev/null 2>&1 || true
+    # Wider ephemeral port range: default 32768-60999 → 1024-65535
+    # Prevents port exhaustion under high connection load
+    sysctl -w net.ipv4.ip_local_port_range="1024 65535" >/dev/null 2>&1 || true
+    echo -e "${GREEN}[✔️] TCP keepalive (30s) + MTU probe + Fast Open + port range 1024-65535${NC}"
 
     # 5. GRE MTU 1380 for tunnel interface and any peer interfaces
     local iface
@@ -3561,11 +3565,18 @@ tune_apply() {
         echo -e "${YELLOW}[*] No ${TUNNEL_NAME} interface yet — MTU will apply on next setup.${NC}"
     fi
 
-    # 6. MSS clamp (set-mss 1340) so TCP never fragments through the tunnel
+    # 6. MSS clamp: POSTROUTING (general) + per GRE interface (precise)
+    # --clamp-mss-to-pmtu is less predictable than a fixed value for tunnel links
     iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || true
     iptables -t mangle -C POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || \
         iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340
-    echo -e "${GREEN}[✔️] TCP MSS clamp → 1340 (zero fragmentation)${NC}"
+    # Per-interface MSS clamp on all GRE ifaces (covers FORWARD path too)
+    local gre_iface
+    for gre_iface in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep -E '^(gre-t|gre-tunnel)'); do
+        iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -o "$gre_iface" -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || \
+            iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o "$gre_iface" -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || true
+    done
+    echo -e "${GREEN}[✔️] TCP MSS clamp → 1340 (POSTROUTING + FORWARD per GRE iface)${NC}"
 
     # 7. Persist across reboots
     mkdir -p /etc/sysctl.d
@@ -3589,6 +3600,8 @@ net.ipv4.tcp_keepalive_time = 30
 net.ipv4.tcp_keepalive_intvl = 10
 net.ipv4.tcp_keepalive_probes = 5
 net.ipv4.ip_forward = 1
+net.ipv4.tcp_fastopen = 3
+net.ipv4.ip_local_port_range = 1024 65535
 EOF
     echo -e "${GREEN}[✔️] Settings persisted in /etc/sysctl.d/99-gre-tune.conf${NC}"
     echo -e "${GREEN}[✔️] Optimization done — run Restore if anything feels worse.${NC}"
@@ -3612,7 +3625,12 @@ tune_restore() {
                 if [[ "$v" == "absent" ]]; then
                     iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || true
                     iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || true
-                    echo -e "${GREEN}[✔️] MSS clamp removed${NC}"
+                    # Also remove per-GRE-iface FORWARD clamp rules added by tune_apply
+                    local gri
+                    for gri in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep -E '^(gre-t|gre-tunnel)'); do
+                        iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -o "$gri" -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || true
+                    done
+                    echo -e "${GREEN}[✔️] MSS clamp removed (POSTROUTING + FORWARD)${NC}"
                 fi ;;
         esac
     done < "$TUNE_BACKUP"

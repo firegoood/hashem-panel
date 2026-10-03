@@ -58,12 +58,12 @@ func carrierConfigPath() string {
 
 func defaultCarrierConfig() carrierConfig {
 	return carrierConfig{
-		Mode:          "auto",
+		Mode:          "direct",
 		ActiveCarrier: "direct",
 		FOUPort1:      443,
 		FOUPort2:      55555,
 		WSSPort:       8443,
-		Candidates:    []string{"direct", "fou:443", "fou:55555", "wss:8443"},
+		Candidates:    []string{"direct", "wss:8443"},
 		LastSwitch:    "",
 		SwitchCount:   0,
 	}
@@ -79,11 +79,17 @@ func loadCarrierConfig() carrierConfig {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return def
 	}
-	if c.Mode == "" {
-		c.Mode = "auto"
+	// Migration: "auto" (failover) mode is no longer supported.
+	// Existing servers that had mode=auto are silently migrated to "direct"
+	// so they don't lose connectivity on update.
+	needsSave := false
+	if c.Mode == "" || c.Mode == "auto" {
+		c.Mode = "direct"
+		needsSave = true
 	}
-	if c.ActiveCarrier == "" {
+	if c.ActiveCarrier == "" || c.ActiveCarrier == "auto" {
 		c.ActiveCarrier = "direct"
+		needsSave = true
 	}
 	if c.FOUPort1 <= 0 {
 		c.FOUPort1 = 443
@@ -94,8 +100,26 @@ func loadCarrierConfig() carrierConfig {
 	if c.WSSPort <= 0 {
 		c.WSSPort = 8443
 	}
-	if len(c.Candidates) == 0 {
-		c.Candidates = []string{"direct", "fou:" + strconv.Itoa(c.FOUPort1), "fou:" + strconv.Itoa(c.FOUPort2), "wss:" + strconv.Itoa(c.WSSPort)}
+	// Remove any FOU candidates left from old configs.
+	clean := []string{}
+	hadFOU := false
+	for _, cand := range c.Candidates {
+		if strings.HasPrefix(cand, "fou:") {
+			hadFOU = true
+			continue
+		}
+		clean = append(clean, cand)
+	}
+	if hadFOU {
+		needsSave = true
+	}
+	if len(clean) == 0 {
+		clean = []string{"direct", "wss:" + strconv.Itoa(c.WSSPort)}
+	}
+	c.Candidates = clean
+	// Persist migration exactly once (only when we actually changed something).
+	if needsSave {
+		_ = saveCarrierConfig(c)
 	}
 	return c
 }
@@ -192,27 +216,23 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 	switch act {
 	case "set_mode", "set-mode":
 		m := strings.TrimSpace(req.Mode)
-		if m != "auto" && m != "direct" && !strings.HasPrefix(m, "fou:") && !strings.HasPrefix(m, "wss") {
-			writeAPIError(w, r, "E-ACTION-01", "invalid mode: want auto, direct, fou:PORT, or wss:PORT")
+		if m != "direct" && !strings.HasPrefix(m, "wss") {
+			writeAPIError(w, r, "E-ACTION-01", "invalid mode: want direct or wss:PORT")
 			return
 		}
 		cfg.Mode = m
-		if m != "auto" {
-			cfg.ActiveCarrier = m
-			cfg.LastSwitch = time.Now().Format("2006-01-02 15:04:05")
-			cfg.SwitchCount++
-			if strings.HasPrefix(m, "wss") {
-				wssCfg := loadWSSConfig()
-				wssCfg.Enabled = true
-				_ = saveWSSConfig(wssCfg)
-				_ = startWSSCarrier(wssCfg)
-			} else {
-				_ = stopWSSCarrier()
-			}
-			_, _ = runHashemCarrierCmd("set", m)
+		cfg.ActiveCarrier = m
+		cfg.LastSwitch = time.Now().Format("2006-01-02 15:04:05")
+		cfg.SwitchCount++
+		if strings.HasPrefix(m, "wss") {
+			wssCfg := loadWSSConfig()
+			wssCfg.Enabled = true
+			_ = saveWSSConfig(wssCfg)
+			_ = startWSSCarrier(wssCfg)
 		} else {
-			_, _ = runHashemCarrierCmd("mode", "auto")
+			_ = stopWSSCarrier()
 		}
+		_, _ = runHashemCarrierCmd("set", m)
 		_ = saveCarrierConfig(cfg)
 		writeJSON(w, map[string]any{"status": "ok", "mode": cfg.Mode, "active": cfg.ActiveCarrier, "active_carrier": cfg.ActiveCarrier})
 
@@ -246,7 +266,7 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 		} else {
 			cands := cfg.Candidates
 			if len(cands) == 0 {
-				cands = []string{"direct", "fou:443", "fou:55555", "wss:8443"}
+				cands = []string{"direct", "wss:8443"}
 			}
 			idx := 0
 			for i, c := range cands {
@@ -285,7 +305,7 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg.FOUPort1 = p1
 		cfg.FOUPort2 = p2
-		cfg.Candidates = []string{"direct", "fou:" + strconv.Itoa(p1), "fou:" + strconv.Itoa(p2), "wss:" + strconv.Itoa(cfg.WSSPort)}
+		cfg.Candidates = []string{"direct", "wss:" + strconv.Itoa(cfg.WSSPort)}
 		_ = saveCarrierConfig(cfg)
 		_, _ = runHashemCarrierCmd("set-ports", strconv.Itoa(p1), strconv.Itoa(p2))
 		writeJSON(w, map[string]any{"status": "ok", "fou_port1": p1, "fou_port2": p2, "fou_ports": []int{p1, p2}})
