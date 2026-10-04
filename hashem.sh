@@ -2539,9 +2539,22 @@ EOF
     fi
     echo "=============================================================="
 
-    if [[ "$STATUS_GRE" == "OK" && "$STATUS_FRP" == "OK" && "$STATUS_PING" == "OK" ]]; then
-        echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC}\n"
-        log_msg "tunnel" "INFO" "FOREIGN server setup completed successfully"
+    # Success: GRE interface up + frpc connected = tunnel functional.
+    # PING=WARN is acceptable: ICMP is often filtered by DPI/ISP on GRE tunnels
+    # in Iran while TCP (used by frpc) works fine. Only treat ping as blocking
+    # failure if frpc itself also failed.
+    local _ping_blocking=0
+    if [[ "$STATUS_PING" != "OK" && "$STATUS_FRP" != "OK" ]]; then
+        _ping_blocking=1
+    fi
+
+    if [[ "$STATUS_GRE" == "OK" && "$STATUS_FRP" == "OK" && "$_ping_blocking" -eq 0 ]]; then
+        if [[ "$STATUS_PING" != "OK" ]]; then
+            echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC} ${YELLOW}(ICMP ping filtered — tunnel TCP is working)${NC}\n"
+        else
+            echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC}\n"
+        fi
+        log_msg "tunnel" "INFO" "FOREIGN server setup completed successfully (PING=${STATUS_PING})"
         return 0
     else
         echo -e "Overall Installation Status: ${RED}PARTIALLY FAILED${NC}"
@@ -3318,7 +3331,13 @@ doctor_health_check() {
             RTT=$(echo "$P_OUT" | awk -F'/' '/rtt/ {print $5}')
             report_item "GRE Peer Connectivity" "PASS" "Reachable (${RTT:-<50} ms)"
         else
-            report_item "GRE Peer Connectivity" "FAIL" "Cannot ping peer ${PEER_PING_TARGET}"
+            # ICMP may be filtered by ISP/DPI (common in Iran with GRE tunnels).
+            # If frpc is active, TCP through GRE is working — downgrade to WARN.
+            if systemctl is-active --quiet frpc 2>/dev/null; then
+                report_item "GRE Peer Connectivity" "WARN" "ICMP filtered (DPI/ISP) but frpc TCP tunnel is active — tunnel functional"
+            else
+                report_item "GRE Peer Connectivity" "FAIL" "Cannot ping peer ${PEER_PING_TARGET}"
+            fi
         fi
     else
         report_item "GRE Peer Connectivity" "WARN" "No peer IP configured yet"
