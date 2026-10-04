@@ -140,7 +140,7 @@ This is a strict copyleft license. If you modify this software and run it as a n
 
 You can follow us on YouTube and Telegram for updates, tutorials, and support. For professional services, configurations, and advanced setups, please visit our website and contact us.
 
-- 🌐 **Website (Services & Support):** [pdnczone.ir](https://pdnczone.ir)
+- 🌐 **Website (Services & Support & donation ):** [pdnczone.ir](https://pdnczone.ir)
 - ✈️ **Telegram:** [@pdnczone](https://t.me/pdnczone)
 - ▶️ **YouTube:** [@pdnczone](https://youtube.com/@pdnczone)
 
