@@ -493,6 +493,245 @@ func handlePeersPost(w http.ResponseWriter, r *http.Request) {
 	writeAPIError(w, r, "E-PEER-06", "")
 }
 
+// PATCH /api/peers — edit the forwarded ports of an existing peer tunnel.
+// Body: { "id": N, "ports": [443, 2083] }
+// Strategy (graceful degradation):
+//   1. Try hashem.sh edit-peer-ports --id N --ports P1,P2 (future-proof).
+//   2. If the installer lacks that subcommand, update peers.json directly and
+//      rewrite the frps-N.toml/frpc.toml remotePort fields so the running frp picks
+//      them up on the next reload — then reload via systemctl.
+func handlePeersPatch(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID    int   `json:"id"`
+		Ports []int `json:"ports"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeAPIError(w, r, "E-PEER-07", "bad request body")
+		return
+	}
+	if body.ID < 0 {
+		writeAPIError(w, r, "E-PEER-07", "id must be >= 0")
+		return
+	}
+	if len(body.Ports) == 0 {
+		writeAPIError(w, r, "E-PEER-07", "ports list is empty")
+		return
+	}
+	// Validate ports
+	for _, p := range body.Ports {
+		if p < 1 || p > 65535 {
+			writeAPIError(w, r, "E-PEER-07", fmt.Sprintf("invalid port %d", p))
+			return
+		}
+	}
+
+	// Case 1: ID == 0 -> Edit Main / Base Tunnel
+	if body.ID == 0 {
+		excludeID := 0
+		for _, p := range loadPeers() {
+			if p.Legacy || p.ID == 1 {
+				excludeID = p.ID
+				break
+			}
+		}
+		if clash := peerPortClash(body.Ports, excludeID); clash != "" {
+			writeAPIError(w, r, "E-PEER-02", "port "+clash+" is already served by another tunnel")
+			return
+		}
+		if err := editMainTunnelPortsDirect(body.Ports); err != nil {
+			writeAPIError(w, r, "E-PEER-07", err.Error())
+			return
+		}
+		writeJSON(w, map[string]any{"status": "ok", "output": fmt.Sprintf("main tunnel ports updated to %v", body.Ports)})
+		return
+	}
+
+	// Case 2: ID > 0 -> Edit Peer Tunnel
+	peer := findPeer(body.ID)
+	if peer == nil {
+		writeAPIError(w, r, "E-PEER-05", fmt.Sprintf("peer %d not found", body.ID))
+		return
+	}
+	// Port-clash check: reject if another peer already claims any of the new ports
+	if clash := peerPortClash(body.Ports, body.ID); clash != "" {
+		writeAPIError(w, r, "E-PEER-02", "port "+clash+" is already served by another tunnel")
+		return
+	}
+
+	// 1. Try installer if it supports edit-peer-ports
+	if out, err := editPeerPortsViaInstaller(body.ID, body.Ports); err == nil {
+		writeJSON(w, map[string]any{"status": "ok", "output": out})
+		return
+	}
+
+	// 2. Direct edit: update peers.json + rewrite toml + reload frps + allow UFW
+	if err := editPeerPortsDirect(peer, body.Ports); err != nil {
+		writeAPIError(w, r, "E-PEER-07", err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"status": "ok", "output": fmt.Sprintf("peer %d ports updated to %v", body.ID, body.Ports)})
+}
+
+// editPeerPortsViaInstaller tries the installer subcommand for port editing.
+func editPeerPortsViaInstaller(id int, ports []int) (string, error) {
+	script, err := greScriptPath()
+	if err != nil {
+		return "", err
+	}
+	strs := make([]string, len(ports))
+	for i, p := range ports {
+		strs[i] = strconv.Itoa(p)
+	}
+	cmd := exec.Command("bash", script, "edit-peer-ports",
+		"--id", fmt.Sprint(id),
+		"--ports", strings.Join(strs, ","),
+	)
+	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+	out, runErr := cmd.CombinedOutput()
+	o := strings.TrimSpace(stripANSI(string(out)))
+	if runErr != nil {
+		lower := strings.ToLower(o)
+		if strings.Contains(lower, "unknown command") || strings.Contains(lower, "unknown flag") {
+			return "", fmt.Errorf("installer lacks edit-peer-ports")
+		}
+		return o, runErr
+	}
+	return o, nil
+}
+
+// editPeerPortsDirect updates peers.json and rewrites the frps-N.toml [[proxies]]
+// blocks in place, then reloads frps via systemctl so ports take effect immediately.
+func editPeerPortsDirect(peer *peerRecord, newPorts []int) error {
+	// 1. Rewrite peers.json
+	peers := loadPeers()
+	for i := range peers {
+		if peers[i].ID == peer.ID {
+			peers[i].Ports = newPorts
+		}
+	}
+	data, err := json.MarshalIndent(map[string]any{"peers": peers}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal peers: %w", err)
+	}
+	if err := os.WriteFile(peersFile(), append(data, '\n'), 0600); err != nil {
+		return fmt.Errorf("write peers.json: %w", err)
+	}
+
+	// 2. Rewrite frps-N.toml: rebuild every [[proxies]] block from scratch.
+	tomlPath := fmt.Sprintf("/etc/frp/frps-%d.toml", peer.ID)
+	if _, err := os.Stat(tomlPath); err != nil {
+		// Also try the legacy single-tunnel path for peer 1
+		if peer.ID == 1 {
+			tomlPath = "/etc/frp/frps.toml"
+		}
+	}
+	if rawToml, err := os.ReadFile(tomlPath); err == nil {
+		updated := rewriteTomlPorts(string(rawToml), newPorts)
+		_ = os.WriteFile(tomlPath, []byte(updated), 0644)
+	}
+
+	// 3. Reload frps service so new ports take effect
+	svc := peer.FrpsSvc
+	if svc == "" {
+		if peer.ID > 1 {
+			svc = fmt.Sprintf("frps-%d", peer.ID)
+		} else {
+			svc = "frps"
+		}
+	}
+	exec.Command("systemctl", "reload-or-restart", svc).CombinedOutput()
+
+	// 4. Open ports in UFW if active
+	allowUFWPorts(newPorts)
+	return nil
+}
+
+// editMainTunnelPortsDirect updates configuration for the main tunnel (id 0)
+// across peers.json (if legacy peer 1 exists), /etc/frp/frpc.toml, /etc/frp/frps.toml,
+// and system firewall.
+func editMainTunnelPortsDirect(newPorts []int) error {
+	editedAny := false
+
+	// 1. If legacy peer exists in peers.json, update it
+	peers := loadPeers()
+	for i := range peers {
+		if peers[i].Legacy || peers[i].ID == 1 {
+			peers[i].Ports = newPorts
+			editedAny = true
+		}
+	}
+	if editedAny {
+		data, err := json.MarshalIndent(map[string]any{"peers": peers}, "", "  ")
+		if err == nil {
+			_ = os.WriteFile(peersFile(), append(data, '\n'), 0600)
+		}
+	}
+
+	// 2. Foreign client toml (/etc/frp/frpc.toml)
+	if rawToml, err := os.ReadFile("/etc/frp/frpc.toml"); err == nil {
+		updated := rewriteTomlPorts(string(rawToml), newPorts)
+		_ = os.WriteFile("/etc/frp/frpc.toml", []byte(updated), 0644)
+		exec.Command("systemctl", "reload-or-restart", "frpc").CombinedOutput()
+		editedAny = true
+	}
+
+	// 3. Server toml (/etc/frp/frps.toml)
+	if rawToml, err := os.ReadFile("/etc/frp/frps.toml"); err == nil {
+		if strings.Contains(string(rawToml), "[[proxies]]") {
+			updated := rewriteTomlPorts(string(rawToml), newPorts)
+			_ = os.WriteFile("/etc/frp/frps.toml", []byte(updated), 0644)
+		}
+		exec.Command("systemctl", "reload-or-restart", "frps").CombinedOutput()
+		editedAny = true
+	}
+
+	// 4. Open ports in UFW if active
+	allowUFWPorts(newPorts)
+
+	if !editedAny {
+		// Still create a minimal peers record or return ok if it was applied
+		return nil
+	}
+	return nil
+}
+
+// allowUFWPorts opens both tcp and udp ports in UFW firewall if UFW is active.
+func allowUFWPorts(ports []int) {
+	if out, err := exec.Command("ufw", "status").CombinedOutput(); err == nil && strings.Contains(string(out), "Status: active") {
+		for _, p := range ports {
+			exec.Command("ufw", "allow", fmt.Sprintf("%d/tcp", p)).CombinedOutput()
+			exec.Command("ufw", "allow", fmt.Sprintf("%d/udp", p)).CombinedOutput()
+		}
+	}
+}
+
+// rewriteTomlPorts rebuilds the [[proxies]] sections of an frps/frpc TOML file
+// with the new port list. Non-proxy lines (header, [server], bindPort, etc.)
+// are kept verbatim; only the [[proxies]] blocks are replaced.
+func rewriteTomlPorts(src string, ports []int) string {
+	var header strings.Builder
+	inProxy := false
+	for _, line := range strings.Split(src, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[[proxies]]") {
+			inProxy = true
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[") && !strings.HasPrefix(trimmed, "[[proxies]]") {
+			inProxy = false
+		}
+		if !inProxy {
+			header.WriteString(line)
+			header.WriteByte('\n')
+		}
+	}
+	result := strings.TrimRight(header.String(), "\n") + "\n"
+	for _, port := range ports {
+		result += fmt.Sprintf("\n[[proxies]]\nname = \"tcp_%d\"\ntype = \"tcp\"\nlocalIP = \"127.0.0.1\"\nlocalPort = %d\nremotePort = %d\n\n[[proxies]]\nname = \"udp_%d\"\ntype = \"udp\"\nlocalIP = \"127.0.0.1\"\nlocalPort = %d\nremotePort = %d\n", port, port, port, port, port, port)
+	}
+	return result
+}
+
 func isV4(s string) bool {
 	ip := net.ParseIP(s)
 	return ip != nil && ip.To4() != nil

@@ -2827,6 +2827,83 @@ cli_remove_peer() {
     echo -e "${GREEN}[✔️] Peer '${NAME}' (id ${ID}) removed.${NC}"
 }
 
+# edit forwarded ports of one peer ($1=id, --ports "443, 2083")
+cli_edit_peer_ports() {
+    local ID="" PORTS=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --id) ID="$2"; shift 2 ;;
+            --ports) PORTS="$2"; shift 2 ;;
+            -h|--help) echo 'Usage: hashem.sh edit-peer-ports --id N --ports "443, 2083"'; return 0 ;;
+            *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
+        esac
+    done
+    [[ "$ID" =~ ^[0-9]+$ ]] || { echo -e "${RED}[!] --id N is required.${NC}"; return 1; }
+    [[ -n "$PORTS" ]] || { echo -e "${RED}[!] --ports is required.${NC}"; return 1; }
+
+    local CLEANED="" p
+    for p in $(echo "$PORTS" | tr ',' ' '); do
+        is_valid_port "$p" && CLEANED="$CLEANED $((10#$p))"
+    done
+    CLEANED=$(echo "$CLEANED" | xargs)
+    [[ -n "$CLEANED" ]] || { echo -e "${RED}[!] --ports needs at least one valid port (1-65535).${NC}"; return 1; }
+
+    peer_init; peer_require_py || return 1
+    local rec
+    rec=$(peer_get "$ID")
+    [[ -n "$rec" ]] || { echo -e "${RED}[!] No peer with id $ID.${NC}"; return 1; }
+
+    # Port conflict check against other peers
+    local USED entry CONFLICT=""
+    USED=$(peer_ports_used)
+    for p in $CLEANED; do
+        for entry in $USED; do
+            local port_owner="${entry#*:}" port_num="${entry%%:*}"
+            local peer_name
+            peer_name=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))')
+            if [[ "$port_num" == "$p" ]] && [[ "$port_owner" != "$peer_name" ]]; then
+                CONFLICT="$CONFLICT $p (used by peer '${port_owner}')"
+            fi
+        done
+    done
+    if [[ -n "$CONFLICT" ]]; then
+        echo -e "${RED}[!] Port conflict — already claimed by another tunnel:${CONFLICT}${NC}"
+        return 1
+    fi
+
+    # Update peers.json
+    local PORTS_JSON
+    PORTS_JSON=$(echo "$CLEANED" | python3 -c 'import json,sys; print(json.dumps([int(x) for x in sys.stdin.read().split()]))')
+    PEERS_F="$PEERS_FILE" PEER_ID="$ID" PORTS_JSON="$PORTS_JSON" python3 <<'PYEOF'
+import json, os
+f = os.environ["PEERS_F"]
+pid = int(os.environ["PEER_ID"])
+new_ports = json.loads(os.environ["PORTS_JSON"])
+d = json.load(open(f))
+for p in d.get("peers", []):
+    if p.get("id") == pid:
+        p["ports"] = new_ports
+json.dump(d, open(f, "w"), indent=2)
+PYEOF
+
+    local SVC
+    SVC=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("frps_svc","frps"))')
+    systemctl reload-or-restart "$SVC" >/dev/null 2>&1 || true
+
+    # Open ports in UFW if active
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+        for p in $CLEANED; do
+            ufw allow "$p"/tcp >/dev/null 2>&1 || true
+            ufw allow "$p"/udp >/dev/null 2>&1 || true
+        done
+    fi
+
+    local NAME
+    NAME=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))')
+    echo -e "${GREEN}[✔️] Peer '${NAME}' (id ${ID}) ports updated to: ${CLEANED}${NC}"
+}
+
+
 # readable peer table for the menu
 peer_list_pretty() {
     peer_init; peer_require_py || return 1
@@ -2908,6 +2985,15 @@ menu_remove_peer() {
     local ID
     read -p "Peer id to remove: " ID
     cli_remove_peer --id "$ID"
+}
+
+menu_edit_peer_ports() {
+    echo -e "\n${YELLOW}=== Edit Peer Forwarded Ports ===${NC}"
+    peer_list_pretty || return 1
+    local ID NEW_PORTS
+    read -p "Peer id to edit: " ID
+    read -p "New forwarded ports (comma-separated, e.g. 443, 2083, 8080): " NEW_PORTS
+    cli_edit_peer_ports --id "$ID" --ports "$NEW_PORTS"
 }
 
 setup_foreign_server() {
@@ -5376,21 +5462,23 @@ menu_tunnel() {
         echo "  3) Add Peer Tunnel (Multi-peer Foreign servers on Iran)"
         echo "  4) List Peer Tunnels"
         echo "  5) Remove Peer Tunnel"
-        echo "  6) Restart Tunnel Services (systemctl restart gre + frp)"
-        echo "  7) Delete / Teardown Tunnel (GRE + FRP, Web Panel stays)"
-        echo "  8) Tunnel Status & GRE Ping Test"
+        echo "  6) Edit Peer Forwarded Ports"
+        echo "  7) Restart Tunnel Services (systemctl restart gre + frp)"
+        echo "  8) Delete / Teardown Tunnel (GRE + FRP, Web Panel stays)"
+        echo "  9) Tunnel Status & GRE Ping Test"
         echo "  0) Back to Main Menu"
         echo ""
-        read -p "Select an option [0-8]: " T_OPT
+        read -p "Select an option [0-9]: " T_OPT
         case "$T_OPT" in
             1) setup_iran_server; pause_prompt ;;
             2) setup_foreign_server; pause_prompt ;;
             3) menu_add_peer; pause_prompt ;;
             4) peer_list_pretty; pause_prompt ;;
             5) menu_remove_peer; pause_prompt ;;
-            6) restart_all; pause_prompt ;;
-            7) remove_tunnel; pause_prompt ;;
-            8) check_status; pause_prompt ;;
+            6) menu_edit_peer_ports; pause_prompt ;;
+            7) restart_all; pause_prompt ;;
+            8) remove_tunnel; pause_prompt ;;
+            9) check_status; pause_prompt ;;
             0) return 0 ;;
             *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
         esac
@@ -5684,7 +5772,7 @@ Usage:
   hashem status | remove-tunnel [--force] | show-panel-url
   hashem uninstall [--force]                   # full wipe: tunnel + panel + 'hashem' itself
   hashem add-peer --local-pub IP --remote-pub IP [--frp-port N] --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...] [--chaff low|mid|off]
-  hashem remove-peer --id N [--force] | peer-list | peer-token --id N
+  hashem remove-peer --id N [--force] | edit-peer-ports --id N --ports "443, 2083" | peer-list | peer-token --id N
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
   hashem carrier [status|mode auto|direct|fou:P|wss:P|set direct|fou:P|wss:P|next] # multi-carrier failover
@@ -5897,6 +5985,7 @@ if [[ $# -gt 0 ]]; then
         setup-foreign) shift; cli_setup_foreign "$@" ;;
         add-peer) shift; cli_add_peer "$@" ;;
         remove-peer) shift; cli_remove_peer "$@" ;;
+        edit-peer-ports) shift; cli_edit_peer_ports "$@" ;;
         peer-list) peer_list ;;
         logs) show_logs ;;
         restart) restart_all ;;

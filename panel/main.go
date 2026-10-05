@@ -229,6 +229,7 @@ func main() {
 	mux.HandleFunc("POST "+base+"/api/setup", requireAuth(handleSetupPost))
 	mux.HandleFunc("GET "+base+"/api/peers", requireAuth(handlePeersGet))
 	mux.HandleFunc("POST "+base+"/api/peers", requireAuth(handlePeersPost))
+	mux.HandleFunc("PATCH "+base+"/api/peers", requireAuth(handlePeersPatch))
 	mux.HandleFunc("GET "+base+"/api/tls", requireAuth(handleTLSGet))
 	mux.HandleFunc("POST "+base+"/api/tls", requireAuth(handleTLSIssue))
 	mux.HandleFunc("POST "+base+"/api/tls/renew", requireAuth(handleTLSRenew))

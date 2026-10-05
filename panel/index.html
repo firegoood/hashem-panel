@@ -1592,6 +1592,36 @@
   </div>
 </div>
 
+
+
+<!-- Edit Ports Modal -->
+<div class="ent-modal-ov" id="editPortsModal" hidden>
+  <div class="ent-modal" role="dialog" aria-modal="true" aria-labelledby="editPortsTitle" style="max-width:500px;width:100%">
+    <div class="ent-modal-h">
+      <b id="editPortsTitle">Edit Ports</b>
+      <button class="ent-x" id="editPortsClose" aria-label="Close">&#xD7;</button>
+    </div>
+    <div class="ent-modal-b" style="gap:16px">
+      <p class="u-m-0" style="color:var(--mu);font-size:13px" id="editPortsSub">Manage forwarded ports for this tunnel.</p>
+      <div>
+        <label style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu);display:block;margin-bottom:8px">Current Ports</label>
+        <div id="editPortsChips" style="display:flex;flex-wrap:wrap;gap:6px;min-height:36px;padding:8px;background:var(--sunk);border:1px solid var(--ln);border-radius:10px"></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div class="fg" style="flex:1">
+          <label for="editPortsNew" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">Add Port</label>
+          <input class="hashem-input" id="editPortsNew" type="number" min="1" max="65535" placeholder="e.g. 8080" style="margin-top:6px">
+        </div>
+        <button class="hashem-btn hashem-btn-secondary" id="editPortsAddBtn" style="height:38px;padding:0 14px;font-size:13px;flex-shrink:0">&#xFF0B; Add</button>
+      </div>
+      <div id="editPortsWarn" class="warnbox hidden"></div>
+    </div>
+    <div class="ent-modal-f">
+      <button class="hashem-btn hashem-btn-ghost" id="editPortsCancel">Cancel</button>
+      <button class="hashem-btn hashem-btn-primary" id="editPortsSave">&#x1F4BE; Save &amp; Reload</button>
+    </div>
+  </div>
+</div>
 <script>
 const BASE = document.documentElement.dataset.base || '';
 const at = p => BASE + p;
@@ -1626,9 +1656,10 @@ function toastMsg(kind, title, sub) {
   while (box.children.length > 4) box.firstChild.remove();
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 320); }, kind === 'err' ? 5000 : 2800);
 }
-async function api(path, body) {
+async function api(path, body, method) {
+  const m = method || (body ? 'POST' : 'GET');
   const r = await fetch(at(path), {
-    method: body ? 'POST' : 'GET',
+    method: m,
     headers: body ? {'Content-Type':'application/json'} : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -1840,7 +1871,7 @@ function renderPeers(peers) {
           <div class="det-card-head">${ICO_SRV} <span>Foreign Server</span></div>
           <div class="det-row"><span class="det-k">Foreign IP</span><span class="det-v mono">${esc(p.remote_pub || '—')}<button type="button" class="det-copy" data-copy="${esc(p.remote_pub || '')}" title="Copy">⧉</button></span></div>
           <div class="det-row"><span class="det-k">Iran IP</span><span class="det-v mono">${esc(p.local_pub || '—')}<button type="button" class="det-copy" data-copy="${esc(p.local_pub || '')}" title="Copy">⧉</button></span></div>
-          <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc((p.ports || []).join(', ') || '—')}</span></div>
+          <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc((p.ports || []).join(', ') || '—')}<button type="button" class="det-copy" onclick="editPeerPortsClick(${p.id})" title="Edit Ports" style="margin-left:5px;cursor:pointer">✏️</button></span></div>
         </div>
         <div class="det-card">
           <div class="det-card-head">${ICO_GRE} <span>GRE Tunnel</span></div>
@@ -1857,6 +1888,7 @@ function renderPeers(peers) {
       </div>
       <div class="peer-acts" style="display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--ln);padding-top:12px">
         <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" data-peer-act="ping-${p.id}" onclick="peerAct('ping', ${p.id})">Ping</button>
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="editPeerPortsClick(${p.id})">✏️ Edit Ports</button>
         <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="showPeerToken(${p.id}, '${esc(nm)}')">📦 Bundle</button>
         <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" data-peer-act="restart-frps-${p.id}" onclick="peerAct('restart-frps', ${p.id})">Restart</button>
         <button class="hashem-btn hashem-btn-danger peer-remove-btn" style="height:30px;padding:0 12px;font-size:12px" data-peer-remove="${p.id}" onclick="peerRemoveClick(${p.id}, '${esc(nm)}')">Remove</button>
@@ -1906,7 +1938,7 @@ function renderTunnel(st) {
         <div class="det-card">
           <div class="det-card-head">${ICO_SRV} <span>Server</span></div>
           <div class="det-row"><span class="det-k">GRE Path</span><span class="det-v mono">${esc(st.gre.local || '?')} → ${esc(st.gre.peer_ip || st.gre_peer || '?')}</span></div>
-          <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc((st.proxies || []).join(', ') || '—')}</span></div>
+          <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc(((st.proxy_ports && st.proxy_ports.length) ? st.proxy_ports : (st.proxies || [])).join(', ') || '—')}<button type="button" class="det-copy" onclick="editMainPortsClick()" title="Edit Ports" style="margin-left:5px;cursor:pointer">✏️</button></span></div>
         </div>
         <div class="det-card">
           <div class="det-card-head">${ICO_GRE} <span>GRE Tunnel</span></div>
@@ -1921,6 +1953,7 @@ function renderTunnel(st) {
       </div>
       <div class="peer-acts" style="display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--ln);padding-top:12px">
         <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('ping', 0)">Ping</button>
+        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="editMainPortsClick()">✏️ Edit Ports</button>
         <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('restart-gre', 0)">Restart GRE</button>
         <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('restart-frps', 0)">Restart FRP</button>
       </div>
@@ -4538,6 +4571,132 @@ async function refreshRightSidebarLogs() {
 }
 setInterval(refreshRightSidebarLogs, 4000);
 setTimeout(refreshRightSidebarLogs, 500);
+
+// ============================================================
+// Edit Ports Modal
+// ============================================================
+let _editPortsPeerId = null;
+let _editPortsList   = [];
+
+function openEditPorts(peerId, peerName, currentPorts) {
+  _editPortsPeerId = peerId;
+  _editPortsList   = currentPorts ? [...currentPorts] : [];
+  const modal = $('editPortsModal');
+  if (!modal) return;
+  $('editPortsTitle').textContent = 'Edit Ports \u2014 ' + peerName;
+  $('editPortsSub').textContent   = 'Add or remove forwarded TCP ports for tunnel ' + peerName + '. Changes reload frps immediately.';
+  $('editPortsNew').value = '';
+  $('editPortsWarn').classList.add('hidden');
+  renderEditPortsChips();
+  modal.hidden = false;
+  $('editPortsNew').focus();
+}
+
+function closeEditPorts() {
+  const modal = $('editPortsModal');
+  if (modal) modal.hidden = true;
+}
+
+function renderEditPortsChips() {
+  const box = $('editPortsChips');
+  if (!box) return;
+  if (!_editPortsList.length) {
+    box.innerHTML = '<span style="color:var(--dim);font-size:12px">No ports \u2014 add one below.</span>';
+    return;
+  }
+  box.innerHTML = _editPortsList.map(p =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--s2);border:1px solid var(--ln);border-radius:8px;padding:4px 10px;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">` +
+    esc(String(p)) +
+    `<button type="button" onclick="removeEditPort(${p})" title="Remove port ${p}" ` +
+    `style="background:none;border:none;color:var(--er);cursor:pointer;padding:0 0 0 4px;font-size:14px;line-height:1;display:inline-flex">\u00d7</button></span>`
+  ).join('');
+}
+
+function removeEditPort(port) {
+  _editPortsList = _editPortsList.filter(p => p !== port);
+  renderEditPortsChips();
+}
+
+function addEditPort() {
+  const inp    = $('editPortsNew');
+  const warnEl = $('editPortsWarn');
+  const val    = parseInt(inp.value, 10);
+  warnEl.classList.add('hidden');
+  if (!val || val < 1 || val > 65535) {
+    warnEl.textContent = 'Enter a valid port number (1 \u2013 65535).';
+    warnEl.classList.remove('hidden');
+    inp.focus();
+    return;
+  }
+  if (_editPortsList.includes(val)) {
+    warnEl.textContent = 'Port ' + val + ' is already in the list.';
+    warnEl.classList.remove('hidden');
+    inp.focus();
+    return;
+  }
+  _editPortsList.push(val);
+  _editPortsList.sort((a, b) => a - b);
+  inp.value = '';
+  renderEditPortsChips();
+  inp.focus();
+}
+
+async function saveEditPorts() {
+  const warnEl = $('editPortsWarn');
+  warnEl.classList.add('hidden');
+  if (!_editPortsList.length) {
+    warnEl.textContent = 'You must keep at least one port.';
+    warnEl.classList.remove('hidden');
+    return;
+  }
+  const btn  = $('editPortsSave');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="ent-spinner"></span> Saving\u2026';
+  try {
+    await api('/api/peers', { id: _editPortsPeerId, ports: _editPortsList }, 'PATCH');
+    toastOk('Ports updated', 'Tunnel ports updated \u2014 changes take effect immediately.');
+    closeEditPorts();
+    refresh();
+  } catch(e) {
+    warnEl.textContent = e.message || 'Save failed.';
+    warnEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+function editPeerPortsClick(peerId) {
+  const p = (tunPeerCache || []).find(x => x.id === peerId);
+  const name = p ? (p.name || ('peer-' + p.id)) : ('peer-' + peerId);
+  const ports = p && p.ports ? p.ports : [];
+  openEditPorts(peerId, name, ports);
+}
+
+function editMainPortsClick() {
+  const st = window._lastLocal || {};
+  let ports = st.proxy_ports || [];
+  if (!ports.length && st.proxies) {
+    ports = st.proxies.map(x => {
+      const m = String(x).match(/\d+/);
+      return m ? parseInt(m[0], 10) : null;
+    }).filter(Boolean);
+  }
+  openEditPorts(0, 'Main tunnel', ports);
+}
+
+// Wire up modal buttons
+(function initEditPortsModal() {
+  function on(id, ev, fn) { const el = $(id); if (el) el.addEventListener(ev, fn); }
+  on('editPortsClose',  'click', closeEditPorts);
+  on('editPortsCancel', 'click', closeEditPorts);
+  on('editPortsSave',   'click', saveEditPorts);
+  on('editPortsAddBtn', 'click', addEditPort);
+  on('editPortsNew', 'keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addEditPort(); } });
+  const ov = $('editPortsModal');
+  if (ov) ov.addEventListener('click', e => { if (e.target === ov) closeEditPorts(); });
+})();
 </script>
 </body>
 </html>

@@ -61,6 +61,7 @@ var errCatalog = map[string]errInfo{
 	"E-PEER-04": {404, "unknown peer id", "Refresh the page; the peer may have been removed."},
 	"E-PEER-05": {400, "bad peer id", "Refresh the page and try again."},
 	"E-PEER-06": {400, "use POST /api/setup with role=add-peer", "This endpoint is read-only; create peers from the Tunnel tab."},
+	"E-PEER-07": {400, "invalid peer edit request", "Check the peer ID and forwarded ports list."},
 	// installer
 	"E-INSTALL-01": {500, "hashem.sh installer not found", "Reinstall the panel or set HASHEM_SCRIPT=/path/to/hashem.sh (legacy GRE_SCRIPT still works)."},
 	"E-INSTALL-02": {500, "installer (hashem.sh) failed", "Open the steps output — failing detail is appended. \"Unknown command\" = panel hashem.sh is an old version: run Update to latest."},
