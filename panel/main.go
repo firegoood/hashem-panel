@@ -172,16 +172,6 @@ func mustJSON(v any) []byte {
 	return b
 }
 
-func randomDigits(n int) string {
-	var b [8]byte
-	_, _ = rand.Read(b[:])
-	digits := "0123456789"
-	out := make([]byte, n)
-	for i := range out {
-		out[i] = digits[int(b[i])%10]
-	}
-	return string(out)
-}
 
 func randomBase(n int) string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"

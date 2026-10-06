@@ -16,6 +16,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      BIN_NAME: "gre-panel"
+      VER: "latest"
     steps:
       - uses: actions/checkout@v4
 

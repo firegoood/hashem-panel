@@ -374,7 +374,8 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 	token := ""
 	args := []string{}
 
-	if b.Engine == "backhaul" {
+	switch b.Engine {
+	case "backhaul":
 		if b.Transport == "" {
 			b.Transport = "tcpmux"
 		}
@@ -416,7 +417,7 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 				args = append(args, "--bundle", b.OrigBundle)
 			}
 		}
-	} else if b.Engine == "gre-backhaul" {
+	case "gre-backhaul":
 		if b.Transport == "" {
 			b.Transport = "tcpmux"
 		}
@@ -460,7 +461,7 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 				args = append(args, "--bundle", b.OrigBundle)
 			}
 		}
-	} else {
+	default:
 		switch b.Role {
 		case "add-peer":
 			name := b.Name
@@ -541,11 +542,12 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 	}
 	if b.Role == "iran" || b.Role == "add-peer" {
 		var bundleStr string
-		if b.Engine == "backhaul" {
+		switch b.Engine {
+		case "backhaul":
 			bundleStr = MakeBackhaulBundle(b.LocalPub, b.FrpPort, b.Transport, token, rawPorts)
-		} else if b.Engine == "gre-backhaul" {
+		case "gre-backhaul":
 			bundleStr = MakeGreBackhaulBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, b.Transport, token, rawPorts)
-		} else {
+		default:
 			bundleStr = MakeBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, token, ports)
 		}
 		return token, bundleStr, steps, nil
@@ -1245,13 +1247,6 @@ func testPing(ip string, timeoutSec int) bool {
 	return cmd.Run() == nil
 }
 
-// editPeerPortsDirect updates peers.json and rewrites the frps-N.toml [[proxies]]
-// blocks in place, then reloads frps via systemctl so ports take effect immediately.
-func editPeerPortsDirect(peer *peerRecord, newPorts []int) error {
-	portsPtr := &newPorts
-	_, err := editPeerDirect(peer, peerPatchRequest{ID: peer.ID, Ports: portsPtr})
-	return err
-}
 
 
 // editMainTunnelPortsDirect updates configuration for the main tunnel (id 0)
@@ -1832,7 +1827,7 @@ func ParseBundle(s string) (setupBundle, error) {
 // (vs a legacy 32-char token, which must keep working as-is).
 func isBundle(s string) bool {
 	t := strings.TrimSpace(s)
-	return strings.HasPrefix(t, bundlePrefix) || strings.HasPrefix(t, bundlePrefixBackhaul) || strings.HasPrefix(t, bundlePrefixGreBackhaul)
+	return strings.HasPrefix(t, bundlePrefix) || isBackhaulBundle(t) || isGreBackhaulBundle(t)
 }
 
 // isBackhaulBundle reports whether s starts with bh1_.

@@ -74,14 +74,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/pdnczone/hashem-panel/main/i
 
 ### 🛠️ Step-by-Step Setup
 
-1. **Step 1 (On IRAN Server):** 
-   - Run the command above and choose option `1` from the menu. 
+1. **Step 1 (On IRAN Server):**
+   - Run the command above and choose option `1` from the menu.
    - Choose your transport mode (**FRP** or **Backhaul**), carrier type, and ports.
    - The installer will generate a **Setup Bundle** (e.g., `hsh1_85.1.2.3_7000_10.10.10.2_...`). **Copy this string.**
-2. **Step 2 (On FOREIGN Server):** 
-   - Run the command above and choose option `2`. 
+2. **Step 2 (On FOREIGN Server):**
+   - Run the command above and choose option `2`.
    - Paste the copied bundle. The system automatically configures the tunnel and services.
-3. **Step 3 (Access Web Panel):** 
+3. **Step 3 (Access Web Panel):**
    - At the end of installation, you will receive your secure panel URL (`http://<server-ip>:7777/<secret>`) and initial administrator credentials.
    - *Note: Plaintext passwords are not stored on disk for security. Record your password immediately upon installation!*
 
@@ -127,21 +127,21 @@ Hashem Panel has undergone a full security hardening audit conforming to **OWASP
   <tr>
     <td width="50%">
       <b>Dashboard & Analytics (11TB+ Traffic)</b><br>
-      <img src="docs/dashboard.jpg" width="100%">
+      <img src="docs/dashboard.jpg" width="100%" alt="Dashboard and Analytics Preview">
     </td>
     <td width="50%">
       <b>Advanced Tuning (Capacity & DPI Shield)</b><br>
-      <img src="docs/performance.jpg" width="100%">
+      <img src="docs/performance.jpg" width="100%" alt="Advanced Tuning Preview">
     </td>
   </tr>
   <tr>
     <td width="50%">
       <b>Real-Time Diagnostics & Latency</b><br>
-      <img src="docs/diagnostics.jpg" width="100%">
+      <img src="docs/diagnostics.jpg" width="100%" alt="Real-Time Diagnostics Preview">
     </td>
     <td width="50%">
       <b>Multi-Peer Tunnel Management</b><br>
-      <img src="docs/tunnel.png" width="100%">
+      <img src="docs/tunnel.png" width="100%" alt="Multi-Peer Tunnel Management Preview">
     </td>
   </tr>
 </table>
