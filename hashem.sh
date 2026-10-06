@@ -638,7 +638,17 @@ carrier_get_mode() {
 import json
 try:
     with open("'"$CARRIER_FILE"'") as f:
-        print(json.load(f).get("mode", "direct"))
+        d = json.load(f)
+        m = d.get("mode", "direct")
+        if m == "auto":
+            d["mode"] = "direct"
+            with open("'"$CARRIER_FILE"'.tmp", "w") as ftmp:
+                json.dump(d, ftmp, indent=2)
+            import os
+            os.replace("'"$CARRIER_FILE"'.tmp", "'"$CARRIER_FILE"'")
+            print("direct")
+        else:
+            print(m)
 except Exception:
     print("direct")
 ' 2>/dev/null || echo "direct"
@@ -673,7 +683,8 @@ except Exception:
 
 carrier_set_mode() {
     local M="$1"
-    [[ "$M" == "auto" || "$M" == "direct" || "$M" == fou:* || "$M" == wss* ]] || return 1
+    [[ "$M" == "auto" ]] && M="direct"
+    [[ "$M" == "direct" || "$M" == fou:* || "$M" == wss* ]] || return 1
     init_carrier_json
     python3 -c '
 import json, sys
@@ -5494,43 +5505,10 @@ print(action)
 ' 2>/dev/null)
 
         if [[ "$DECISION" == DOWN* ]]; then
-            local CMODE
-            CMODE=$(carrier_get_mode)
-            if [[ "$CMODE" == "auto" ]]; then
-                local OLD_C NEW_C
-                OLD_C=$(carrier_get_active)
-                NEW_C=$(carrier_cycle_next)
-                sleep 2
-                local PGRE
-                PGRE=$(watchdog_get_peer_gre)
-                if [[ -n "$PGRE" ]] && ping -c 1 -W 2 "$PGRE" >/dev/null 2>&1; then
-                    watchdog_send "⚡ Auto-Failover: Switched carrier from ${OLD_C} to ${NEW_C} — Tunnel link restored!" || true
-                    python3 -c '
-import json
-path = "'"$WATCHDOG_FILE"'"
-try:
-    with open(path) as f:
-        d = json.load(f)
-    d["consec_fails"] = 0
-    d["last_alert"] = "up"
-    d["down_since"] = 0
-    with open(path + ".tmp", "w") as f:
-        json.dump(d, f, indent=2)
-    import os
-    os.replace(path + ".tmp", path)
-except Exception:
-    pass
-' 2>/dev/null || true
-                    DECISION="RECOVERED 0"
-                fi
+            if [[ "$DECISION" == "DOWN" ]]; then
+                watchdog_send "🔴 Tunnel DOWN: ${DETAIL} (attempting tunnel restart)" || true
             fi
-
-            if [[ "$DECISION" == DOWN* ]]; then
-                if [[ "$DECISION" == "DOWN" ]]; then
-                    watchdog_send "🔴 Tunnel DOWN: ${DETAIL} (attempting tunnel restart)" || true
-                fi
-                restart_all_lite
-            fi
+            restart_all_lite
         elif [[ "$DECISION" == RECOVERED* ]]; then
             local DMIN
             DMIN=$(echo "$DECISION" | awk '{print $2}')
@@ -6404,13 +6382,12 @@ except Exception:
             echo -e "${CYAN}==========================================================${NC}\n"
             ;;
         mode|set-mode)
-            local TARGET="${2:-auto}"
+            local TARGET="${2:-direct}"
+            [[ "$TARGET" == "auto" ]] && TARGET="direct"
             carrier_set_mode "$TARGET"
             echo -e "${GREEN}[✔️] Carrier mode set to: ${TARGET}${NC}"
-            if [[ "$TARGET" != "auto" ]]; then
-                carrier_apply "$TARGET"
-                echo -e "${GREEN}[✔️] Active carrier applied: ${TARGET}${NC}"
-            fi
+            carrier_apply "$TARGET"
+            echo -e "${GREEN}[✔️] Active carrier applied: ${TARGET}${NC}"
             ;;
         set|set-active|apply)
             local TARGET="${2:-direct}"
@@ -6432,7 +6409,7 @@ except Exception:
             carrier_init_kernel
             ;;
         *)
-            echo "Usage: hashem carrier [status|mode <auto|direct|fou:PORT>|set <direct|fou:PORT>|next|cycle|set-ports <P1> <P2>]"
+            echo "Usage: hashem carrier [status|mode <direct|fou:PORT>|set <direct|fou:PORT>|next|cycle|set-ports <P1> <P2>]"
             return 1
             ;;
     esac
@@ -6441,22 +6418,20 @@ except Exception:
 menu_carrier() {
     cli_carrier status
     echo -e "${YELLOW}Select an action:${NC}"
-    echo "  1) Set Mode to Auto (Automatic Round-Robin on failure: Direct -> FOU -> WSS)"
-    echo "  2) Force Direct GRE (Raw Protocol 47)"
-    echo "  3) Force FOU UDP (Port 443)"
-    echo "  4) Force FOU UDP (Port 55555)"
-    echo "  5) Force WSS Obfuscated Carrier (WebSocket over TLS / Port 8443)"
-    echo "  6) Cycle to Next Candidate Now"
+    echo "  1) Force Direct GRE (Raw Protocol 47)"
+    echo "  2) Force FOU UDP (Port 443)"
+    echo "  3) Force FOU UDP (Port 55555)"
+    echo "  4) Force WSS Obfuscated Carrier (WebSocket over TLS / Port 8443)"
+    echo "  5) Cycle to Next Candidate Now"
     echo "  0) Back to Main Menu"
     echo ""
-    read -p "Select an option [0-6]: " C_OPT
+    read -p "Select an option [0-5]: " C_OPT
     case "$C_OPT" in
-        1) cli_carrier mode auto ;;
-        2) cli_carrier set direct ;;
-        3) cli_carrier set fou:443 ;;
-        4) cli_carrier set fou:55555 ;;
-        5) cli_carrier set wss:8443 ;;
-        6) cli_carrier next ;;
+        1) cli_carrier set direct ;;
+        2) cli_carrier set fou:443 ;;
+        3) cli_carrier set fou:55555 ;;
+        4) cli_carrier set wss:8443 ;;
+        5) cli_carrier next ;;
         0) return 0 ;;
         *) echo -e "${RED}[!] Invalid option.${NC}" ;;
     esac
@@ -6585,7 +6560,7 @@ menu_server() {
         echo "  5) Restore Network Tuning (pre-optimize sysctl backup)"
         echo "  6) Tuning Status"
         echo "  7) Free RAM (cap journald 16MB + drop cache + 1GB swapfile)"
-        echo "  8) Carrier & Failover (Direct GRE ↔ FOU UDP: auto/manual/status)"
+        echo "  8) Tunnel Carrier (Direct GRE ↔ FOU UDP ↔ WSS)"
         echo "  9) Traffic Chaff / Obfuscation (idle-gap filler: on/off/status)"
         echo " 10) DPI Shield (rate-limit reverse ports against flood: on/off/status)"
         echo " 11) Watchdog & Alerting (Telegram alerts, route failover)"

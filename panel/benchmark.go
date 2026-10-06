@@ -692,6 +692,7 @@ func handleBenchmarkAutoPilot(w http.ResponseWriter, r *http.Request) {
 	c := loadPeerConfig()
 	if req.Enabled != nil {
 		c.AutoPilotEnabled = *req.Enabled
+		c.AutoPilotExplicit = true
 	}
 	if req.Threshold != nil && *req.Threshold > 0 {
 		c.AutoPilotThreshold = *req.Threshold

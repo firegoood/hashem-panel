@@ -25,8 +25,8 @@ func TestPeerConfigDefaultsAndLoadSave(t *testing.T) {
 	if c.Role == "" || c.PeerSecret == "" {
 		t.Errorf("expected default role and secret, got role=%q secret=%q", c.Role, c.PeerSecret)
 	}
-	if !c.AutoPilotEnabled {
-		t.Errorf("expected autopilot enabled by default")
+	if c.AutoPilotEnabled {
+		t.Errorf("expected autopilot disabled by default")
 	}
 
 	// 2. Modify and Save

@@ -33,7 +33,7 @@
 - 🔀 **Advanced Port Management:** Supports individual ports (`443`), multiple ports (`80,443`), port ranges (`1000-1010`), and port mappings (`8080=80`).
 - 📊 **Deep Network Insights:** Real-time graphs, RAM/CPU vitals, Live Activity Streams, and exact traffic metrics.
 - ⚡ **Auto-Adaptation:** Smartly adjusts multiplexing capacity dynamically based on active load and available system RAM.
-- 🎯 **Carrier Benchmark & Auto-Pilot:** Live probing across GRE Direct (Proto 47), FOU (UDP 443/custom), WSS (TLS 8443), and transport ports. Automatically switches Iran & Foreign nodes when packet loss exceeds threshold.
+- 🎯 **Carrier Benchmark & Auto-Pilot:** Live probing across GRE Direct (Proto 47), FOU (UDP 443/custom), WSS (TLS 8443), and transport ports with intelligent carrier scoring and optional auto-pilot failover.
 - 🔗 **Inter-Panel Synchronization:** Dual-path REST link (Internal Tunnel IP + Public fallback) pairs Iran (Master) and Foreign (Worker) panels with shared secrets for coordinated zero-downtime reconfiguration.
 - 🔑 **Instant Password Management:** Safe one-time display upon installation, interactive reset menu, and non-interactive `hashem reset-password` command.
 - 🔒 **Enterprise-Grade Security:**
@@ -102,7 +102,7 @@ hashem password <p>   # Sets a new panel password non-interactively
 hashem logs           # Tails live relay logs (FRP or Backhaul)
 hashem optimize       # Automates BBR tuning, MTU adjustments, and sysctl buffers
 hashem doctor         # Full network diagnostics (latency, jitter, MTU, speed)
-hashem carrier        # Multi-carrier failover (auto, direct, fou, wss)
+hashem carrier        # Multi-carrier management (direct, fou, wss)
 hashem backup now     # Creates an encrypted backup archive (/var/backups/hashem)
 hashem chaff on       # Enables traffic obfuscation (idle-gap filler)
 hashem dpi-shield     # Enables DPI Shield (rate-limits reverse ports)

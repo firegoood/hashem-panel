@@ -24,6 +24,7 @@ type PeerConfig struct {
 	IsConnected        bool    `json:"is_connected"`
 	LatencyMs          float64 `json:"latency_ms"`
 	AutoPilotEnabled   bool    `json:"autopilot_enabled"`
+	AutoPilotExplicit  bool    `json:"autopilot_explicit,omitempty"`
 	AutoPilotThreshold float64 `json:"autopilot_threshold"` // Packet loss percentage threshold (e.g. 20.0)
 }
 
@@ -88,25 +89,26 @@ func defaultPeerConfig() PeerConfig {
 		LastSync:           "",
 		IsConnected:        false,
 		LatencyMs:          0,
-		AutoPilotEnabled:   true,
+		AutoPilotEnabled:   false,
+		AutoPilotExplicit:  true,
 		AutoPilotThreshold: 20.0,
 	}
 }
 
 func loadPeerConfig() PeerConfig {
 	peerMu.RLock()
-	defer peerMu.RUnlock()
-
-	def := defaultPeerConfig()
 	data, err := os.ReadFile(peerConfigFile())
 	if err != nil {
-		return def
+		peerMu.RUnlock()
+		return defaultPeerConfig()
 	}
 	var c PeerConfig
 	if err := json.Unmarshal(data, &c); err != nil {
-		return def
+		peerMu.RUnlock()
+		return defaultPeerConfig()
 	}
 
+	def := defaultPeerConfig()
 	if c.Role == "" {
 		c.Role = def.Role
 	}
@@ -118,6 +120,20 @@ func loadPeerConfig() PeerConfig {
 	}
 	if c.AutoPilotThreshold <= 0 {
 		c.AutoPilotThreshold = 20.0
+	}
+
+	needsSave := false
+	// Migration: disable AutoPilot on existing configs so tunnels do not switch automatically.
+	// AutoPilot was previously true by default, causing unwanted tunnel flap/switching.
+	if !c.AutoPilotExplicit {
+		c.AutoPilotEnabled = false
+		c.AutoPilotExplicit = true
+		needsSave = true
+	}
+	peerMu.RUnlock()
+
+	if needsSave {
+		_ = savePeerConfig(c)
 	}
 	return c
 }
@@ -361,6 +377,7 @@ func handlePeerConfigPost(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.AutoPilotEnabled != nil {
 		c.AutoPilotEnabled = *req.AutoPilotEnabled
+		c.AutoPilotExplicit = true
 	}
 	if req.AutoPilotThreshold > 0 {
 		c.AutoPilotThreshold = req.AutoPilotThreshold

@@ -1624,12 +1624,12 @@
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                 Auto-Pilot Failover
               </span>
-              <span class="badge info" id="autoPilotBadge">Active</span>
+              <span class="badge dim" id="autoPilotBadge">Disabled</span>
             </div>
             <div class="qs-hint">Probes all carriers automatically and dynamically switches Iran &amp; Foreign servers when network disruption occurs.</div>
             <div class="fg u-mt-12">
               <label class="u-flex-center-wrap10">
-                <input type="checkbox" id="autoPilotToggle" checked style="width:16px;height:16px;accent-color:var(--pr);">
+                <input type="checkbox" id="autoPilotToggle" style="width:16px;height:16px;accent-color:var(--pr);">
                 <span>Enable Dynamic Carrier Self-Healing</span>
               </label>
             </div>
@@ -5547,7 +5547,7 @@ async function testPeerLinkClick() {
 }
 
 async function saveAutoPilotClick() {
-  const enabled = $('autoPilotToggle') ? $('autoPilotToggle').checked : true;
+  const enabled = $('autoPilotToggle') ? $('autoPilotToggle').checked : false;
   const thresh = $('autoPilotThresholdInput') ? parseFloat($('autoPilotThresholdInput').value) || 20 : 20;
 
   try {
