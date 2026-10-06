@@ -1,6 +1,6 @@
 <div align="center">
 
-![Hashem Panel Dashboard](docs/performance.jpg)
+# DNC MADE THIS
 
 # Hashem Panel 🇮🇷 ↔ 🌍
 
@@ -16,7 +16,7 @@
 
 *Keep Iran's IP behind the tunnel — seamlessly expose foreign-server ports through Iran's public IP.*
 
-> **خلاصه فارسی:** قدرتمندترین و زیباترین پنل مدیریت تونل‌های لایه ۳ (GRE) به همراه ریورس پروکسی رمزنگاری‌شده (FRP و Backhaul). نصب با یک خط کد. گزینه `1` برای سرور ایران و گزینه `2` برای سرور خارج. مجهز به امکانات امنیتی فوق‌پیشرفته (مطابق استانداردهای NIST 800-63B و OWASP، محافظت ضد جعل IP و لاگ‌های امنیتی)، پشتیبانی از نگاشت و رنج پورت‌ها و وب پنل فوق‌العاده مدرن.
+> **خلاصه فارسی:** قدرتمندترین و زیباترین پنل مدیریت تونل‌های لایه ۳ (GRE) به همراه ریورس پروکسی رمزنگاری‌شده (FRP و Backhaul). نصب با یک خط کد. گزینه `1` برای سرور ایران و گزینه `2` برای سرور خارج. مجهز به امکانات امنیتی فوق‌پیشرفته (مطابق استانداردهای NIST 800-63B و OWASP، محافظت ضد جعل IP و لاگ‌های امنیتی)، پشتیبانی از نگاشت و رنج پورت‌ها، ریست پسورد تحت ترمینال و منو، و وب پنل فوق‌العاده مدرن.
 
 </div>
 
@@ -27,7 +27,7 @@
 - 🚀 **One-Line Installation:** Prebuilt standalone Go binary from official GitHub releases. Zero runtime dependencies.
 - 🔄 **Dual Relay Engines:** Choose between **FRP** (Fast Reverse Proxy) and **Backhaul** (TCP, WS, WSS, TCPO with Mux & Snappy compression).
 - 🖥️ **Premium Web Dashboard:** Ultra-modern, responsive, glassmorphic UI with dynamic traffic charts and dark mode.
-- ⌨️ **`hashem` CLI Tool:** Complete control right from your SSH terminal using an interactive menu.
+- ⌨️ **`hashem` CLI Tool:** Complete control right from your SSH terminal using an interactive menu or direct CLI commands.
 - 🌐 **Multi-Peer Architecture:** Connect up to 5 foreign servers to a single Iranian server simultaneously.
 - 📦 **Automated Bundling:** Effortless pairing. One setup string (`hsh1_...`) carries all keys, IPs, transport types, and ports.
 - 🔀 **Advanced Port Management:** Supports individual ports (`443`), multiple ports (`80,443`), port ranges (`1000-1010`), and port mappings (`8080=80`).
@@ -35,6 +35,7 @@
 - ⚡ **Auto-Adaptation:** Smartly adjusts multiplexing capacity dynamically based on active load and available system RAM.
 - 🎯 **Carrier Benchmark & Auto-Pilot:** Live probing across GRE Direct (Proto 47), FOU (UDP 443/custom), WSS (TLS 8443), and transport ports. Automatically switches Iran & Foreign nodes when packet loss exceeds threshold.
 - 🔗 **Inter-Panel Synchronization:** Dual-path REST link (Internal Tunnel IP + Public fallback) pairs Iran (Master) and Foreign (Worker) panels with shared secrets for coordinated zero-downtime reconfiguration.
+- 🔑 **Instant Password Management:** Safe one-time display upon installation, interactive reset menu, and non-interactive `hashem reset-password` command.
 - 🔒 **Enterprise-Grade Security:**
   - **No Plaintext Passwords:** Credentials stored exclusively as SHA-256 hashes (CWE-256 mitigation).
   - **NIST 800-63B Password Policy:** Enforces strong 12+ character passwords with uppercase, lowercase, numbers, and symbols.
@@ -84,8 +85,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/pdnczone/hashem-panel/main/i
    - Run the command above and choose option `2`.
    - Paste the copied bundle. The system automatically configures the tunnel and services.
 3. **Step 3 (Access Web Panel):**
-   - At the end of installation, you will receive your secure panel URL (`http://<server-ip>:7777/<secret>`) and initial administrator credentials.
-   - *Note: Plaintext passwords are not stored on disk for security. Record your password immediately upon installation!*
+   - At the end of installation, you will receive your secure panel URL (`http://<server-ip>:7777/<secret>`) and initial administrator credentials displayed clearly in your terminal.
+   - *Note: Passwords are not saved as plaintext on disk (CWE-256). Please save your password upon install. You can reset it anytime via `hashem reset-password` or CLI menu option `3 -> 2`.*
 
 ---
 
@@ -94,18 +95,20 @@ bash <(curl -fsSL https://raw.githubusercontent.com/pdnczone/hashem-panel/main/i
 Even without the web panel, the `hashem` command provides root-level control via SSH:
 
 ```bash
-hashem            # Opens the full interactive tunnel menu
-hashem status     # Shows tunnel health, peers, and service status
-hashem logs       # Tails live relay logs (FRP or Backhaul)
-hashem optimize   # Automates BBR tuning, MTU adjustments, and sysctl buffers
-hashem doctor     # Full network diagnostics (latency, jitter, MTU, speed)
-hashem carrier    # Multi-carrier failover (auto, direct, fou, wss)
-hashem backup now # Creates an encrypted backup archive (/var/backups/hashem)
-hashem chaff on   # Enables traffic obfuscation (idle-gap filler)
-hashem dpi-shield # Enables DPI Shield (rate-limits reverse ports)
-hashem free-ram   # Frees system RAM and drops filesystem cache
-hashem update     # Updates the script and web panel to the latest verified release
-hashem uninstall  # Full wipe: cleanly removes services, configs, and binaries
+hashem                # Opens the full interactive tunnel menu
+hashem status         # Shows tunnel health, peers, and service status
+hashem reset-password # Interactively resets or auto-generates a new 16-char admin password
+hashem password <p>   # Sets a new panel password non-interactively
+hashem logs           # Tails live relay logs (FRP or Backhaul)
+hashem optimize       # Automates BBR tuning, MTU adjustments, and sysctl buffers
+hashem doctor         # Full network diagnostics (latency, jitter, MTU, speed)
+hashem carrier        # Multi-carrier failover (auto, direct, fou, wss)
+hashem backup now     # Creates an encrypted backup archive (/var/backups/hashem)
+hashem chaff on       # Enables traffic obfuscation (idle-gap filler)
+hashem dpi-shield     # Enables DPI Shield (rate-limits reverse ports)
+hashem free-ram       # Frees system RAM and drops filesystem cache
+hashem update         # Updates the script and web panel to the latest verified release
+hashem uninstall      # Full wipe: cleanly removes services, configs, and binaries
 ```
 
 ---
