@@ -86,6 +86,11 @@ var errCatalog = map[string]errInfo{
 	"E-FRP-02": {0, "frp authentication failed (token mismatch)", "Re-copy the token from the Iran peer card to the Foreign side."},
 	"E-FRP-03": {0, "frp bind conflict (address already in use)", "Another tunnel uses this port — change frp_port or the reverse port."},
 	"E-FRP-04": {0, "frp cannot reach server (connection refused/timeout)", "Iran unreachable: wrong IP/port, firewall, or frps down."},
+	"E-FRP-05": {0, "file descriptor limit reached (too many open files)", "Process hit LimitNOFILE. Ensure LimitNOFILE=1048576 in systemd and kernel fs.file-max."},
+	"E-FRP-06": {0, "heartbeat timeout (FRP control link dropped)", "Network jitter or heavy bandwidth contention delayed heartbeat packets. Heartbeat timeout relaxed to 90s."},
+	"E-FRP-07": {0, "connection reset by peer / broken pipe", "Remote peer or network carrier reset the TCP stream."},
+	"E-FRP-08": {0, "connection tracking table full (packet dropped)", "Kernel nf_conntrack_max limit reached under high concurrent connections. Run Optimize in Tunnel tab."},
+	"E-FRP-09": {0, "yamux stream capacity / buffer overflow", "High stream contention on single TCP mux. Increase poolCount in frpc."},
 	"E-SYS-01": {0, "host tool unavailable", "journalctl/systemctl/ip missing on this host."},
 	// terminal (Phase 3)
 	"E-TERM-00": {0, "terminal command audit", "Informational: redacted command line from the terminal session."},
@@ -178,6 +183,26 @@ func recordError(code, endpoint, detail string) {
 	}
 }
 
+func lastErrorEvent() *errEvent {
+	errMu.Lock()
+	defer errMu.Unlock()
+	if len(errEvents) > 0 {
+		e := errEvents[len(errEvents)-1]
+		return &e
+	}
+	// Try reading last line from error log file if in-memory buffer is fresh
+	if data, err := os.ReadFile(errorLogPath()); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) > 0 && lines[len(lines)-1] != "" {
+			var e errEvent
+			if json.Unmarshal([]byte(lines[len(lines)-1]), &e) == nil {
+				return &e
+			}
+		}
+	}
+	return nil
+}
+
 // GET /api/errors?n=100 — recent panel error events (newest last).
 func handleErrors(w http.ResponseWriter, r *http.Request) {
 	n := 100
@@ -236,6 +261,16 @@ func matchLogCode(line string) (code, hint string) {
 		return false
 	}
 	switch {
+	case has("too many open files") || has("emfile", "enfile") || has("socket: too many"):
+		return "E-FRP-05", errCatalog["E-FRP-05"].Hint
+	case has("heartbeat timeout") || has("heartbeat out of date") || has("heartbeat failed"):
+		return "E-FRP-06", errCatalog["E-FRP-06"].Hint
+	case has("broken pipe") || has("connection reset by peer") || has("connection reset"):
+		return "E-FRP-07", errCatalog["E-FRP-07"].Hint
+	case has("nf_conntrack: table full") || has("conntrack full") || has("table full, dropping"):
+		return "E-FRP-08", errCatalog["E-FRP-08"].Hint
+	case has("yamux: stream reset") || has("session is closed") || has("stream reset"):
+		return "E-FRP-09", errCatalog["E-FRP-09"].Hint
 	case has("address already in use", "bind:") && has("7000", "bind", "listen", "error", "fail"):
 		return "E-FRP-03", errCatalog["E-FRP-03"].Hint
 	case has("address already in use"):

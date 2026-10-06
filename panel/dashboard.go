@@ -74,15 +74,34 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 			health = "DOWN"
 		}
 	}
+	peerCfg := loadPeerConfig()
+	carrierCfg := loadCarrierConfig()
+	lastErr := lastErrorEvent()
+
+	engine := st.Engine
+	if engine == "" {
+		if strings.HasPrefix(st.FrpSvc, "backhaul") {
+			engine = "backhaul"
+		} else if st.FrpSvc != "" {
+			engine = "frp"
+		} else {
+			engine = "unknown"
+		}
+	}
+
 	d := map[string]any{
-		"online":     anyUp,
-		"health":     health,
-		"peer_count": len(peers),
-		"peers":      peers,
-		"ping_ok":    st.PingOK,
-		"ping":       nilIfEmpty(st.PingMs),
-		"role":       nilIfEmpty(st.Role),
-		"local_pub":  nilIfEmpty(detectPublicIP()),
+		"online":         anyUp,
+		"health":         health,
+		"peer_count":     len(peers),
+		"peers":          peers,
+		"ping_ok":        st.PingOK,
+		"ping":           nilIfEmpty(st.PingMs),
+		"role":           nilIfEmpty(st.Role),
+		"local_pub":      nilIfEmpty(detectPublicIP()),
+		"active_engine":  engine,
+		"active_carrier": carrierCfg.ActiveCarrier,
+		"auto_failover":  peerCfg.AutoPilotEnabled,
+		"last_error":     lastErr,
 		"gre": map[string]any{
 			"exists": st.Gre.Exists,
 			"inner":  nilIfEmpty(st.Gre.Inner),

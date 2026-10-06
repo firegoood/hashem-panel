@@ -2539,9 +2539,9 @@ setup_iran_server_noninteractive() {
     # 2. Setup FRP Server
     install_frp_binaries
     local EFF_TLS=$(perf_get_tls)
-    local MAX_POOL=50
+    local MAX_POOL=100
     if [[ -f /etc/gre-panel/perf.json ]] && command -v python3 >/dev/null 2>&1; then
-        MAX_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 50))" 2>/dev/null || echo 50)
+        MAX_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 100))" 2>/dev/null || echo 100)
     fi
     local TLS_LINE=""
     [[ "$EFF_TLS" == "1" ]] && TLS_LINE="transport.tls.force = true"
@@ -2553,22 +2553,27 @@ auth.method = "token"
 auth.token = "${TOKEN}"
 ${TLS_LINE:+$TLS_LINE
 }transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 15
-transport.heartbeatTimeout = 30
+transport.tcpMuxKeepaliveInterval = 30
+transport.tcpKeepalive = 30
+transport.heartbeatTimeout = 90
+transport.heartbeatInterval = 30
 transport.maxPoolCount = ${MAX_POOL}
 EOF
     cat <<EOF > /etc/systemd/system/frps.service
 [Unit]
 Description=FRP Server Service
-After=network.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+After=network.target network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
-Restart=on-failure
-RestartSec=5s
+Restart=always
+RestartSec=3s
+StartLimitIntervalSec=0
+LimitNOFILE=1048576
+LimitNPROC=512000
+TasksMax=infinity
 ExecStart=${INSTALL_DIR}/frps -c ${CONFIG_DIR}/frps.toml
 
 [Install]
@@ -2721,11 +2726,14 @@ auth.method = "token"
 auth.token = "${TOKEN}"
 ${TLS_ENABLE:+$TLS_ENABLE
 }${TLS_CUSTOM:+$TLS_CUSTOM
-}transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 15
-transport.heartbeatInterval = 10
-transport.heartbeatTimeout = 30
-transport.poolCount = 8
+}loginFailExit = false
+transport.tcpMux = true
+transport.tcpMuxKeepaliveInterval = 30
+transport.heartbeatInterval = 30
+transport.heartbeatTimeout = 90
+transport.dialServerTimeout = 10
+transport.dialServerKeepalive = 30
+transport.poolCount = 20
 
 EOF
     # Per-proxy encryption/compression are NOT injected at setup time.
@@ -2754,15 +2762,18 @@ EOF
     cat <<EOF > /etc/systemd/system/frpc.service
 [Unit]
 Description=FRP Client Reverse Service
-After=network.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+After=network.target network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
-Restart=on-failure
-RestartSec=5s
+Restart=always
+RestartSec=3s
+StartLimitIntervalSec=0
+LimitNOFILE=1048576
+LimitNPROC=512000
+TasksMax=infinity
 ExecStart=${INSTALL_DIR}/frpc -c ${CONFIG_DIR}/frpc.toml
 
 [Install]
@@ -3327,9 +3338,9 @@ peer_token() {
 peer_write_frps() {
     local SUF=$1 BIND_PORT=$2 TOKEN=$3
     local EFF_TLS=$(perf_get_tls)
-    local MAX_POOL=50
+    local MAX_POOL=100
     if [[ -f /etc/gre-panel/perf.json ]] && command -v python3 >/dev/null 2>&1; then
-        MAX_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 50))" 2>/dev/null || echo 50)
+        MAX_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 100))" 2>/dev/null || echo 100)
     fi
     local TLS_LINE=""
     [[ "$EFF_TLS" == "1" ]] && TLS_LINE="transport.tls.force = true"
@@ -3340,21 +3351,28 @@ auth.method = "token"
 auth.token = "${TOKEN}"
 ${TLS_LINE:+$TLS_LINE
 }transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 15
-transport.heartbeatTimeout = 30
+transport.tcpMuxKeepaliveInterval = 30
+transport.tcpKeepalive = 30
+transport.heartbeatTimeout = 90
+transport.heartbeatInterval = 30
 transport.maxPoolCount = ${MAX_POOL}
 EOF
     local SVC="frps${SUF}"
     cat <<EOF > /etc/systemd/system/${SVC}.service
 [Unit]
 Description=FRP Server Service${SUF:+ (peer${SUF#-})}
-After=network.target
+After=network.target network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
 Restart=always
-RestartSec=5s
+RestartSec=3s
+StartLimitIntervalSec=0
+LimitNOFILE=1048576
+LimitNPROC=512000
+TasksMax=infinity
 ExecStart=${INSTALL_DIR}/frps -c ${CONFIG_DIR}/frps${SUF}.toml
 
 [Install]
@@ -4490,8 +4508,105 @@ cli_doctor() {
         stop-server) doctor_stop_server ;;
         fix) doctor_apply_fixes ;;
         diag|speed) doctor_diagnostics ;;
+        stress|stress-test|load) shift; cli_stress_test "$@" ;;
         check|*) doctor_health_check ;;
     esac
+}
+
+cli_stress_test() {
+    local TARGET_HOST="${1:-127.0.0.1}"
+    local TARGET_PORT="${2:-}"
+    local CONNS="${3:-200}"
+
+    if [[ -z "$TARGET_PORT" ]]; then
+        TARGET_PORT=$(awk -F'=' '/bindPort/{gsub(/[ "]/,"",$2); print $2}' /etc/frp/frps.toml 2>/dev/null)
+        [[ -z "$TARGET_PORT" ]] && TARGET_PORT=$(awk -F'=' '/serverPort/{gsub(/[ "]/,"",$2); print $2}' /etc/frp/frpc.toml 2>/dev/null)
+        [[ -z "$TARGET_PORT" ]] && TARGET_PORT=7000
+    fi
+
+    echo -e "\n${CYAN}==============================================================${NC}"
+    echo -e "${CYAN}      HASHEM TUNNEL CONCURRENCY STRESS TEST${NC}"
+    echo -e "${CYAN}==============================================================${NC}"
+    echo -e "Target: ${GREEN}${TARGET_HOST}:${TARGET_PORT}${NC}"
+    echo -e "Concurrent Connections: ${YELLOW}${CONNS}${NC}\n"
+
+    echo -e "${CYAN}[*] Verifying High-Concurrency System Limits...${NC}"
+    local NOFILE_VAL
+    NOFILE_VAL=$(ulimit -n 2>/dev/null || echo 1024)
+    local SOMAXCONN_VAL
+    SOMAXCONN_VAL=$(sysctl -n net.core.somaxconn 2>/dev/null || echo 128)
+    local CONNTRACK_VAL
+    CONNTRACK_VAL=$(sysctl -n net.netfilter.nf_conntrack_max 2>/dev/null || sysctl -n net.nf_conntrack_max 2>/dev/null || echo 65536)
+
+    echo -e "  - ulimit -n: ${GREEN}${NOFILE_VAL}${NC} (target: >=65536)"
+    echo -e "  - somaxconn: ${GREEN}${SOMAXCONN_VAL}${NC} (target: >=65535)"
+    echo -e "  - nf_conntrack_max: ${GREEN}${CONNTRACK_VAL}${NC} (target: >=1048576)"
+
+    for svc in frps frpc backhaul-server backhaul-client; do
+        if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1; then
+            local SV_NOFILE
+            SV_NOFILE=$(systemctl show -p LimitNOFILE "$svc" 2>/dev/null | cut -d= -f2)
+            echo -e "  - ${svc} LimitNOFILE: ${GREEN}${SV_NOFILE:-1048576}${NC}"
+        fi
+    done
+
+    echo -e "\n${CYAN}[*] Launching ${CONNS} concurrent probe connections...${NC}"
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo -e "${YELLOW}[!] python3 not found, falling back to sequential netcat probe.${NC}"
+        local SUCCESS=0
+        for ((i=1; i<=CONNS; i++)); do
+            if nc -z -w 2 "$TARGET_HOST" "$TARGET_PORT" >/dev/null 2>&1; then
+                ((SUCCESS++))
+            fi
+        done
+        echo -e "Completed: ${SUCCESS}/${CONNS} connections established."
+        return 0
+    fi
+
+    python3 -c "
+import socket, sys, time, concurrent.futures
+
+target_host = sys.argv[1]
+target_port = int(sys.argv[2])
+conns = int(sys.argv[3])
+
+def probe(cid):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(4.0)
+        s.connect((target_host, target_port))
+        time.sleep(0.05)
+        s.close()
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+success = 0
+dropped = 0
+with concurrent.futures.ThreadPoolExecutor(max_workers=min(conns, 200)) as executor:
+    futures = [executor.submit(probe, i) for i in range(conns)]
+    for f in concurrent.futures.as_completed(futures):
+        ok, err = f.result()
+        if ok:
+            success += 1
+        else:
+            dropped += 1
+
+print(f'RESULT: Total={conns} Success={success} Dropped={dropped}')
+if dropped > 0:
+    sys.exit(1)
+" "$TARGET_HOST" "$TARGET_PORT" "$CONNS"
+
+    local RET=$?
+    echo -e "${CYAN}==============================================================${NC}"
+    if [[ $RET -eq 0 ]]; then
+        echo -e "${GREEN}[✔️] PASS: Zero connection drops detected under high concurrency!${NC}"
+        echo -e "${GREEN}High Concurrent Connections -> No Unexpected Drops -> Stable FRP -> Stable Tunnel${NC}"
+    else
+        echo -e "${RED}[!] FAIL: Some connections dropped under load. Check /var/log/hashem/errors.log${NC}"
+    fi
+    echo -e "${CYAN}==============================================================${NC}\n"
+    return $RET
 }
 
 uninstall_all() {
@@ -4643,25 +4758,49 @@ tune_apply() {
     sysctl -w net.ipv4.tcp_window_scaling=1 >/dev/null 2>&1
     echo -e "${GREEN}[✔️] Socket buffers → 16MB (rmem/wmem max + window scaling)${NC}"
 
-    # 3. Deeper NIC queue and connection backlog
-    sysctl -w net.core.netdev_max_backlog=10000 >/dev/null 2>&1
-    sysctl -w net.core.somaxconn=8192 >/dev/null 2>&1
-    sysctl -w net.ipv4.tcp_max_syn_backlog=8192 >/dev/null 2>&1
-    echo -e "${GREEN}[✔️] Network backlog → 10000 / 8192${NC}"
+    # 3. Deeper NIC queue and high connection backlog
+    sysctl -w net.core.netdev_max_backlog=65535 >/dev/null 2>&1
+    sysctl -w net.core.somaxconn=65535 >/dev/null 2>&1
+    sysctl -w net.ipv4.tcp_max_syn_backlog=65535 >/dev/null 2>&1
+    echo -e "${GREEN}[✔️] Network backlog → 65535 / 65535${NC}"
 
-    # 4. Anti-stall, keepalive, and fast connection tuning
+    # 4. Anti-stall, keepalive, TIME_WAIT reuse, and fast connection tuning
     sysctl -w net.ipv4.tcp_slow_start_after_idle=0 >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_mtu_probing=1 >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_keepalive_time=30 >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_keepalive_intvl=10 >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_keepalive_probes=5 >/dev/null 2>&1
+    sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_fin_timeout=15 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_max_tw_buckets=2000000 >/dev/null 2>&1 || true
+    sysctl -w fs.file-max=2097152 >/dev/null 2>&1 || true
+    sysctl -w fs.nr_open=2097152 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
     # TCP Fast Open: eliminate 1 RTT on new connections (client+server)
     sysctl -w net.ipv4.tcp_fastopen=3 >/dev/null 2>&1 || true
     # Wider ephemeral port range: default 32768-60999 → 1024-65535
     # Prevents port exhaustion under high connection load
     sysctl -w net.ipv4.ip_local_port_range="1024 65535" >/dev/null 2>&1 || true
-    echo -e "${GREEN}[✔️] TCP keepalive (30s) + MTU probe + Fast Open + port range 1024-65535${NC}"
+
+    # Conntrack table size & timeout optimization for high concurrent conns
+    modprobe nf_conntrack >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_max=1048576 >/dev/null 2>&1 || sysctl -w net.nf_conntrack_max=1048576 >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=7200 >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_close_wait=60 >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_fin_wait=60 >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=60 >/dev/null 2>&1 || true
+    echo -e "${GREEN}[✔️] TCP keepalive (30s) + Fast Open + TW reuse + Conntrack (1M) + port range 1024-65535${NC}"
+
+    # OS limits configuration for high concurrency
+    mkdir -p /etc/security/limits.d
+    cat > /etc/security/limits.d/99-hashem.conf <<'EOF'
+* soft nofile 1048576
+* hard nofile 1048576
+root soft nofile 1048576
+root hard nofile 1048576
+* soft nproc 512000
+* hard nproc 512000
+EOF
 
     # 5. GRE MTU 1380 for tunnel interface and any peer interfaces
     local iface
@@ -4699,18 +4838,28 @@ net.core.rmem_default = 1048576
 net.core.wmem_default = 1048576
 net.ipv4.tcp_rmem = 4096 1048576 16777216
 net.ipv4.tcp_wmem = 4096 1048576 16777216
-net.core.netdev_max_backlog = 10000
-net.core.somaxconn = 8192
-net.ipv4.tcp_max_syn_backlog = 8192
+net.core.netdev_max_backlog = 65535
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
 net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.tcp_window_scaling = 1
 net.ipv4.tcp_mtu_probing = 1
 net.ipv4.tcp_keepalive_time = 30
 net.ipv4.tcp_keepalive_intvl = 10
 net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_max_tw_buckets = 2000000
+fs.file-max = 2097152
+fs.nr_open = 2097152
 net.ipv4.ip_forward = 1
 net.ipv4.tcp_fastopen = 3
 net.ipv4.ip_local_port_range = 1024 65535
+net.netfilter.nf_conntrack_max = 1048576
+net.netfilter.nf_conntrack_tcp_timeout_established = 7200
+net.netfilter.nf_conntrack_tcp_timeout_close_wait = 60
+net.netfilter.nf_conntrack_tcp_timeout_fin_wait = 60
+net.netfilter.nf_conntrack_tcp_timeout_time_wait = 60
 EOF
     echo -e "${GREEN}[✔️] Settings persisted in /etc/sysctl.d/99-gre-tune.conf${NC}"
     echo -e "${GREEN}[✔️] Optimization done — run Restore if anything feels worse.${NC}"
@@ -5385,23 +5534,12 @@ autotune_tick() {
     local RAM=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
     [[ -z "$RAM" ]] && RAM=1024
 
-    local TARGET_POOL=50
-    if [[ "$CONN" -gt 300 ]]; then TARGET_POOL=150; fi
-    if [[ "$CONN" -gt 800 ]]; then TARGET_POOL=300; fi
-    if [[ "$CONN" -gt 2000 ]]; then TARGET_POOL=500; fi
-    if [[ "$RAM" -lt 1000 && "$TARGET_POOL" -gt 150 ]]; then TARGET_POOL=150; fi
-
-    local CUR_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 50))" 2>/dev/null)
-    if [[ "$CUR_POOL" != "$TARGET_POOL" ]]; then
-        python3 -c "
-import json
-with open('/etc/gre-panel/perf.json', 'r') as f: d = json.load(f)
-d['frp_max_pool'] = int($TARGET_POOL)
-with open('/etc/gre-panel/perf.json', 'w') as f: json.dump(d, f)
-" 2>/dev/null
-        # Apply the new max pool
-        perf_apply >/dev/null 2>&1
-        echo "$(date) - AutoTune: Adjusted FRP maxPoolCount to $TARGET_POOL (Conns: $CONN, RAM: $RAM)" >> /var/log/hashem_autotune.log
+    # Dynamically tune network stack without restarting live tunnel services (never kill active conns!)
+    if [[ "$CONN" -gt 300 ]]; then
+        sysctl -w net.core.somaxconn=65535 >/dev/null 2>&1 || true
+        sysctl -w net.ipv4.tcp_max_syn_backlog=65535 >/dev/null 2>&1 || true
+        sysctl -w net.core.netdev_max_backlog=65535 >/dev/null 2>&1 || true
+        sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null 2>&1 || true
     fi
 }
 
@@ -6852,6 +6990,7 @@ Usage:
   hashem backup now [--keep N] | restore <f> | schedule ... | status
   hashem tgsend "msg"                          # send Telegram alert manually
   hashem doctor [server|stop-server|fix]       # full latency, jitter, MTU & speed diagnostics
+  hashem stress-test [host] [port] [conns]     # high-concurrency connection stress test (verify zero drops)
   hashem update | update-all                   # update script + panel to latest release
   hashem free-ram                              # cap journald + drop cache + 1GB swap
 
@@ -7249,6 +7388,7 @@ if [[ $# -gt 0 ]]; then
             peer_token "$ID" ;;
         status) check_status ;;
         doctor|test|diagnose) shift; cli_doctor "$@" ;;
+        stress-test|test-load|stress) shift; cli_stress_test "$@" ;;
         panel-tls) shift; panel_tls_issue "$@" ;;
         carrier) shift; cli_carrier "$@" ;;
         carrier-kernel-init) carrier_init_kernel ;;

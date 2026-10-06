@@ -57,6 +57,10 @@ type kernelAudit struct {
 	CongestionAlg string `json:"congestion_alg"`
 	IPForwarding  bool   `json:"ip_forwarding"`
 	MSSClamping   bool   `json:"mss_clamping"`
+	LimitNOFILE   int    `json:"limit_nofile"`
+	Somaxconn     int    `json:"somaxconn"`
+	ConntrackMax  int    `json:"conntrack_max"`
+	TCPTwReuse    bool   `json:"tcp_tw_reuse"`
 }
 
 type speedSummary struct {
@@ -186,6 +190,18 @@ func runFullDiagnostics() *doctorReport {
 		rep.Score -= 10
 		rep.Issues = append(rep.Issues, "TCP MSS PMTU clamping rule missing in iptables")
 		rep.Recommendations = append(rep.Recommendations, "Insert TCPMSS clamp rule to prevent TLS handshake freeze")
+		rep.FixAvailable = true
+	}
+	if rep.KernelAudit.Somaxconn > 0 && rep.KernelAudit.Somaxconn < 8192 {
+		rep.Score -= 10
+		rep.Issues = append(rep.Issues, fmt.Sprintf("TCP listen backlog somaxconn is low (%d)", rep.KernelAudit.Somaxconn))
+		rep.Recommendations = append(rep.Recommendations, "Apply network optimization to increase somaxconn to 65535 to prevent connection drops under load")
+		rep.FixAvailable = true
+	}
+	if rep.KernelAudit.LimitNOFILE > 0 && rep.KernelAudit.LimitNOFILE < 65535 {
+		rep.Score -= 10
+		rep.Issues = append(rep.Issues, fmt.Sprintf("File descriptor limit (LimitNOFILE) is low (%d)", rep.KernelAudit.LimitNOFILE))
+		rep.Recommendations = append(rep.Recommendations, "Increase LimitNOFILE to 1048576 to prevent EMFILE socket drop under high concurrency")
 		rep.FixAvailable = true
 	}
 
@@ -356,6 +372,10 @@ func executeKernelAudit() kernelAudit {
 		res.CongestionAlg = "bbr"
 		res.IPForwarding = true
 		res.MSSClamping = true
+		res.LimitNOFILE = 1048576
+		res.Somaxconn = 65535
+		res.ConntrackMax = 1048576
+		res.TCPTwReuse = true
 		return res
 	}
 
@@ -375,15 +395,55 @@ func executeKernelAudit() kernelAudit {
 		}
 	}
 
-	// 3. MSS Clamping in iptables
+	// 3. MSS Clamping in iptables (clamp-to-pmtu or explicit set-mss 1340)
 	cmd := exec.Command("iptables", "-t", "mangle", "-C", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu")
 	if cmd.Run() == nil {
 		res.MSSClamping = true
 	} else {
 		// check iptables-save as fallback
 		if out, err := exec.Command("iptables-save").CombinedOutput(); err == nil {
-			if strings.Contains(string(out), "TCPMSS --clamp-mss-to-pmtu") {
+			if strings.Contains(string(out), "TCPMSS") {
 				res.MSSClamping = true
+			}
+		}
+	}
+
+	// 4. Somaxconn (TCP listen backlog)
+	if data, err := os.ReadFile("/proc/sys/net/core/somaxconn"); err == nil {
+		if v, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+			res.Somaxconn = v
+		}
+	}
+
+	// 5. Conntrack max
+	if data, err := os.ReadFile("/proc/sys/net/netfilter/nf_conntrack_max"); err == nil {
+		if v, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+			res.ConntrackMax = v
+		}
+	} else if data, err := os.ReadFile("/proc/sys/net/nf_conntrack_max"); err == nil {
+		if v, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+			res.ConntrackMax = v
+		}
+	}
+
+	// 6. TCP TIME_WAIT reuse
+	if data, err := os.ReadFile("/proc/sys/net/ipv4/tcp_tw_reuse"); err == nil {
+		if strings.TrimSpace(string(data)) == "1" {
+			res.TCPTwReuse = true
+		}
+	}
+
+	// 7. LimitNOFILE from process limits
+	if data, err := os.ReadFile("/proc/self/limits"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "Max open files") {
+				fields := strings.Fields(line)
+				if len(fields) >= 5 {
+					if v, err := strconv.Atoi(fields[3]); err == nil {
+						res.LimitNOFILE = v
+					}
+				}
+				break
 			}
 		}
 	}
@@ -536,6 +596,11 @@ func applyDoctorFixes() map[string]any {
 
 	// 3. Ensure IP Forwarding
 	_ = exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
+
+	// 4. Ensure FRP services have high-concurrency limits (LimitNOFILE 1M)
+	ensureFRPServiceUnits("frps")
+	ensureFRPServiceUnits("frpc")
+	fixes = append(fixes, "Verified FRP systemd services have LimitNOFILE=1048576 & Restart=always")
 
 	return map[string]any{
 		"applied": fixes,

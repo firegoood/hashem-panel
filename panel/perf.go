@@ -67,7 +67,7 @@ func defaultPerfConfig() perfConfig {
 		DPIEnabled:       false,
 		DPIRate:          "60/sec",
 		DPIBurst:         120,
-		FRPMaxPool:       50,
+		FRPMaxPool:       100,
 		AutoTune:         false,
 	}
 }
@@ -138,7 +138,7 @@ func savePerfConfig(c perfConfig) error {
 		c.DPIBurst = 100
 	}
 	if c.FRPMaxPool <= 0 {
-		c.FRPMaxPool = 50
+		c.FRPMaxPool = 100
 	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {

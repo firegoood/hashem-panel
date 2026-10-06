@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -880,16 +881,20 @@ func switchTunnelEngine(targetEngine, targetTransport string) (string, error) {
 			frpsToml := fmt.Sprintf(`bindAddr = "0.0.0.0"
 bindPort = %d
 auth.method = "token"
-auth.token = %q%stransport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 15
-transport.heartbeatTimeout = 30
-transport.maxPoolCount = 50
+auth.token = %q%s
+transport.tcpMux = true
+transport.tcpMuxKeepaliveInterval = 30
+transport.tcpKeepalive = 30
+transport.heartbeatTimeout = 90
+transport.heartbeatInterval = 30
+transport.maxPoolCount = 100
 `, port, token, tlsLine)
 			_ = os.MkdirAll("/etc/frp", 0755)
 			_ = os.WriteFile("/etc/frp/frps.toml", []byte(frpsToml), 0644)
+			ensureFRPServiceUnits("frps")
 			_ = exec.Command("systemctl", "restart", "frps").Run()
 			_ = exec.Command("systemctl", "enable", "frps").Run()
-			outMsg.WriteString("frps service configured and started.\n")
+			outMsg.WriteString("frps service configured and started with high-concurrency limits.\n")
 		} else {
 			// Foreign FRP client
 			var frpcBuf strings.Builder
@@ -897,9 +902,14 @@ transport.maxPoolCount = 50
 serverPort = %d
 auth.method = "token"
 auth.token = %q
+loginFailExit = false
 transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 15
-transport.heartbeatTimeout = 30
+transport.tcpMuxKeepaliveInterval = 30
+transport.heartbeatInterval = 30
+transport.heartbeatTimeout = 90
+transport.dialServerTimeout = 10
+transport.dialServerKeepalive = 30
+transport.poolCount = 20
 `, peerGre, port, token))
 			for _, p := range proxyPorts {
 				frpcBuf.WriteString(fmt.Sprintf(`
@@ -909,13 +919,21 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = %d
 remotePort = %d
-`, p, p, p))
+
+[[proxies]]
+name = "udp-%d"
+type = "udp"
+localIP = "127.0.0.1"
+localPort = %d
+remotePort = %d
+`, p, p, p, p, p, p))
 			}
 			_ = os.MkdirAll("/etc/frp", 0755)
 			_ = os.WriteFile("/etc/frp/frpc.toml", []byte(frpcBuf.String()), 0644)
+			ensureFRPServiceUnits("frpc")
 			_ = exec.Command("systemctl", "restart", "frpc").Run()
 			_ = exec.Command("systemctl", "enable", "frpc").Run()
-			outMsg.WriteString("frpc service configured and started.\n")
+			outMsg.WriteString("frpc service configured and started with high-concurrency limits.\n")
 		}
 
 	case "backhaul":
@@ -961,3 +979,35 @@ remotePort = %d
 
 	return outMsg.String(), nil
 }
+
+// ensureFRPServiceUnits enforces high-concurrency systemd limits (LimitNOFILE, TasksMax, Restart=always)
+// to prevent connection drops under heavy concurrent load.
+func ensureFRPServiceUnits(svcName string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	unitPath := "/etc/systemd/system/" + svcName + ".service"
+	data, err := os.ReadFile(unitPath)
+	if err != nil {
+		return
+	}
+	content := string(data)
+	changed := false
+	if !strings.Contains(content, "LimitNOFILE") {
+		content = strings.Replace(content, "[Service]", "[Service]\nLimitNOFILE=1048576\nLimitNPROC=512000\nTasksMax=infinity\nStartLimitIntervalSec=0", 1)
+		changed = true
+	}
+	if strings.Contains(content, "Restart=on-failure") {
+		content = strings.Replace(content, "Restart=on-failure", "Restart=always", 1)
+		changed = true
+	}
+	if strings.Contains(content, "StartLimitIntervalSec=60") {
+		content = strings.Replace(content, "StartLimitIntervalSec=60\nStartLimitBurst=5\n", "", 1)
+		changed = true
+	}
+	if changed {
+		_ = os.WriteFile(unitPath, []byte(content), 0644)
+		_ = exec.Command("systemctl", "daemon-reload").Run()
+	}
+}
+

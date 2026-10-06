@@ -873,12 +873,12 @@
             <p class="tc-title">⚡ Live Tunnel Engine Switcher</p>
             <span class="badge info" id="activeEngineBadge">FRP</span>
           </div>
-          <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+          <div style="font-size:12px;color:var(--mu);margin-bottom:12px">
             Switch tunneling engine live on the fly without losing server tokens or port mappings. Both servers will re-link seamlessly.
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px">
             <div>
-              <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Target Engine</label>
+              <label style="font-size:11px;text-transform:uppercase;color:var(--mu);display:block;margin-bottom:4px">Target Engine</label>
               <select class="hashem-input" id="liveEngineSelect" style="width:100%">
                 <option value="frp">🚀 GRE + FRP Reverse Tunnel</option>
                 <option value="backhaul">🌐 Standalone Backhaul (Multiplexed)</option>
@@ -886,7 +886,7 @@
               </select>
             </div>
             <div id="liveTransportWrap">
-              <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Transport Protocol</label>
+              <label style="font-size:11px;text-transform:uppercase;color:var(--mu);display:block;margin-bottom:4px">Transport Protocol</label>
               <select class="hashem-input" id="liveTransportSelect" style="width:100%">
                 <option value="tcpmux" selected>TCPMUX (Multi-stream TCP - Recommended)</option>
                 <option value="wssmux">WSSMUX (WebSocket + TLS Obfuscation)</option>
@@ -899,7 +899,7 @@
           </div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <button class="hashem-btn hashem-btn-primary" id="liveSwitchEngineBtn" style="padding:6px 18px">Switch Tunnel Engine Now</button>
-            <span id="liveEngineStatusTxt" style="font-size:12px;color:var(--text-muted)"></span>
+            <span id="liveEngineStatusTxt" style="font-size:12px;color:var(--mu)"></span>
           </div>
         </div>
       </section>
@@ -1617,26 +1617,26 @@
             </div>
           </div>
 
-          <!-- Card 2: Auto-Pilot Settings -->
-          <div class="tunnel-card">
+          <!-- Card 2: Automatic Failover Settings -->
+          <div class="tunnel-card" id="failoverCard">
             <div class="tc-header">
               <span class="tc-title">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                Auto-Pilot Failover
+                Automatic Failover
               </span>
-              <span class="badge dim" id="autoPilotBadge">Disabled</span>
+              <span class="badge dim" id="autoPilotBadge">[ OFF ] Manual Mode</span>
             </div>
-            <div class="qs-hint">Probes all carriers automatically and dynamically switches Iran &amp; Foreign servers when network disruption occurs.</div>
+            <div class="qs-hint">Strictly <b>OFF by default</b>. When OFF, the tunnel never switches automatically. Switching only occurs when explicitly initiated by the operator.</div>
             <div class="fg u-mt-12">
               <label class="u-flex-center-wrap10">
-                <input type="checkbox" id="autoPilotToggle" style="width:16px;height:16px;accent-color:var(--pr);">
-                <span>Enable Dynamic Carrier Self-Healing</span>
+                <input type="checkbox" id="autoPilotToggle" style="width:16px;height:16px;accent-color:var(--ac);">
+                <span style="font-weight:600">Enable Automatic Failover (Auto-Switching)</span>
               </label>
             </div>
             <div class="fg u-mt-8">
               <label for="autoPilotThresholdInput">Packet Loss Trigger Threshold (%)</label>
               <input class="hashem-input" id="autoPilotThresholdInput" type="number" min="5" max="90" value="20" style="max-width:140px;">
-              <span class="ent-help">If active carrier packet loss exceeds this rate, Auto-Pilot auto-switches to the best carrier.</span>
+              <span class="ent-help">Only applies when Automatic Failover is turned ON. If active carrier packet loss exceeds this rate, auto-switches to the best carrier.</span>
             </div>
             <div class="trow u-mt-4">
               <span class="k">Last Auto-Switch</span>
@@ -1647,7 +1647,7 @@
               <span class="v" id="autoPilotCountVal">0</span>
             </div>
             <div class="qs-actions u-mt-12">
-              <button class="hashem-btn hashem-btn-primary u-btn-xs" id="autoPilotSaveBtn">Save Auto-Pilot</button>
+              <button class="hashem-btn hashem-btn-primary u-btn-xs" id="autoPilotSaveBtn">Save Failover Policy</button>
             </div>
           </div>
         </div>
@@ -1691,7 +1691,7 @@
         </div>
 
         <!-- Modal / Inline Panel for Peer Configuration -->
-        <div class="tunnel-card hidden" id="peerConfigCard" style="border:1px solid var(--pr);">
+        <div class="tunnel-card hidden" id="peerConfigCard" style="border:1px solid var(--ac);">
           <div class="tc-header">
             <p class="tc-title">Configure Peer Link</p>
             <button class="hashem-btn hashem-btn-ghost u-btn-xs" id="peerConfigCloseBtn">Close</button>
@@ -2085,17 +2085,36 @@ function dot(ok) { return `<span class="dot ${ok ? 'up' : 'down'}"></span>`; }
 const ICO_SRV = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><circle cx="7" cy="7.5" r="1" fill="currentColor"/><circle cx="7" cy="16.5" r="1" fill="currentColor"/></svg>';
 const ICO_GRE = '<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
 const ICO_FRP = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
+function setBtnLoading(btn, isLoading, loadingText) {
+  if (!btn) return;
+  if (isLoading) {
+    if (!btn.dataset.origHtml) btn.dataset.origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+    btn.innerHTML = '<span class="ent-spinner"></span> ' + (loadingText || 'Working…');
+  } else {
+    btn.disabled = false;
+    btn.classList.remove('is-loading');
+    if (btn.dataset.origHtml) {
+      btn.innerHTML = btn.dataset.origHtml;
+      delete btn.dataset.origHtml;
+    }
+  }
+}
 function peerAct(action, peerId) {
   return (async () => {
+    const btn = document.querySelector(`[data-peer-act="${action}-${peerId}"]`);
+    const actLabels = { restart: 'Restarting…', stop: 'Stopping…', start: 'Starting…', ping: 'Pinging…' };
+    const label = actLabels[action] || (action + '…');
+    setBtnLoading(btn, true, label);
     try {
-      const btn = document.querySelector(`[data-peer-act="${action}-${peerId}"]`);
-      if (btn) { btn.disabled = true; const t = btn.textContent; btn.innerHTML = '<span class="ent-spinner"></span>'; btn.dataset.rst = t; }
       const r = await api('/api/action', {action, peer_id: peerId});
       $('actOut').classList.remove('hidden');
       $('actOut').textContent = r.output || 'ok';
       toastOk(action + ' ok', r.output ? String(r.output).slice(0, 120) : '');
       refresh();
     } catch(e) { toastErr(action + ' failed', e.message); refresh(); }
+    finally { setBtnLoading(btn, false); }
   })();
 }
 // Inline two-step remove: first click arms (5s + Undo), second click deletes.
@@ -3067,12 +3086,20 @@ async function refreshDash() {
     const portLabel = isFrpc ? 'Server Port' : 'Bind Port';
     const portCell = bindPort ? dmono(bindPort) : dval('—');
     const proxyList = (f.proxy_ports && f.proxy_ports.length) ? f.proxy_ports.join(', ') : ((f.proxies || []).join(', ') || '—');
+    const activeEng = String(d.active_engine || 'frp').toUpperCase();
+    const activeCarr = String(d.active_carrier || 'direct');
+    const failoverBadge = d.auto_failover ? dbadge('[ ON ] Auto-Switching', 'warn') : dbadge('[ OFF ] Manual Mode', 'dim');
+    const diagBadge = d.last_error
+      ? `<span class="badge err" title="${esc(d.last_error.detail || '')}"><span class="dot"></span>${esc(d.last_error.code || 'ERR')} (${esc(String(d.last_error.time || '').slice(11, 19))})</span>`
+      : dbadge('Stable / Zero Drops', 'ok');
+    const ICO_BOLT = '<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
     setHTML('dashDetails',
-      detCard(ICO_SRV, 'Server', detRow('Public IP', dmono(d.local_pub)) + detRow('Role', roleBadge) + detRow('Forwarded', dval(proxyList)))
+      detCard(ICO_SRV, 'Server & Role', detRow('Public IP', dmono(d.local_pub)) + detRow('Role', roleBadge) + detRow('Forwarded', dval(proxyList)))
       + detCard(ICO_GRE, 'GRE Tunnel', detRow('Local', dmono(g.local)) + detRow('Peer', dmono(g.peer)) + detRow('Inner', dmono(g.inner)))
-      + detCard(ICO_FRP, 'FRP Service', detRow('Status', frpBadge) + detRow(portLabel, portCell)
+      + detCard(ICO_FRP, 'Tunnel Engine', detRow('Status', frpBadge) + detRow('Engine', dval(activeEng)) + detRow(portLabel, portCell)
         + (proxyPorts.length ? detRow('Tunnel Ports', `<span class="det-v">${proxyPorts.map(p => `<span class="det-v mono" style="margin-right:4px">${esc(String(p))}</span>`).join('')}</span>`) : '')
         + (u.frp_since ? detRow('Since', dval(u.frp_since)) : ''))
+      + detCard(ICO_BOLT, 'Carrier & Failover', detRow('Active Carrier', dmono(activeCarr)) + detRow('Failover Policy', failoverBadge) + detRow('Diagnostics', diagBadge))
       + dashPeersCard(d.peers || []));
     // one-click copy for IP/port pills
     document.querySelectorAll('#dashDetails [data-copy]').forEach(b => { if (!b.dataset.cpBound) { b.dataset.cpBound = '1';
@@ -3237,7 +3264,7 @@ function renderIranBundleBox(bundleStr) {
       <button type="button" class="hashem-btn hashem-btn-primary" id="copyIranBundleBtn" style="padding:4px 14px;font-size:12px">📋 Copy Bundle</button>
     </div>
     <div style="font-family:var(--font-mono);font-size:12px;background:rgba(0,0,0,0.35);padding:10px 12px;border-radius:var(--r-sm);word-break:break-all;color:var(--cyan);user-select:all;border:1px solid rgba(56,189,248,0.25)">${esc(bundleStr)}</div>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Paste this single string into the Foreign server token box to establish the tunnel and peer link automatically.</div>
+    <div style="font-size:11px;color:var(--mu);margin-top:6px">Paste this single string into the Foreign server token box to establish the tunnel and peer link automatically.</div>
   `;
   bb.classList.remove('hidden');
   const btn = $('copyIranBundleBtn');
@@ -4322,7 +4349,10 @@ async function loadCarrier() {
       $('carrierActiveVal').textContent = curActive.toUpperCase();
     }
     if ($('carrierModeVal')) {
-      $('carrierModeVal').textContent = (s.mode || 'auto').toUpperCase();
+      $('carrierModeVal').textContent = 'MANUAL';
+    }
+    if ($('carrierModeSub')) {
+      $('carrierModeSub').textContent = 'Auto Failover OFF';
     }
     if ($('carrierPortsVal')) {
       $('carrierPortsVal').textContent = (curPorts && curPorts.length > 0) ? curPorts.join(', ') : 'None';
@@ -5416,13 +5446,13 @@ function renderBenchmark(bench, peer) {
     if ($('peerLatencyVal')) $('peerLatencyVal').textContent = (peer.latency_ms > 0 ? peer.latency_ms.toFixed(1) + ' ms' : '—');
     if ($('peerLastSyncVal')) $('peerLastSyncVal').textContent = peer.last_sync || 'Never';
 
-    // AutoPilot
-    if ($('autoPilotToggle')) $('autoPilotToggle').checked = peer.autopilot;
+    // Automatic Failover Policy
+    if ($('autoPilotToggle')) $('autoPilotToggle').checked = !!peer.autopilot;
     if ($('autoPilotThresholdInput')) $('autoPilotThresholdInput').value = peer.threshold || 20;
     if ($('autoPilotBadge')) {
       const b = $('autoPilotBadge');
-      b.className = 'badge ' + (peer.autopilot ? 'info' : 'dim');
-      b.textContent = peer.autopilot ? 'Active' : 'Disabled';
+      b.className = 'badge ' + (peer.autopilot ? 'warn' : 'dim');
+      b.textContent = peer.autopilot ? '[ ON ] Auto-Switching' : '[ OFF ] Manual Mode';
     }
   }
 
@@ -5547,15 +5577,19 @@ async function testPeerLinkClick() {
 }
 
 async function saveAutoPilotClick() {
+  const btn = $('autoPilotSaveBtn');
   const enabled = $('autoPilotToggle') ? $('autoPilotToggle').checked : false;
   const thresh = $('autoPilotThresholdInput') ? parseFloat($('autoPilotThresholdInput').value) || 20 : 20;
 
+  setBtnLoading(btn, true, 'Saving…');
   try {
     await api('/api/benchmark/autopilot', { enabled: enabled, threshold: thresh });
-    toastOk('Auto-Pilot saved', `Dynamic failover threshold set to ${thresh}%`);
+    toastOk('Failover Policy Saved', enabled ? `Automatic Failover is now ON (threshold: ${thresh}%)` : 'Automatic Failover is OFF (Manual Mode)');
     await loadBenchmark();
   } catch (err) {
-    toastErr('Failed to save Auto-Pilot', err.message || err);
+    toastErr('Failed to save Failover Policy', err.message || err);
+  } finally {
+    setBtnLoading(btn, false);
   }
 }
 
