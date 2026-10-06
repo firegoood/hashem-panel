@@ -29,6 +29,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -83,15 +84,25 @@ var termUpgrader = websocket.Upgrader{
 		if origin == "" {
 			return true // non-browser client
 		}
-		// same-origin only: Origin host must equal request Host.
-		oh := origin
-		if i := strings.Index(oh, "://"); i >= 0 {
-			oh = oh[i+3:]
+		origHost := CleanHost(origin)
+		reqHost := CleanHost(r.Host)
+		if origHost != "" && strings.EqualFold(origHost, reqHost) {
+			return true
 		}
-		if i := strings.Index(oh, "/"); i >= 0 {
-			oh = oh[:i]
+		// If behind a trusted reverse proxy, also accept X-Forwarded-Host
+		directHost, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			directHost = strings.Trim(r.RemoteAddr, "[]")
 		}
-		return strings.EqualFold(oh, r.Host)
+		if IsTrustedProxy(directHost) {
+			if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
+				firstXFH := CleanHost(strings.TrimSpace(strings.Split(xfh, ",")[0]))
+				if firstXFH != "" && strings.EqualFold(origHost, firstXFH) {
+					return true
+				}
+			}
+		}
+		return false
 	},
 }
 

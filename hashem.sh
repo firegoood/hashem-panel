@@ -567,34 +567,77 @@ panel_tls_issue() { # $1=domain [$2=email] — certbot standalone on :80 + insta
     local DOMAIN=${1:-} EMAIL=${2:-}
     [[ -z "$DOMAIN" ]] && read -p "Panel domain (e.g. panel.example.com, must point to this server): " DOMAIN
     [[ -z "$DOMAIN" ]] && { echo -e "${RED}[!] Domain is required.${NC}"; return 1; }
+    # Clean domain from scheme or port
+    DOMAIN=$(echo "$DOMAIN" | sed -e 's|^[^/]*//||' -e 's|/.*$||' -e 's|:.*$||' | tr '[:upper:]' '[:lower:]')
     read -p "Email for expiry notices [Enter to skip]: " EMAIL_IN
     EMAIL=${EMAIL:-$EMAIL_IN}
+
+    # Pre-flight 1: Port 80 check
+    if ss -tulpn 2>/dev/null | grep -q ":80 " || lsof -i :80 >/dev/null 2>&1; then
+        echo -e "${YELLOW}[!] Warning: Port 80 is currently occupied. If using Nginx/Caddy, consider reverse proxying to panel port.${NC}"
+    fi
+
+    # Pre-flight 2: DNS check
+    if command -v getent >/dev/null 2>&1; then
+        local RESOLVED_IP
+        RESOLVED_IP=$(getent ahosts "$DOMAIN" 2>/dev/null | awk '{print $1}' | head -n1)
+        if [[ -z "$RESOLVED_IP" ]]; then
+            echo -e "${RED}[!] DNS resolution failed for ${DOMAIN}. Please verify DNS records before proceeding.${NC}"
+            return 1
+        fi
+    fi
+
     if ! command -v certbot >/dev/null 2>&1; then
         echo -e "${CYAN}[*] Installing certbot...${NC}"
         apt-get update -qq && apt-get install -y -qq certbot || { echo -e "${RED}[!] certbot install failed.${NC}"; return 1; }
     fi
-    echo -e "${CYAN}[*] Issuing Let's Encrypt certificate for ${DOMAIN} (needs port 80 free + DNS pointing here)...${NC}"
+
+    # Atomic backup of previous certs
+    mkdir -p /etc/gre-panel/tls
+    [[ -f /etc/gre-panel/tls/server.crt ]] && cp -f /etc/gre-panel/tls/server.crt /etc/gre-panel/tls/server.crt.bak
+    [[ -f /etc/gre-panel/tls/server.key ]] && cp -f /etc/gre-panel/tls/server.key /etc/gre-panel/tls/server.key.bak
+    [[ -f /etc/gre-panel/tls/meta.json ]] && cp -f /etc/gre-panel/tls/meta.json /etc/gre-panel/tls/meta.json.bak
+
+    echo -e "${CYAN}[*] Issuing Let's Encrypt certificate for ${DOMAIN}...${NC}"
     local ARGS=(certonly --standalone --non-interactive --agree-tos --preferred-challenges http --http-01-port 80 -d "$DOMAIN")
     if [[ -n "$EMAIL" ]]; then ARGS+=(-m "$EMAIL"); else ARGS+=(--register-unsafely-without-email); fi
     if ! certbot "${ARGS[@]}"; then
-        echo -e "${RED}[!] certbot failed — check DNS (domain → this server IP) and that port 80 is reachable.${NC}"
+        echo -e "${RED}[!] certbot failed — check DNS and port 80 accessibility.${NC}"
+        # Rollback
+        [[ -f /etc/gre-panel/tls/server.crt.bak ]] && mv -f /etc/gre-panel/tls/server.crt.bak /etc/gre-panel/tls/server.crt
+        [[ -f /etc/gre-panel/tls/server.key.bak ]] && mv -f /etc/gre-panel/tls/server.key.bak /etc/gre-panel/tls/server.key
+        [[ -f /etc/gre-panel/tls/meta.json.bak ]] && mv -f /etc/gre-panel/tls/meta.json.bak /etc/gre-panel/tls/meta.json
+        echo -e "${YELLOW}[*] Previous panel configuration kept intact. Tunnels unaffected.${NC}"
         return 1
     fi
-    mkdir -p /etc/gre-panel/tls
+
     cp "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" /etc/gre-panel/tls/server.crt
     cp "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" /etc/gre-panel/tls/server.key
     chmod 600 /etc/gre-panel/tls/server.key
     echo "{\"domain\":\"$DOMAIN\",\"issued_at\":\"$(date '+%F %T')\"}" > /etc/gre-panel/tls/meta.json
-    systemctl restart gre-panel
+    rm -f /etc/gre-panel/tls/*.bak
+
+    # Reload only gre-panel (NEVER touch tunnel services)
+    systemctl restart gre-panel 2>/dev/null || true
     sleep 2
-    local PORT BASE
+    local PORT BASE TPORT
     PORT=$(grep -o '"port": *[0-9]*' /etc/gre-panel/panel.json 2>/dev/null | grep -o '[0-9]*'); PORT=${PORT:-7777}
     BASE=$(grep -o '"base_path": *"[^"]*"' /etc/gre-panel/panel.json 2>/dev/null | cut -d'"' -f4)
-    local TPORT
     TPORT=$(grep -o '"tls_port": *[0-9]*' /etc/gre-panel/panel.json 2>/dev/null | grep -o '[0-9]*'); TPORT=${TPORT:-7443}
     echo -e "${GREEN}[✔️] HTTPS ready: ${CYAN}https://${DOMAIN}:${TPORT}/${BASE}${NC}"
     echo -e "${GREEN}    HTTP still works: ${CYAN}http://<this-server-ip>:${PORT}/${BASE}${NC}"
-    echo -e "${CYAN}[*] certbot auto-renews via its systemd timer; panel shows expiry in Settings.${NC}"
+    echo -e "${GREEN}    Tunnel infrastructure continues running without interruption.${NC}"
+}
+
+panel_tls_remove() {
+    echo -e "${CYAN}[*] Removing custom domain and HTTPS certificates...${NC}"
+    rm -f /etc/gre-panel/tls/server.crt /etc/gre-panel/tls/server.key /etc/gre-panel/tls/meta.json /etc/gre-panel/tls/*.bak
+    systemctl restart gre-panel 2>/dev/null || true
+    local PORT BASE
+    PORT=$(grep -o '"port": *[0-9]*' /etc/gre-panel/panel.json 2>/dev/null | grep -o '[0-9]*'); PORT=${PORT:-7777}
+    BASE=$(grep -o '"base_path": *"[^"]*"' /etc/gre-panel/panel.json 2>/dev/null | cut -d'"' -f4)
+    echo -e "${GREEN}[✔️] Domain removed. Panel reverted to HTTP: ${CYAN}http://<this-server-ip>:${PORT}/${BASE}${NC}"
+    echo -e "${GREEN}    Active tunnels remain fully operational.${NC}"
 }
 
 gen_token32() { # 32-char alphanumeric secret (FRP auth token)
@@ -7390,6 +7433,7 @@ if [[ $# -gt 0 ]]; then
         doctor|test|diagnose) shift; cli_doctor "$@" ;;
         stress-test|test-load|stress) shift; cli_stress_test "$@" ;;
         panel-tls) shift; panel_tls_issue "$@" ;;
+        panel-remove-domain|panel-tls-remove) panel_tls_remove ;;
         carrier) shift; cli_carrier "$@" ;;
         carrier-kernel-init) carrier_init_kernel ;;
         carrier-apply-active) shift; carrier_apply_active "$1" ;;

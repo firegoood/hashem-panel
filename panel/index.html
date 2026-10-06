@@ -1750,16 +1750,36 @@
           <div class="qs-hint" id="termFlagMsg">Terminal tab is hidden until enabled.</div>
         </div>
         <div class="tunnel-card">
-          <div class="tc-header"><p class="tc-title">HTTPS certificate</p><span class="status-indicator" id="tlsDot"><span class="dot"></span><span id="tlsDotTxt">—</span></span></div>
-          <div class="qs-hint">Let's Encrypt for this panel (HTTP keeps working on its port). Domain must point to this server + port 80 reachable. Certbot renews automatically; this page shows expiry.</div>
+          <div class="tc-header">
+            <p class="tc-title">Domain & HTTPS (Decoupled Web Layer)</p>
+            <span class="status-indicator" id="tlsDot"><span class="dot"></span><span id="tlsDotTxt">—</span></span>
+          </div>
+          <div class="qs-hint">Configure a custom domain for Web Panel access. <b>Tunnel infrastructure (FRP / Backhaul / GRE) is 100% independent and will never be restarted or disconnected.</b></div>
           <div class="fg"><label for="tlsDomain">Panel domain</label><input class="hashem-input" id="tlsDomain" placeholder="panel.example.com" autocomplete="off" spellcheck="false"></div>
           <div class="fg"><label for="tlsEmail">Email for expiry notices (optional)</label><input class="hashem-input" id="tlsEmail" placeholder="you@example.com" autocomplete="off" spellcheck="false"></div>
           <div id="tlsInfo" class="qs-hint">Not checked yet.</div>
-          <div class="qs-actions">
+          <div class="qs-actions" style="display:flex; flex-wrap:wrap; gap:8px;">
             <button class="hashem-btn hashem-btn-primary" id="tlsIssueBtn">Get certificate</button>
             <button class="hashem-btn hashem-btn-secondary" id="tlsRenewBtn">Renew now</button>
+            <button class="hashem-btn hashem-btn-danger" id="tlsRemoveBtn" style="display:none">Remove domain</button>
+            <button class="hashem-btn hashem-btn-secondary" id="tlsProxyConfBtn">Reverse Proxy Config</button>
           </div>
-          <div class="qs-hint" id="tlsMsg">HTTPS appears on port 7443 after the first certificate.</div>
+          <div class="qs-hint" id="tlsMsg">HTTPS serves on dedicated port 7443 alongside HTTP on port 7777.</div>
+          <div id="tlsProxyBox" style="display:none; margin-top:12px; padding:12px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-input);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <b>Reverse Proxy Configuration (Nginx & Caddy)</b>
+              <button class="hashem-btn hashem-btn-ghost" id="tlsProxyCloseBtn" style="padding:2px 8px;">×</button>
+            </div>
+            <div class="qs-hint" style="margin-bottom:8px;">Copy and paste into your Nginx or Caddy server on this machine. Real client IPs and WebSocket upgrades are automatically supported.</div>
+            <div style="margin-bottom:8px;">
+              <b>Nginx:</b>
+              <pre id="tlsNginxCode" style="font-size:11px; max-height:160px; overflow-y:auto; background:var(--bg-card); padding:8px; border-radius:4px; user-select:all;"></pre>
+            </div>
+            <div>
+              <b>Caddy:</b>
+              <pre id="tlsCaddyCode" style="font-size:11px; max-height:100px; overflow-y:auto; background:var(--bg-card); padding:8px; border-radius:4px; user-select:all;"></pre>
+            </div>
+          </div>
         </div>
       </section>
       <section id="tab-terminal" hidden>
@@ -4840,23 +4860,54 @@ async function tlsRefresh() {
   try {
     const s = await api('/api/tls');
     const dot = $('tlsDot');
-    if (dot) { dot.className = 'status-indicator ' + (s.enabled ? 'active' : (s.days_left != null && s.days_left < 15 ? 'offline' : '')); $('tlsDotTxt').textContent = s.enabled ? (s.days_left != null ? s.days_left + ' days left' : 'enabled') : 'no certificate'; }
+    if (dot) {
+      dot.className = 'status-indicator ' + (s.enabled ? 'active' : (s.days_left != null && s.days_left < 15 ? 'offline' : ''));
+      $('tlsDotTxt').textContent = s.enabled ? (s.days_left != null ? s.days_left + ' days left' : 'enabled') : 'no certificate';
+    }
     const info = $('tlsInfo');
-    if (info) info.innerHTML = s.enabled
-      ? 'Domain <b>' + esc(s.domain || '') + '</b> · expires <b>' + esc(s.expiry || '') + '</b>' + (s.days_left != null ? ' (' + esc(String(s.days_left)) + ' days)' : '') + '<br>HTTPS: <b>' + esc(s.https_url || '') + '</b><br>HTTP still works: ' + esc(s.http_url || '')
-      : 'No certificate yet. Enter the domain above — it must resolve to this server and port 80 must be reachable.';
+    if (info) {
+      if (s.enabled) {
+        let txt = 'Domain <b>' + esc(s.domain || '') + '</b> · expires <b>' + esc(s.expiry || '') + '</b>' + (s.days_left != null ? ' (' + esc(String(s.days_left)) + ' days)' : '') + '<br>HTTPS: <b>' + esc(s.https_url || '') + '</b><br>HTTP IP access: ' + esc(s.http_url || '');
+        if (s.port_conflict) {
+          txt += '<br><span style="color:var(--err);">⚠️ Port conflict: ' + esc(s.port_conflict_detail || '') + '</span>';
+        }
+        info.innerHTML = txt;
+      } else {
+        info.innerHTML = 'No certificate installed yet. Enter the domain above — it must resolve to this server and port 80 must be reachable (or use Reverse Proxy mode below).';
+      }
+    }
     const msg = $('tlsMsg');
     if (msg) msg.textContent = s.enabled ? ('HTTPS serves on port ' + (s.https_port || 7443) + ' alongside HTTP on ' + (s.http_port || 7777) + '.') : 'HTTPS appears on port 7443 after the first certificate.';
-    if (s.enabled && !s.expiring_soon) { /* healthy */ }
+    const remBtn = $('tlsRemoveBtn');
+    if (remBtn) remBtn.style.display = s.enabled ? 'inline-block' : 'none';
     if (s.enabled && s.expiring_soon) toastWarn('certificate expiring soon', (s.expiry || '') + ' — Renew now or wait for certbot auto-renew.');
     if (s.domain && !$('tlsDomain').value) $('tlsDomain').value = s.domain;
   } catch(e) { /* leave placeholder text */ }
 }
+
 $('tlsIssueBtn').onclick = async () => {
   const domain = $('tlsDomain').value.trim();
   if (!domain) { toastWarn('domain required', 'Enter the panel domain first (e.g. panel.example.com).'); return; }
-  if (!await entConfirm('Get HTTPS certificate?', 'Certbot will issue a Let\'s Encrypt certificate for ' + domain + ' (needs port 80 + DNS pointing here). HTTP keeps working.', 'Get certificate')) return;
-  const b = $('tlsIssueBtn'); b.disabled = true; b.textContent = 'Issuing… (up to 60s)';
+
+  const b = $('tlsIssueBtn');
+  b.disabled = true; b.textContent = 'Checking…';
+  try {
+    const chk = await api('/api/tls/check', { domain });
+    if (chk.port_conflict) {
+      toastErr('Port Conflict', chk.port_conflict_error || 'Port conflict with active tunnel detected.');
+      b.disabled = false; b.textContent = 'Get certificate';
+      return;
+    }
+    if (chk.dns_ok === false) {
+      toastErr('DNS Mismatch', chk.dns_error || 'Domain DNS does not point to this server.');
+      b.disabled = false; b.textContent = 'Get certificate';
+      return;
+    }
+  } catch(e) { /* proceed if check endpoint unreachable */ }
+  b.disabled = false; b.textContent = 'Get certificate';
+
+  if (!await entConfirm('Get HTTPS certificate?', 'Certbot will issue a Let\'s Encrypt certificate for ' + domain + '. HTTP and active tunnels continue running without interruption.', 'Get certificate')) return;
+  b.disabled = true; b.textContent = 'Issuing… (up to 60s)';
   try {
     const r = await api('/api/tls', {domain, email: $('tlsEmail').value.trim()});
     toastOk('certificate installed', 'HTTPS: ' + (r.https_url || ''));
@@ -4864,6 +4915,7 @@ $('tlsIssueBtn').onclick = async () => {
   } catch(e) { toastErr('certificate failed', e.message); }
   b.disabled = false; b.textContent = 'Get certificate';
 };
+
 $('tlsRenewBtn').onclick = async () => {
   const b = $('tlsRenewBtn'); b.disabled = true; b.textContent = 'Renewing…';
   try {
@@ -4872,6 +4924,36 @@ $('tlsRenewBtn').onclick = async () => {
     tlsRefresh();
   } catch(e) { toastErr('renew failed', e.message); }
   b.disabled = false; b.textContent = 'Renew now';
+};
+
+$('tlsRemoveBtn').onclick = async () => {
+  if (!await entConfirm('Remove domain?', 'This will disable HTTPS and return the panel to HTTP (IP:port) access. Active tunnels will NOT be affected.', 'Remove domain')) return;
+  const b = $('tlsRemoveBtn'); b.disabled = true; b.textContent = 'Removing…';
+  try {
+    const r = await api('/api/tls', { action: 'remove' });
+    toastOk('Domain removed', r.message || 'Reverted to HTTP IP access.');
+    $('tlsDomain').value = '';
+    tlsRefresh();
+  } catch(e) { toastErr('remove failed', e.message); }
+  b.disabled = false; b.textContent = 'Remove domain';
+};
+
+$('tlsProxyConfBtn').onclick = async () => {
+  const domain = $('tlsDomain').value.trim() || 'panel.example.com';
+  try {
+    const p = await api('/api/tls/proxy-config?domain=' + encodeURIComponent(domain));
+    const box = $('tlsProxyBox');
+    if (box) {
+      $('tlsNginxCode').textContent = p.nginx || '';
+      $('tlsCaddyCode').textContent = p.caddy || '';
+      box.style.display = 'block';
+    }
+  } catch(e) { toastErr('Proxy Config Failed', e.message); }
+};
+
+$('tlsProxyCloseBtn').onclick = () => {
+  const box = $('tlsProxyBox');
+  if (box) box.style.display = 'none';
 };
 
 // ---------- Diagnostics & Doctor (tab-doctor) ----------

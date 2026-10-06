@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,11 +154,57 @@ func ValidatePasswordStrength(pw string) error {
 
 // ---- Trusted Proxy & Client IP (Spoofing Prevention) ----
 
-// IsTrustedProxy checks whether a given IP address belongs to TRUSTED_PROXY_IPS.
+// CleanHost parses and extracts the raw host or IP from an input string,
+// stripping URL schemes (http://, https://, etc.), ports, paths, and IPv6 brackets.
+func CleanHost(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return ""
+	}
+
+	// If it contains scheme prefix (e.g. "http://", "https://")
+	if strings.Contains(input, "://") {
+		if u, err := url.Parse(input); err == nil && u.Host != "" {
+			input = u.Host
+		} else {
+			// fallback: strip up to ://
+			parts := strings.SplitN(input, "://", 2)
+			input = parts[1]
+		}
+	}
+
+	// Remove trailing paths or query params if any remain
+	if slashIdx := strings.Index(input, "/"); slashIdx != -1 {
+		input = input[:slashIdx]
+	}
+	if qIdx := strings.Index(input, "?"); qIdx != -1 {
+		input = input[:qIdx]
+	}
+
+	// If host contains port (e.g., "example.com:8080" or "[::1]:8080")
+	if host, _, err := net.SplitHostPort(input); err == nil {
+		return strings.Trim(host, "[]")
+	}
+
+	// Strip IPv6 brackets if "[::1]"
+	input = strings.Trim(input, "[]")
+	return input
+}
+
+// IsTrustedProxy checks whether a given IP address belongs to TRUSTED_PROXY_IPS or is local loopback.
 func IsTrustedProxy(ipStr string) bool {
 	ipStr = strings.TrimSpace(ipStr)
 	if ipStr == "" {
 		return false
+	}
+
+	// Always trust local loopback (reverse proxies like Nginx or Caddy on same machine)
+	if ipStr == "127.0.0.1" || ipStr == "::1" || strings.EqualFold(ipStr, "localhost") {
+		return true
+	}
+	parsedIP := net.ParseIP(ipStr)
+	if parsedIP != nil && parsedIP.IsLoopback() {
+		return true
 	}
 
 	raw := os.Getenv("TRUSTED_PROXY_IPS")
@@ -165,7 +212,6 @@ func IsTrustedProxy(ipStr string) bool {
 		return false
 	}
 
-	parsedIP := net.ParseIP(ipStr)
 	if parsedIP == nil {
 		return false
 	}

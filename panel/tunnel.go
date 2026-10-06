@@ -830,13 +830,13 @@ func switchTunnelEngine(targetEngine, targetTransport string) (string, error) {
 		proxyPorts = []int{443, 2083}
 	}
 
-	remotePub := st.RemotePub
+	remotePub := CleanHost(st.RemotePub)
 	if remotePub == "" {
-		remotePub = st.Gre.PeerIP
+		remotePub = CleanHost(st.Gre.PeerIP)
 	}
 	if remotePub == "" {
 		pcfg := loadPeerConfig()
-		remotePub = pcfg.PeerURL
+		remotePub = CleanHost(pcfg.PeerURL)
 	}
 
 	peerGre := st.Gre.PeerIP

@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -440,13 +442,28 @@ func sendToPeer(path string, method string, payload any) ([]byte, error) {
 	// 2. Try Public URL as fallback
 	if c.PeerURL != "" {
 		u := strings.TrimRight(c.PeerURL, "/")
+		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			u = "http://" + u
+		}
 		targetURLs = append(targetURLs, u+fullPath)
-		// If PeerURL has no port and cfg.Port is known, also add with port
-		if !strings.Contains(u, ":") || strings.HasSuffix(u, "://") {
-			if cfg.Port > 0 {
-				targetURLs = append(targetURLs, fmt.Sprintf("%s:%d%s", u, cfg.Port, fullPath))
+
+		parsed, err := url.Parse(u)
+		if err == nil {
+			scheme := parsed.Scheme
+			if scheme == "" {
+				scheme = "http"
 			}
-			targetURLs = append(targetURLs, fmt.Sprintf("%s:8080%s", u, fullPath))
+			host := parsed.Hostname()
+			if parsed.Port() == "" {
+				if cfg.Port > 0 {
+					targetURLs = append(targetURLs, fmt.Sprintf("%s://%s:%d%s", scheme, host, cfg.Port, fullPath))
+				}
+				for _, p := range []int{effectiveTLSPort(), 7443, 7777, 8080} {
+					if p != cfg.Port && p > 0 {
+						targetURLs = append(targetURLs, fmt.Sprintf("%s://%s:%d%s", scheme, host, p, fullPath))
+					}
+				}
+			}
 		}
 	}
 
@@ -454,9 +471,16 @@ func sendToPeer(path string, method string, payload any) ([]byte, error) {
 		return nil, fmt.Errorf("no peer address configured (both InternalIP and PeerURL are empty)")
 	}
 
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{
+		Timeout:   4 * time.Second,
+		Transport: tr,
+	}
+
 	var lastErr error
 	for _, target := range targetURLs {
-		client := &http.Client{Timeout: 4 * time.Second}
 		req, err := http.NewRequest(method, target, bytes.NewReader(bodyBytes))
 		if err != nil {
 			lastErr = err
@@ -474,8 +498,8 @@ func sendToPeer(path string, method string, payload any) ([]byte, error) {
 			continue
 		}
 
-		defer resp.Body.Close()
 		respBytes, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		if err != nil {
 			lastErr = err
 			continue

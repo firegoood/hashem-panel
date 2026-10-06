@@ -1,26 +1,39 @@
 package main
 
-// Panel TLS (Let's Encrypt): issue + serve HTTPS alongside plain HTTP.
-// Design (user-confirmed): manual domain entry, HTTP stays on cfg.Port,
-// HTTPS serves on cfg.TLSPort (default 7443) with the same base_path +
-// same session cookie. Certbot does the ACME work (standalone http-01
-// on :80); the panel shells out, copies fullchain+key into
-// <configDir>/tls/, and serves them. Certbot's own timer handles
-// renewal; the panel surfaces expiry + a manual Renew button.
+// Panel TLS & Domain Layer: Decoupled, Atomic, and Zero-Tunnel-Impact.
+//
+// Key Architectural Principles:
+// 1. Strict Layer Separation: Domain/TLS/Proxy operations ONLY manage the Web layer.
+//    Tunnel infrastructure (FRP, Backhaul, GRE, P2P) is NEVER touched, restarted,
+//    or reconfigured during domain operations.
+// 2. Pre-flight Checks: Validate domain syntax, verify DNS resolution, and check for
+//    port conflicts with active tunnel proxies and existing listeners.
+// 3. Atomic Updates & Rollback: Before any certificate issuance or renewal, existing
+//    certificates are backed up. On any failure, previous state is immediately restored.
+// 4. In-Process Reload: Changes to HTTPS are applied via in-process server reload
+//    (startHTTPSListener), avoiding systemd restarts that would drop connections.
+// 5. Clean Domain Removal: Revert back to plain HTTP IP access on demand without
+//    affecting running tunnels.
+// 6. Reverse Proxy Support: Seamless integration with Nginx / Caddy including WebSocket
+//    upgrade and real client IP forwarding.
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -83,18 +96,155 @@ func tlsCertExpiry() (time.Time, string, error) {
 	return time.Time{}, "", fmt.Errorf("no certificate found")
 }
 
-// tlsStatusJSON is shared by the API + the hashem.sh CLI banner.
+// ---- Atomic Backup & Rollback Helpers ----
+
+func backupTLSCerts() {
+	_ = os.MkdirAll(tlsDir(), 0700)
+	if _, err := os.Stat(tlsCertFile()); err == nil {
+		_ = copyFile(tlsCertFile(), tlsCertFile()+".bak")
+	}
+	if _, err := os.Stat(tlsKeyFile()); err == nil {
+		_ = copyFile(tlsKeyFile(), tlsKeyFile()+".bak")
+	}
+	if _, err := os.Stat(tlsMetaFile()); err == nil {
+		_ = copyFile(tlsMetaFile(), tlsMetaFile()+".bak")
+	}
+}
+
+func rollbackTLSCerts() {
+	if _, err := os.Stat(tlsCertFile() + ".bak"); err == nil {
+		_ = copyFile(tlsCertFile()+".bak", tlsCertFile())
+		_ = os.Remove(tlsCertFile() + ".bak")
+	}
+	if _, err := os.Stat(tlsKeyFile() + ".bak"); err == nil {
+		_ = copyFile(tlsKeyFile()+".bak", tlsKeyFile())
+		_ = os.Remove(tlsKeyFile() + ".bak")
+	}
+	if _, err := os.Stat(tlsMetaFile() + ".bak"); err == nil {
+		_ = copyFile(tlsMetaFile()+".bak", tlsMetaFile())
+		_ = os.Remove(tlsMetaFile() + ".bak")
+	}
+}
+
+func clearTLSBackups() {
+	_ = os.Remove(tlsCertFile() + ".bak")
+	_ = os.Remove(tlsKeyFile() + ".bak")
+	_ = os.Remove(tlsMetaFile() + ".bak")
+}
+
+// ---- Pre-flight Checks: Port Conflict & DNS ----
+
+func isPort80Available() bool {
+	ln, err := net.Listen("tcp", ":80")
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
+// checkPortConflict ensures the domain HTTPS configuration does not clash with
+// active tunnel proxies, bind ports, or the existing panel HTTP port.
+func checkPortConflict(requestedTLSPort int) error {
+	st := localStatus()
+	tunnelPorts := map[int]string{}
+
+	if st.BindPort > 0 {
+		tunnelPorts[st.BindPort] = "Tunnel Bind Port (" + st.TunnelEngine + ")"
+	}
+	if st.FrpPort > 0 {
+		tunnelPorts[st.FrpPort] = "FRP Port"
+	}
+	for _, p := range st.ProxyPorts {
+		if p > 0 {
+			tunnelPorts[p] = fmt.Sprintf("Tunnel Proxy Port (%d)", p)
+		}
+	}
+	for _, pStr := range st.Proxies {
+		if p, err := strconv.Atoi(strings.TrimSpace(pStr)); err == nil && p > 0 {
+			tunnelPorts[p] = fmt.Sprintf("Tunnel Proxy Port (%s)", pStr)
+		}
+	}
+
+	// 1. Check if ACME port 80 is used by a tunnel proxy
+	if reason, ok := tunnelPorts[80]; ok {
+		return fmt.Errorf("port 80 is forwarded by %s. Let's Encrypt HTTP challenge requires port 80. Free port 80 or use Reverse Proxy mode", reason)
+	}
+
+	// 2. Check if requested HTTPS port is used by a tunnel
+	if reason, ok := tunnelPorts[requestedTLSPort]; ok {
+		return fmt.Errorf("requested HTTPS port %d is forwarded by %s. Choose a dedicated panel port (e.g. 7443) or resolve conflict", requestedTLSPort, reason)
+	}
+
+	// 3. Check if requested HTTPS port collides with panel HTTP port
+	if requestedTLSPort == cfg.Port {
+		return fmt.Errorf("HTTPS port %d cannot be the same as HTTP port %d", requestedTLSPort, cfg.Port)
+	}
+
+	return nil
+}
+
+// checkDomainDNS resolves the domain and validates whether it points to this host.
+func checkDomainDNS(domain string) ([]string, error) {
+	domain = CleanHost(domain)
+	if domain == "" {
+		return nil, fmt.Errorf("domain is empty")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", domain)
+	if err != nil || len(ips) == 0 {
+		ips, err = net.DefaultResolver.LookupIP(ctx, "ip", domain)
+	}
+	if err != nil || len(ips) == 0 {
+		return nil, fmt.Errorf("domain %q does not resolve to any IP address. Please verify your DNS records", domain)
+	}
+
+	var ipStrs []string
+	for _, ip := range ips {
+		ipStrs = append(ipStrs, ip.String())
+	}
+
+	serverIP := detectPublicIP()
+	if serverIP != "" {
+		matched := false
+		for _, ip := range ipStrs {
+			if ip == serverIP {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return ipStrs, fmt.Errorf("domain %q resolves to %v, but this server's public IP is %s. DNS A record must point to this server", domain, ipStrs, serverIP)
+		}
+	}
+
+	return ipStrs, nil
+}
+
+// tlsStatusJSON is shared by the API, CLI, and frontend.
 func tlsStatusJSON() map[string]any {
 	out := map[string]any{
-		"http_port":  cfg.Port,
-		"https_port": effectiveTLSPort(),
-		"http_url":   tlsHTTPURL(),
-		"enabled":    tlsHasCert(),
+		"http_port":         cfg.Port,
+		"https_port":        effectiveTLSPort(),
+		"http_url":          tlsHTTPURL(),
+		"enabled":           tlsHasCert(),
+		"panel_status":      "healthy",
+		"port_80_available": isPort80Available(),
+		"server_ip":         detectPublicIP(),
 	}
-	if m := tlsMetaLoad(); m != nil {
+
+	m := tlsMetaLoad()
+	if m != nil && m.Domain != "" {
 		out["domain"] = m.Domain
 		out["issued_at"] = m.IssuedAt
+		out["domain_status"] = "active"
+	} else {
+		out["domain_status"] = "not_configured"
 	}
+
 	if tlsHasCert() {
 		exp, issuer, err := tlsCertExpiry()
 		if err == nil {
@@ -103,11 +253,29 @@ func tlsStatusJSON() map[string]any {
 			days := int(time.Until(exp).Hours() / 24)
 			out["days_left"] = days
 			out["expiring_soon"] = days < 15
+			out["tls_status"] = "valid"
+			if days < 0 {
+				out["tls_status"] = "expired"
+			} else if days < 15 {
+				out["tls_status"] = "expiring_soon"
+			}
 			out["https_url"] = tlsHTTPSURL()
 		} else {
 			out["cert_error"] = err.Error()
+			out["tls_status"] = "error"
 		}
+	} else {
+		out["tls_status"] = "none"
 	}
+
+	// Port conflict check
+	if err := checkPortConflict(effectiveTLSPort()); err != nil {
+		out["port_conflict"] = true
+		out["port_conflict_detail"] = err.Error()
+	} else {
+		out["port_conflict"] = false
+	}
+
 	return out
 }
 
@@ -134,40 +302,125 @@ func tlsHTTPSURL() string {
 	return fmt.Sprintf("https://%s:%d/%s", host, effectiveTLSPort(), cfg.BasePath)
 }
 
-// GET /api/tls — status (enabled/domain/expiry/urls).
+// GET /api/tls — status (enabled/domain/expiry/urls/ports).
 func handleTLSGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, tlsStatusJSON())
 }
 
-// POST /api/tls {"domain":"panel.example.com","email":"..."} — certbot standalone.
-func handleTLSIssue(w http.ResponseWriter, r *http.Request) {
+// POST /api/tls/check — pre-flight verification before issuing
+func handleTLSCheck(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Domain string `json:"domain"`
-		Email  string `json:"email"`
 		Port   int    `json:"https_port"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	body.Domain = strings.ToLower(CleanHost(body.Domain))
+	if body.Port == 0 {
+		body.Port = effectiveTLSPort()
+	}
+
+	resp := map[string]any{
+		"domain":            body.Domain,
+		"https_port":        body.Port,
+		"http_port":         cfg.Port,
+		"server_ip":         detectPublicIP(),
+		"port_80_available": isPort80Available(),
+		"valid_domain":      tlsDomainRe.MatchString(body.Domain),
+	}
+
+	if err := checkPortConflict(body.Port); err != nil {
+		resp["port_conflict"] = true
+		resp["port_conflict_error"] = err.Error()
+	} else {
+		resp["port_conflict"] = false
+	}
+
+	if body.Domain != "" && tlsDomainRe.MatchString(body.Domain) {
+		ips, err := checkDomainDNS(body.Domain)
+		if err != nil {
+			resp["dns_ok"] = false
+			resp["dns_error"] = err.Error()
+		} else {
+			resp["dns_ok"] = true
+		}
+		resp["resolved_ips"] = ips
+	}
+
+	_, err := exec.LookPath("certbot")
+	resp["certbot_installed"] = (err == nil)
+
+	writeJSON(w, resp)
+}
+
+// POST /api/tls {"domain":"panel.example.com","email":"...","https_port":7443,"skip_dns_check":false,"action":"issue|remove"}
+func handleTLSIssue(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Action       string `json:"action"`
+		Domain       string `json:"domain"`
+		Email        string `json:"email"`
+		Port         int    `json:"https_port"`
+		SkipDNSCheck bool   `json:"skip_dns_check"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeAPIError(w, r, "E-TLS-01", "")
 		return
 	}
-	body.Domain = strings.ToLower(strings.TrimSpace(body.Domain))
+
+	if strings.EqualFold(body.Action, "remove") {
+		handleTLSRemove(w, r)
+		return
+	}
+
+	body.Domain = strings.ToLower(CleanHost(body.Domain))
 	body.Email = strings.TrimSpace(body.Email)
 	if !tlsDomainRe.MatchString(body.Domain) {
 		writeAPIError(w, r, "E-TLS-02", "")
 		return
 	}
+
+	targetTLSPort := effectiveTLSPort()
 	if body.Port != 0 {
 		if body.Port < 1 || body.Port > 65535 {
 			writeAPIError(w, r, "E-TLS-03", "")
 			return
 		}
-		cfg.TLSPort = body.Port
-		_ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600)
+		targetTLSPort = body.Port
 	}
+
+	// 1. Port conflict checks against active tunnels and HTTP panel port
+	if err := checkPortConflict(targetTLSPort); err != nil {
+		writeAPIError(w, r, "E-TLS-10", err.Error())
+		return
+	}
+
+	// 2. Check if port 80 is available for certbot standalone challenge
+	if !isPort80Available() {
+		writeAPIError(w, r, "E-TLS-10", "Port 80 is currently occupied by another service. Let's Encrypt HTTP challenge requires port 80. Free port 80 or use Reverse Proxy mode.")
+		return
+	}
+
+	// 3. DNS pre-flight verification
+	if !body.SkipDNSCheck {
+		if _, err := checkDomainDNS(body.Domain); err != nil {
+			writeAPIError(w, r, "E-TLS-09", err.Error())
+			return
+		}
+	}
+
+	// Save requested TLS port
+	if body.Port != 0 {
+		cfg.TLSPort = body.Port
+		saveCfg()
+	}
+
 	if _, err := exec.LookPath("certbot"); err != nil {
 		writeAPIError(w, r, "E-TLS-04", "")
 		return
 	}
+
+	// Atomic backup of previous certificates
+	backupTLSCerts()
+
 	args := []string{"certonly", "--standalone", "--non-interactive", "--agree-tos",
 		"--preferred-challenges", "http", "--http-01-port", "80",
 		"-d", body.Domain}
@@ -176,8 +429,10 @@ func handleTLSIssue(w http.ResponseWriter, r *http.Request) {
 	} else {
 		args = append(args, "--register-unsafely-without-email")
 	}
+
 	out, err := exec.Command("certbot", args...).CombinedOutput()
 	if err != nil {
+		rollbackTLSCerts()
 		recordError("E-TLS-05", r.Method+" "+r.URL.Path, strings.TrimSpace(string(out)))
 		info := errCatalog["E-TLS-05"]
 		w.Header().Set("Content-Type", "application/json")
@@ -187,12 +442,17 @@ func handleTLSIssue(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
 	live := filepath.Join("/etc/letsencrypt/live", body.Domain)
 	if err := tlsInstallFrom(live, body.Domain, body.Email); err != nil {
+		rollbackTLSCerts()
 		writeAPIError(w, r, "E-TLS-06", err.Error())
 		return
 	}
-	go startHTTPSListener()
+
+	clearTLSBackups()
+	startHTTPSListener()
+	LogSecurityAudit("DOMAIN_CONFIGURED", cfg.Username, ClientIP(r), "Domain "+body.Domain+" configured with HTTPS on port "+strconv.Itoa(targetTLSPort))
 	writeJSON(w, tlsStatusJSON())
 }
 
@@ -207,8 +467,12 @@ func handleTLSRenew(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, "E-TLS-04", "")
 		return
 	}
+
+	backupTLSCerts()
+
 	out, err := exec.Command("certbot", "renew", "--cert-name", m.Domain, "--quiet").CombinedOutput()
 	if err != nil {
+		rollbackTLSCerts()
 		recordError("E-TLS-05", r.Method+" "+r.URL.Path, strings.TrimSpace(string(out)))
 		info := errCatalog["E-TLS-05"]
 		w.Header().Set("Content-Type", "application/json")
@@ -218,23 +482,137 @@ func handleTLSRenew(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
 	live := filepath.Join("/etc/letsencrypt/live", m.Domain)
 	if err := tlsInstallFrom(live, m.Domain, m.Email); err != nil {
+		rollbackTLSCerts()
 		writeAPIError(w, r, "E-TLS-06", err.Error())
 		return
 	}
-	go startHTTPSListener()
+
+	clearTLSBackups()
+	startHTTPSListener()
+	LogSecurityAudit("DOMAIN_RENEWED", cfg.Username, ClientIP(r), "Certificate renewed for "+m.Domain)
 	writeJSON(w, tlsStatusJSON())
 }
 
-// startHTTPSListener serves the same mux over TLS when a cert exists.
-// Called at boot + after every issue/renew. Restart-safe: stops the
-// previous listener (if any) before binding, so renew doesn't stack.
-// Auto port: if the saved TLS port is busy (e.g. 7443 taken), scans
-// upward and persists the new port so the API/CLI display the real one.
-var httpsSrv *http.Server
+// DELETE /api/tls or POST /api/tls {"action":"remove"} — clean domain removal
+func handleTLSRemove(w http.ResponseWriter, r *http.Request) {
+	// 1. Stop HTTPS server in-process
+	stopHTTPSListener()
+
+	// 2. Remove certificate files and metadata
+	_ = os.Remove(tlsCertFile())
+	_ = os.Remove(tlsKeyFile())
+	_ = os.Remove(tlsMetaFile())
+	clearTLSBackups()
+
+	// 3. Log security audit
+	LogSecurityAudit("DOMAIN_REMOVED", cfg.Username, ClientIP(r), "Domain removed; reverted to HTTP IP access")
+	recordError("E-TLS-11", r.Method+" "+r.URL.Path, "TLS domain removed, reverted to HTTP")
+
+	writeJSON(w, map[string]any{
+		"success": true,
+		"status":  tlsStatusJSON(),
+		"message": "Domain removed successfully. Panel remains accessible via HTTP on port " + strconv.Itoa(cfg.Port),
+	})
+}
+
+// GET /api/tls/proxy-config — generate production-ready Nginx & Caddy reverse proxy configs
+func handleReverseProxyConfig(w http.ResponseWriter, r *http.Request) {
+	domain := strings.TrimSpace(r.URL.Query().Get("domain"))
+	if domain == "" {
+		if m := tlsMetaLoad(); m != nil && m.Domain != "" {
+			domain = m.Domain
+		}
+	}
+	if domain == "" {
+		domain = "panel.example.com"
+	}
+	httpPort := cfg.Port
+	if httpPort == 0 {
+		httpPort = 7777
+	}
+
+	nginxConf := fmt.Sprintf(`# Nginx Reverse Proxy Configuration for Hashem Panel
+server {
+    listen 80;
+    server_name %s;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name %s;
+
+    # SSL Certificates
+    ssl_certificate /etc/gre-panel/tls/server.crt; # or /etc/letsencrypt/live/%s/fullchain.pem
+    ssl_certificate_key /etc/gre-panel/tls/server.key; # or /etc/letsencrypt/live/%s/privkey.pem
+
+    # Proxy Performance & Timeouts
+    client_max_body_size 50M;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+
+    location / {
+        proxy_pass http://127.0.0.1:%d;
+        proxy_http_version 1.1;
+
+        # Standard Proxy Headers (Trusted by Panel)
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+
+        # WebSocket Upgrade for Terminal & Realtime Telemetry
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+`, domain, domain, domain, domain, httpPort)
+
+	caddyConf := fmt.Sprintf(`# Caddyfile Configuration for Hashem Panel
+%s {
+    reverse_proxy 127.0.0.1:%d {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+}
+`, domain, httpPort)
+
+	writeJSON(w, map[string]any{
+		"domain":    domain,
+		"http_port": httpPort,
+		"base_path": cfg.BasePath,
+		"nginx":     nginxConf,
+		"caddy":     caddyConf,
+	})
+}
+
+// In-process HTTPS listener management:
+// Avoids restarting the gre-panel systemd service, thus never dropping tunnels.
+var (
+	httpsSrv   *http.Server
+	httpsSrvMu sync.Mutex
+)
+
+func stopHTTPSListener() {
+	httpsSrvMu.Lock()
+	defer httpsSrvMu.Unlock()
+	if httpsSrv != nil {
+		_ = httpsSrv.Close()
+		httpsSrv = nil
+	}
+}
 
 func startHTTPSListener() {
+	httpsSrvMu.Lock()
+	defer httpsSrvMu.Unlock()
+
 	if !tlsHasCert() {
 		return
 	}
@@ -254,11 +632,12 @@ func startHTTPSListener() {
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: panelMux,
 	}
+	srvToStart := httpsSrv
 	go func(srv *http.Server) {
 		if err := srv.ListenAndServeTLS(tlsCertFile(), tlsKeyFile()); err != nil && err != http.ErrServerClosed {
 			recordError("E-TLS-08", "HTTPS listener", err.Error())
 		}
-	}(httpsSrv)
+	}(srvToStart)
 }
 
 // tlsInstallFrom copies fullchain/privkey into <configDir>/tls + writes meta.

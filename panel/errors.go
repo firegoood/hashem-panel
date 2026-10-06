@@ -111,6 +111,9 @@ var errCatalog = map[string]errInfo{
 	"E-TLS-06": {500, "cannot install certificate", "Disk write failed — check /etc/gre-panel permissions."},
 	"E-TLS-07": {400, "no certificate to renew", "Issue a certificate first from the Settings tab."},
 	"E-TLS-08": {500, "HTTPS listener failed", "Port in use or bad cert — HTTP still works; check the error detail."},
+	"E-TLS-09": {400, "domain DNS resolution failed", "The domain does not resolve to this server's public IP. Please verify DNS A/AAAA records before setting domain."},
+	"E-TLS-10": {409, "port conflict detected", "The requested port or ACME port 80 conflicts with an active tunnel or service. Resolve port conflict or use a reverse proxy."},
+	"E-TLS-11": {200, "domain removed successfully", "TLS configuration removed. Panel reverted to HTTP IP access without interrupting tunnels."},
 	// watchdog & backup
 	"E-WD-01": {400, "bad watchdog request", "Check request parameters and try again."},
 	"E-WD-02": {502, "telegram alert failed", "Verify bot token, chat ID, and selected route."},
