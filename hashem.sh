@@ -4968,15 +4968,17 @@ ExecStart=${PANEL_BIN}
 WantedBy=multi-user.target
 EOF
 
+    ensure_panel_pass
     systemctl daemon-reload
     systemctl enable gre-panel >/dev/null 2>&1
     systemctl restart gre-panel
     sleep 2
 
     if systemctl is-active --quiet gre-panel; then
-        # fresh password is in the log; save it so option 8 can show it
-        NEWPASS=$(journalctl -u gre-panel -n 5 --no-pager 2>/dev/null | grep -o 'panel password: [0-9]*' | tail -1 | awk '{print $3}')
-        [[ -n "$NEWPASS" ]] && save_panel_pass "$NEWPASS"
+        if [[ -z "$PANEL_PASS" ]]; then
+            NEWPASS=$(journalctl -u gre-panel -n 30 --no-pager 2>/dev/null | grep -o 'INITIAL PANEL PASSWORD: [^ ]*' | tail -1 | awk '{print $4}')
+            [[ -n "$NEWPASS" ]] && PANEL_PASS="$NEWPASS"
+        fi
         echo -e "${GREEN}[✔️] Panel installed and running.${NC}"
         # full credentials right here — no need to open another menu
         echo ""
@@ -5009,10 +5011,75 @@ show_panel_url() {
     echo -e "${GREEN}Panel URL:  ${CYAN}http://${MYIP:-<this-server-ip>}:${port}/${base}${NC}"
     echo -e "${GREEN}Username:   ${CYAN}${user}${NC}"
     if [[ -n "$PANEL_PASS" ]]; then
-        echo -e "${GREEN}Password:   ${CYAN}${PANEL_PASS}${NC}"
+        echo -e "${GREEN}Password:   ${CYAN}${PANEL_PASS}${NC} ${YELLOW}(Please record this password now!)${NC}"
     else
-        echo -e "${GREEN}Password:   ${YELLOW}(hashed in panel.json — reset via CLI menu or web Settings)${NC}"
+        echo -e "${GREEN}Password:   ${YELLOW}(hashed in panel.json — reset anytime via: ${CYAN}hashem reset-password${YELLOW})${NC}"
     fi
+}
+
+# reset_panel_password: change web panel password interactively or with auto-generation
+reset_panel_password() {
+    check_root
+    echo -e "\n${CYAN}══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}             RESET HASHEM WEB PANEL PASSWORD                  ${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${YELLOW}Enter new password for user 'admin' (minimum 12 chars).${NC}"
+    echo -e "${YELLOW}Or press Enter to auto-generate a secure random password.${NC}"
+    echo ""
+    read -p "New Password: " USER_NEW_PASS
+    if [[ -z "$USER_NEW_PASS" ]]; then
+        USER_NEW_PASS=$(tr -dc 'A-Za-z0-9!@#$%' </dev/urandom | head -c 16)
+    else
+        if [[ ${#USER_NEW_PASS} -lt 12 ]]; then
+            echo -e "${RED}[!] Password must be at least 12 characters long (NIST 800-63B).${NC}"
+            return 1
+        fi
+    fi
+
+    cli_set_panel_password "$USER_NEW_PASS"
+}
+
+cli_set_panel_password() {
+    local PASS="$1"
+    if [[ ${#PASS} -lt 12 ]]; then
+        echo -e "${RED}[!] Password must be at least 12 characters long (NIST 800-63B).${NC}"
+        return 1
+    fi
+
+    local HASH
+    HASH=$(echo -n "$PASS" | sha256sum | awk '{print $1}')
+    if [[ -z "$HASH" ]] || ! command -v python3 >/dev/null 2>&1; then
+        echo -e "${RED}[!] Cannot hash password (requires python3 + sha256sum).${NC}"
+        return 1
+    fi
+
+    mkdir -p /etc/gre-panel
+    python3 - "$HASH" <<'PYEOF'
+import json, sys
+p = '/etc/gre-panel/panel.json'
+try:
+    with open(p) as f:
+        d = json.load(f)
+except Exception:
+    d = {"username": "admin", "port": 7777, "base_path": "panel"}
+d['pass_hash'] = sys.argv[1]
+with open(p + ".tmp", "w") as f:
+    json.dump(d, f, indent=2)
+import os
+os.replace(p + ".tmp", p)
+os.chmod(p, 0o600)
+PYEOF
+
+    chmod 600 /etc/gre-panel/panel.json 2>/dev/null || true
+    systemctl restart gre-panel 2>/dev/null || true
+    PANEL_PASS="$PASS"
+    echo ""
+    echo -e "${GREEN}[✔️] Web panel password successfully updated!${NC}"
+    echo -e "${GREEN}Username:     ${CYAN}admin${NC}"
+    echo -e "${GREEN}New Password: ${CYAN}${PASS}${NC}"
+    echo -e "${YELLOW}Please save this password securely.${NC}"
+    echo ""
 }
 
 # Dedicated backup key for encrypted backups (CWE-256: decouples backup key from login password)
@@ -5035,7 +5102,6 @@ ensure_backup_key() {
 ensure_panel_pass() {
     ensure_backup_key
     if [[ -f /etc/gre-panel/panel.json ]]; then
-        PANEL_PASS=""
         return 0
     fi
     echo -e "${YELLOW}[*] No panel config found — generating initial credentials...${NC}"
@@ -6480,31 +6546,33 @@ menu_server() {
         echo -e "${CYAN}                   SERVER & SYSTEM MANAGEMENT                 ${NC}"
         echo -e "${CYAN}==============================================================${NC}"
         echo "  1) Show Web Panel URL & Credentials"
-        echo "  2) Panel HTTPS (Free Let's Encrypt TLS Certificate)"
-        echo "  3) Network Optimization (BBR + sysctl buffers + MTU clamp)"
-        echo "  4) Restore Network Tuning (pre-optimize sysctl backup)"
-        echo "  5) Tuning Status"
-        echo "  6) Free RAM (cap journald 16MB + drop cache + 1GB swapfile)"
-        echo "  7) Carrier & Failover (Direct GRE ↔ FOU UDP: auto/manual/status)"
-        echo "  8) Traffic Chaff / Obfuscation (idle-gap filler: on/off/status)"
-        echo "  9) DPI Shield (rate-limit reverse ports against flood: on/off/status)"
-        echo " 10) Watchdog & Alerting (Telegram alerts, route failover)"
-        echo " 11) Performance & Obfuscation Toggles (proxy crypto/comp, forced TLS)"
+        echo "  2) Reset / Change Web Panel Password"
+        echo "  3) Panel HTTPS (Free Let's Encrypt TLS Certificate)"
+        echo "  4) Network Optimization (BBR + sysctl buffers + MTU clamp)"
+        echo "  5) Restore Network Tuning (pre-optimize sysctl backup)"
+        echo "  6) Tuning Status"
+        echo "  7) Free RAM (cap journald 16MB + drop cache + 1GB swapfile)"
+        echo "  8) Carrier & Failover (Direct GRE ↔ FOU UDP: auto/manual/status)"
+        echo "  9) Traffic Chaff / Obfuscation (idle-gap filler: on/off/status)"
+        echo " 10) DPI Shield (rate-limit reverse ports against flood: on/off/status)"
+        echo " 11) Watchdog & Alerting (Telegram alerts, route failover)"
+        echo " 12) Performance & Obfuscation Toggles (proxy crypto/comp, forced TLS)"
         echo "  0) Back to Main Menu"
         echo ""
-        read -p "Select an option [0-11]: " S_OPT
+        read -p "Select an option [0-12]: " S_OPT
         case "$S_OPT" in
             1) show_panel_url; pause_prompt ;;
-            2) panel_tls_issue; pause_prompt ;;
-            3) tune_apply; pause_prompt ;;
-            4) tune_restore; pause_prompt ;;
-            5) tune_status; pause_prompt ;;
-            6) free_ram; pause_prompt ;;
-            7) menu_carrier ;;
-            8) menu_chaff ;;
-            9) menu_dpi_shield ;;
-            10) menu_watchdog ;;
-            11) menu_perf ;;
+            2) reset_panel_password; pause_prompt ;;
+            3) panel_tls_issue; pause_prompt ;;
+            4) tune_apply; pause_prompt ;;
+            5) tune_restore; pause_prompt ;;
+            6) tune_status; pause_prompt ;;
+            7) free_ram; pause_prompt ;;
+            8) menu_carrier ;;
+            9) menu_chaff ;;
+            10) menu_dpi_shield ;;
+            11) menu_watchdog ;;
+            12) menu_perf ;;
             0) return 0 ;;
             *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
         esac
@@ -6762,7 +6830,7 @@ Usage:
   hashem setup-gre-backhaul-iran    --remote-pub IP --port P [--transport tcpmux] [--local-gre IP] [--peer-gre IP] [--ports "..."]
   hashem setup-gre-backhaul-foreign --bundle gh1_... | --remote-pub IP --port P --token K [--transport tcpmux]
   hashem add-backhaul-peer      --remote-pub IP --port P --transport T --token K --ports "..." [--no-gre]
-  hashem status | remove-tunnel [--force] | show-panel-url
+  hashem status | remove-tunnel [--force] | show-panel-url | reset-password [new_pass]
   hashem uninstall [--force]                   # full wipe: tunnel + panel + 'hashem' itself
   hashem add-peer --local-pub IP --remote-pub IP [--frp-port N] --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...] [--chaff low|mid|off]
   hashem remove-peer --id N [--force] | edit-peer --id N [--name L] [--remote-pub IP] [--carrier C] [--ports "..."] | edit-peer-ports --id N --ports "443, 2083" | peer-list | peer-token --id N
@@ -7156,6 +7224,14 @@ if [[ $# -gt 0 ]]; then
         uninstall)
             if [[ "${2:-}" == "--force" ]]; then uninstall_all_force; else uninstall_all; fi ;;
         show-panel-url) show_panel_url ;;
+        password|reset-password|reset-pass)
+            shift
+            if [[ -n "${1:-}" ]]; then
+                cli_set_panel_password "$1"
+            else
+                reset_panel_password
+            fi
+            ;;
         *) echo -e "${RED}[!] Unknown command: $1${NC}"; usage_cli; exit 1 ;;
     esac
     exit $?
