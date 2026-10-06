@@ -741,7 +741,15 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 	if runErr != nil {
 		errText := runErr.Error()
 		if len(steps) > 0 {
-			if tail := strings.Join(steps[max(0, len(steps)-3):], " | "); tail != "" {
+			var failDetails []string
+			for _, s := range steps {
+				if strings.Contains(s, "[FAILED]") || (strings.Contains(s, "FAILED") && !strings.Contains(s, "Overall Installation Status")) {
+					failDetails = append(failDetails, s)
+				}
+			}
+			if len(failDetails) > 0 {
+				errText += " — " + strings.Join(failDetails, " | ")
+			} else if tail := strings.Join(steps[max(0, len(steps)-3):], " | "); tail != "" {
 				errText += " — " + tail
 			}
 		}

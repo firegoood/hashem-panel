@@ -886,7 +886,6 @@ transport.tcpMux = true
 transport.tcpMuxKeepaliveInterval = 30
 transport.tcpKeepalive = 30
 transport.heartbeatTimeout = 90
-transport.heartbeatInterval = 30
 transport.maxPoolCount = 100
 `, port, token, tlsLine)
 			_ = os.MkdirAll("/etc/frp", 0755)

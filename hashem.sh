@@ -911,6 +911,11 @@ carrier_apply() {
                     elif [[ "$TARGET" == wss* ]]; then
                         ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 encap fou encap-sport auto encap-dport 19999 >/dev/null 2>&1 || true
                     fi
+                    # Fallback safeguard: if encap creation failed, re-create as direct GRE so tunnel is never left broken
+                    if ! ip link show "$dev" >/dev/null 2>&1; then
+                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 >/dev/null 2>&1 || \
+                        ip tunnel add "$dev" mode gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 >/dev/null 2>&1 || true
+                    fi
                     ANY_APPLIED=1
                 fi
             fi
@@ -1289,13 +1294,18 @@ install_frp_binaries() {
     fi
 
     tar -xzf "${TMP_DIR}/${TAR_FILE}" -C "$TMP_DIR"
-    EXTRACTED_DIR="${TMP_DIR}/frp_${FRP_VERSION}_linux_${FRP_ARCH}"
-
-    cp "${EXTRACTED_DIR}/frps" "$INSTALL_DIR/" 2>/dev/null
-    cp "${EXTRACTED_DIR}/frpc" "$INSTALL_DIR/" 2>/dev/null
-    chmod +x "${INSTALL_DIR}/frps" "${INSTALL_DIR}/frpc"
+    local FOUND_FRPS FOUND_FRPC
+    FOUND_FRPS=$(find "$TMP_DIR" -type f -name "frps" 2>/dev/null | head -1)
+    FOUND_FRPC=$(find "$TMP_DIR" -type f -name "frpc" 2>/dev/null | head -1)
+    if [[ -n "$FOUND_FRPS" ]]; then cp -f "$FOUND_FRPS" "$INSTALL_DIR/" 2>/dev/null; fi
+    if [[ -n "$FOUND_FRPC" ]]; then cp -f "$FOUND_FRPC" "$INSTALL_DIR/" 2>/dev/null; fi
+    chmod +x "${INSTALL_DIR}/frps" "${INSTALL_DIR}/frpc" 2>/dev/null || true
 
     rm -rf "$TMP_DIR"
+    if [[ ! -x "${INSTALL_DIR}/frps" ]]; then
+        echo -e "${RED}[!] frps binary not found or not executable after installation.${NC}"
+        return 1
+    fi
     echo -e "${GREEN}[✔️] FRP installed to ${INSTALL_DIR}.${NC}"
 }
 
@@ -1496,6 +1506,7 @@ setup_gre_iface() {
     local LOCAL_IP=$2
     local REMOTE_IP=$3
     local GRE_INTERNAL_IP=$4
+    local CLEAN_GRE_IP="${GRE_INTERNAL_IP%/*}"
     local PEER_INNER=$5
 
     echo -e "${CYAN}[*] Configuring persistent GRE tunnel service (${IFNAME})...${NC}"
@@ -1528,10 +1539,10 @@ setup_gre_iface() {
     fi
 
     if [[ -z "$PEER_INNER" ]]; then
-        if [[ "$GRE_INTERNAL_IP" =~ \.2$ ]]; then
-            PEER_INNER="${GRE_INTERNAL_IP%.*}.1"
+        if [[ "$CLEAN_GRE_IP" =~ \.2$ ]]; then
+            PEER_INNER="${CLEAN_GRE_IP%.*}.1"
         else
-            PEER_INNER="${GRE_INTERNAL_IP%.*}.2"
+            PEER_INNER="${CLEAN_GRE_IP%.*}.2"
         fi
     fi
 
@@ -1559,7 +1570,7 @@ ExecStart=/bin/sh -c '(\
     ${IP_BIN} link add ${IFNAME} type gre remote ${REMOTE_IP} ttl 255 2>/dev/null || \
     ${IP_BIN} tunnel add ${IFNAME} mode gre remote ${REMOTE_IP} ttl 255 2>/dev/null || true); \
     ${IP_BIN} link set dev ${IFNAME} up mtu 1380 && \
-    (${IP_BIN} addr replace ${GRE_INTERNAL_IP}/30 dev ${IFNAME} 2>/dev/null || ${IP_BIN} addr add ${GRE_INTERNAL_IP}/30 dev ${IFNAME} 2>/dev/null || true) && \
+    (${IP_BIN} addr replace ${CLEAN_GRE_IP}/30 dev ${IFNAME} 2>/dev/null || ${IP_BIN} addr add ${CLEAN_GRE_IP}/30 dev ${IFNAME} 2>/dev/null || true) && \
     (${IP_BIN} route replace ${PEER_INNER}/32 dev ${IFNAME} 2>/dev/null || true)'
 ExecStartPost=-/bin/sh -c "if [ -x /usr/local/bin/hashem ]; then /usr/local/bin/hashem carrier-apply-active ${IFNAME} 2>/dev/null; fi; true"
 ExecStop=-/bin/sh -c "${IP_BIN} link del ${IFNAME} 2>/dev/null || ${IP_BIN} tunnel del ${IFNAME} 2>/dev/null; true"
@@ -1573,7 +1584,7 @@ EOF
     systemctl enable "${IFNAME}.service" >/dev/null 2>&1
     local GRE_STARTED=0
     if systemctl restart "${IFNAME}.service" >/dev/null 2>&1; then
-        if "$IP_BIN" link show "$IFNAME" >/dev/null 2>&1 && "$IP_BIN" -4 addr show dev "$IFNAME" 2>/dev/null | grep -q "${GRE_INTERNAL_IP%/*}"; then
+        if "$IP_BIN" link show "$IFNAME" >/dev/null 2>&1 && "$IP_BIN" -4 addr show dev "$IFNAME" 2>/dev/null | grep -q "${CLEAN_GRE_IP}"; then
             GRE_STARTED=1
         fi
     fi
@@ -1586,10 +1597,10 @@ EOF
           "$IP_BIN" link add "$IFNAME" type gre remote "$REMOTE_IP" ttl 255 2>/dev/null || \
           "$IP_BIN" tunnel add "$IFNAME" mode gre remote "$REMOTE_IP" ttl 255 2>/dev/null || true )
         "$IP_BIN" link set dev "$IFNAME" up mtu 1380 >/dev/null 2>&1 || true
-        ( "$IP_BIN" addr replace "${GRE_INTERNAL_IP}/30" dev "$IFNAME" 2>/dev/null || "$IP_BIN" addr add "${GRE_INTERNAL_IP}/30" dev "$IFNAME" 2>/dev/null || true )
+        ( "$IP_BIN" addr replace "${CLEAN_GRE_IP}/30" dev "$IFNAME" 2>/dev/null || "$IP_BIN" addr add "${CLEAN_GRE_IP}/30" dev "$IFNAME" 2>/dev/null || true )
         ( "$IP_BIN" route replace "${PEER_INNER}/32" dev "$IFNAME" 2>/dev/null || true )
 
-        if "$IP_BIN" link show "$IFNAME" >/dev/null 2>&1 && "$IP_BIN" -4 addr show dev "$IFNAME" 2>/dev/null | grep -q "${GRE_INTERNAL_IP%/*}"; then
+        if "$IP_BIN" link show "$IFNAME" >/dev/null 2>&1 && "$IP_BIN" -4 addr show dev "$IFNAME" 2>/dev/null | grep -q "${CLEAN_GRE_IP}"; then
             GRE_STARTED=1
         fi
     fi
@@ -1602,13 +1613,24 @@ EOF
 
     carrier_apply_active "${IFNAME}" >/dev/null 2>&1 || true
 
+    # Safeguard: ensure GRE interface remains UP and has IP assigned after carrier apply
+    if ! "$IP_BIN" link show "$IFNAME" >/dev/null 2>&1 || ! "$IP_BIN" -4 addr show dev "$IFNAME" 2>/dev/null | grep -q "${CLEAN_GRE_IP}"; then
+        ( "$IP_BIN" link add "$IFNAME" type gre ${LOCAL_ARG} remote "$REMOTE_IP" ttl 255 2>/dev/null || \
+          "$IP_BIN" tunnel add "$IFNAME" mode gre ${LOCAL_ARG} remote "$REMOTE_IP" ttl 255 2>/dev/null || \
+          "$IP_BIN" link add "$IFNAME" type gre remote "$REMOTE_IP" ttl 255 2>/dev/null || \
+          "$IP_BIN" tunnel add "$IFNAME" mode gre remote "$REMOTE_IP" ttl 255 2>/dev/null || true )
+        "$IP_BIN" link set dev "$IFNAME" up mtu 1380 >/dev/null 2>&1 || true
+        ( "$IP_BIN" addr replace "${CLEAN_GRE_IP}/30" dev "$IFNAME" 2>/dev/null || "$IP_BIN" addr add "${CLEAN_GRE_IP}/30" dev "$IFNAME" 2>/dev/null || true )
+        ( "$IP_BIN" route replace "${PEER_INNER}/32" dev "$IFNAME" 2>/dev/null || true )
+    fi
+
     # Enable packet forwarding & MSS clamping to avoid fragmentation
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
     iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || true
     iptables -t mangle -C POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || \
         iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340
 
-    echo -e "${GREEN}[✔️] GRE Tunnel service active with IP ${GRE_INTERNAL_IP} (MTU 1380, MSS 1340).${NC}"
+    echo -e "${GREEN}[✔️] GRE Tunnel service active with IP ${CLEAN_GRE_IP} (MTU 1380, MSS 1340).${NC}"
 }
 
 # ---- Traffic Obfuscation / Chaff Service (idle gap filler) ----
@@ -2580,7 +2602,11 @@ setup_iran_server_noninteractive() {
     fi
 
     # 2. Setup FRP Server
-    install_frp_binaries
+    if ! install_frp_binaries; then
+        STATUS_FRP="FAILED"
+        FRP_ERR="FRP installation failed (binary download or extraction error)"
+        log_msg "tunnel" "ERROR" "FRP binaries failed to install"
+    fi
     local EFF_TLS=$(perf_get_tls)
     local MAX_POOL=100
     if [[ -f /etc/gre-panel/perf.json ]] && command -v python3 >/dev/null 2>&1; then
@@ -2599,7 +2625,6 @@ ${TLS_LINE:+$TLS_LINE
 transport.tcpMuxKeepaliveInterval = 30
 transport.tcpKeepalive = 30
 transport.heartbeatTimeout = 90
-transport.heartbeatInterval = 30
 transport.maxPoolCount = ${MAX_POOL}
 EOF
     cat <<EOF > /etc/systemd/system/frps.service
@@ -2625,6 +2650,9 @@ EOF
     systemctl daemon-reload
     systemctl reset-failed frps >/dev/null 2>&1 || true
     systemctl enable frps >/dev/null 2>&1
+    if command -v fuser >/dev/null 2>&1; then
+        fuser -k "${BIND_PORT}/tcp" >/dev/null 2>&1 || true
+    fi
     systemctl restart frps
 
     local _frps_ok=0
@@ -2638,7 +2666,9 @@ EOF
 
     if [[ "$_frps_ok" -ne 1 ]]; then
         STATUS_FRP="FAILED"
-        FRP_ERR="frps service failed to start — check: journalctl -u frps"
+        local FRPS_LOG=""
+        FRPS_LOG=$(journalctl -u frps -n 5 --no-pager 2>/dev/null | tr '\n' ' ' | head -c 200)
+        FRP_ERR="frps service failed to start${FRPS_LOG:+: $FRPS_LOG}"
         log_msg "tunnel" "ERROR" "frps service failed to start"
     fi
 
@@ -3397,7 +3427,6 @@ ${TLS_LINE:+$TLS_LINE
 transport.tcpMuxKeepaliveInterval = 30
 transport.tcpKeepalive = 30
 transport.heartbeatTimeout = 90
-transport.heartbeatInterval = 30
 transport.maxPoolCount = ${MAX_POOL}
 EOF
     local SVC="frps${SUF}"
@@ -3423,6 +3452,9 @@ WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
     systemctl enable "$SVC" >/dev/null 2>&1
+    if command -v fuser >/dev/null 2>&1; then
+        fuser -k "${BIND_PORT}/tcp" >/dev/null 2>&1 || true
+    fi
     systemctl restart "$SVC"
     if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
         ufw allow "${BIND_PORT}/tcp" >/dev/null 2>&1
