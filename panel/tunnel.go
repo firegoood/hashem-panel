@@ -7,6 +7,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -70,11 +71,13 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"logs": "(no logs available — is " + svc + " installed?)", "svc": svc, "findings": []logFinding{}})
 }
 
-// actions: restart frps/frpc/gre, ping peer, optimize/restore network tuning.
+// actions: restart frps/frpc/gre, ping peer, optimize/restore network tuning, switch engine.
 func handleAction(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Action string `json:"action"`
-		PeerID int    `json:"peer_id"`
+		Action    string `json:"action"`
+		PeerID    int    `json:"peer_id"`
+		Engine    string `json:"engine"`
+		Transport string `json:"transport"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeAPIError(w, r, "E-ACTION-02", "")
@@ -93,6 +96,13 @@ func handleAction(w http.ResponseWriter, r *http.Request) {
 		out, err := tuneViaInstaller(body.Action)
 		if err != nil {
 			writeAPIError(w, r, "E-ACTION-03", out+": "+err.Error())
+			return
+		}
+		writeJSON(w, map[string]string{"status": "ok", "output": out})
+	case "switch-engine", "switch_engine":
+		out, err := switchTunnelEngine(body.Engine, body.Transport)
+		if err != nil {
+			writeAPIError(w, r, "E-ACTION-03", err.Error())
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok", "output": out})
@@ -461,19 +471,24 @@ type greState struct {
 }
 
 type tunnelStatus struct {
-	Role       string   `json:"role"`
-	Engine     string   `json:"engine,omitempty"`
-	Transport  string   `json:"transport,omitempty"`
-	Gre        greState `json:"gre"`
-	GrePeer    string   `json:"gre_peer"`
-	PingOK     bool     `json:"ping_ok"`
-	PingMs     string   `json:"ping_ms"`
-	FrpUp      bool     `json:"frp_up"`
-	FrpSvc     string   `json:"frp_svc"`
-	FrpPort    int      `json:"frp_port"`
-	Proxies    []string `json:"proxies"`
-	ProxyPorts []int    `json:"proxy_ports"`
-	BindPort   int      `json:"bind_port"`
+	Role         string   `json:"role"`
+	Engine       string   `json:"engine,omitempty"`
+	TunnelEngine string   `json:"tunnel_engine,omitempty"`
+	TunnelType   string   `json:"tunnel_type,omitempty"`
+	Transport    string   `json:"transport,omitempty"`
+	Gre          greState `json:"gre"`
+	GrePeer      string   `json:"gre_peer"`
+	LocalPub     string   `json:"local_pub,omitempty"`
+	RemotePub    string   `json:"remote_pub,omitempty"`
+	PingOK       bool     `json:"ping_ok"`
+	PingMs       string   `json:"ping_ms"`
+	FrpUp        bool     `json:"frp_up"`
+	FrpSvc       string   `json:"frp_svc"`
+	FrpPort      int      `json:"frp_port"`
+	Proxies      []string `json:"proxies"`
+	ProxyPorts   []int    `json:"proxy_ports"`
+	Ports        []int    `json:"ports,omitempty"`
+	BindPort     int      `json:"bind_port"`
 }
 
 func localStatus() tunnelStatus {
@@ -539,6 +554,9 @@ func localStatus() tunnelStatus {
 		} else if _, err := os.Stat("/etc/backhaul/config.toml"); err == nil {
 			st.Role = "iran (backhaul)"
 			st.FrpSvc = "backhaul-server"
+		} else if _, err := os.Stat("/etc/backhaul/server.toml"); err == nil {
+			st.Role = "iran (backhaul)"
+			st.FrpSvc = "backhaul-server"
 		} else if _, err := os.Stat("/etc/backhaul/client.toml"); err == nil {
 			st.Role = "foreign (backhaul)"
 			st.FrpSvc = "backhaul-client"
@@ -552,6 +570,11 @@ func localStatus() tunnelStatus {
 			st.Engine = "backhaul"
 		}
 		bhPath := "/etc/backhaul/config.toml"
+		if _, err := os.Stat(bhPath); err != nil {
+			if _, err := os.Stat("/etc/backhaul/server.toml"); err == nil {
+				bhPath = "/etc/backhaul/server.toml"
+			}
+		}
 		if st.FrpSvc == "backhaul-client" {
 			if _, err := os.Stat("/etc/backhaul/client.toml"); err == nil {
 				bhPath = "/etc/backhaul/client.toml"
@@ -566,7 +589,21 @@ func localStatus() tunnelStatus {
 						st.Transport = strings.Trim(strings.TrimSpace(parts[1]), `"' `)
 					}
 				}
-				if strings.HasPrefix(trimmed, "bind_addr") || strings.HasPrefix(trimmed, "remote_addr") {
+				if strings.HasPrefix(trimmed, "remote_addr") {
+					parts := strings.SplitN(trimmed, "=", 2)
+					if len(parts) == 2 {
+						val := strings.Trim(strings.TrimSpace(parts[1]), `"' `)
+						host, portStr, err := net.SplitHostPort(val)
+						if err == nil {
+							st.RemotePub = host
+							st.Gre.PeerIP = host
+							if v, err := strconv.Atoi(portStr); err == nil {
+								st.BindPort = v
+								st.FrpPort = v
+							}
+						}
+					}
+				} else if strings.HasPrefix(trimmed, "bind_addr") {
 					parts := strings.Split(trimmed, ":")
 					if len(parts) >= 2 {
 						pStr := strings.Trim(parts[len(parts)-1], `" ')`)
@@ -598,6 +635,13 @@ func localStatus() tunnelStatus {
 		inProxy := false
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "serverAddr = ") {
+				addr := strings.Trim(strings.TrimPrefix(line, "serverAddr = "), `"' `)
+				st.RemotePub = addr
+				if st.Gre.PeerIP == "" {
+					st.Gre.PeerIP = addr
+				}
+			}
 			if strings.HasPrefix(line, "bindPort") || strings.HasPrefix(line, "serverPort") {
 				// "bindPort = 7000" / "serverPort = 7000" — split on '='
 				// (fmt.Sscanf with %*s is not supported by Go and left this 0).
@@ -652,6 +696,13 @@ func localStatus() tunnelStatus {
 			}
 		}
 	}
+	st.TunnelEngine = st.Engine
+	st.TunnelType = st.Engine
+	st.LocalPub = st.Gre.Local
+	if st.RemotePub == "" {
+		st.RemotePub = st.Gre.PeerIP
+	}
+	st.Ports = st.ProxyPorts
 	return st
 }
 
@@ -683,4 +734,230 @@ func grePeerInner(cidr string) string {
 		last++
 	}
 	return fmt.Sprintf("%s.%s.%s.%d", parts[0], parts[1], parts[2], last)
+}
+
+// switchTunnelEngine changes the active tunnel engine live without reinstalling from scratch.
+func switchTunnelEngine(targetEngine, targetTransport string) (string, error) {
+	targetEngine = strings.ToLower(strings.TrimSpace(targetEngine))
+	if targetEngine != "frp" && targetEngine != "backhaul" && targetEngine != "gre-backhaul" {
+		return "", fmt.Errorf("invalid engine %q: must be frp, backhaul, or gre-backhaul", targetEngine)
+	}
+	if targetTransport == "" {
+		targetTransport = "tcpmux"
+	}
+
+	st := localStatus()
+	isIran := strings.Contains(strings.ToLower(st.Role), "iran") || st.Role == "master"
+
+	// Gather common params
+	token := ""
+	var proxyPorts []int
+	var rawPorts []string
+	port := st.BindPort
+	if port <= 0 {
+		port = st.FrpPort
+	}
+	if port <= 0 {
+		port = 7000
+	}
+
+	// 1. Read token & ports from current config
+	if data, err := os.ReadFile("/etc/frp/frps.toml"); err == nil {
+		for _, l := range strings.Split(string(data), "\n") {
+			l = strings.TrimSpace(l)
+			if strings.HasPrefix(l, "auth.token = ") {
+				token = strings.Trim(strings.TrimPrefix(l, "auth.token = "), `"' `)
+			}
+		}
+	}
+	if token == "" {
+		if data, err := os.ReadFile("/etc/frp/frpc.toml"); err == nil {
+			for _, l := range strings.Split(string(data), "\n") {
+				l = strings.TrimSpace(l)
+				if strings.HasPrefix(l, "auth.token = ") {
+					token = strings.Trim(strings.TrimPrefix(l, "auth.token = "), `"' `)
+				}
+			}
+		}
+	}
+	if token == "" {
+		if data, err := os.ReadFile("/etc/backhaul/config.toml"); err == nil {
+			for _, l := range strings.Split(string(data), "\n") {
+				l = strings.TrimSpace(l)
+				if strings.HasPrefix(l, "token = ") {
+					token = strings.Trim(strings.TrimPrefix(l, "token = "), `"' `)
+				}
+			}
+		}
+	}
+	if token == "" {
+		if data, err := os.ReadFile("/etc/backhaul/client.toml"); err == nil {
+			for _, l := range strings.Split(string(data), "\n") {
+				l = strings.TrimSpace(l)
+				if strings.HasPrefix(l, "token = ") {
+					token = strings.Trim(strings.TrimPrefix(l, "token = "), `"' `)
+				}
+			}
+		}
+	}
+	if token == "" {
+		pcfg := loadPeerConfig()
+		token = pcfg.PeerSecret
+	}
+	if token == "" {
+		token = randomToken(32)
+	}
+
+	for _, p := range st.ProxyPorts {
+		proxyPorts = append(proxyPorts, p)
+		rawPorts = append(rawPorts, strconv.Itoa(p))
+	}
+	for _, p := range st.Proxies {
+		found := false
+		for _, rp := range rawPorts {
+			if rp == p {
+				found = true
+				break
+			}
+		}
+		if !found {
+			rawPorts = append(rawPorts, p)
+		}
+	}
+	if len(rawPorts) == 0 {
+		rawPorts = []string{"443", "2083"}
+		proxyPorts = []int{443, 2083}
+	}
+
+	remotePub := st.RemotePub
+	if remotePub == "" {
+		remotePub = st.Gre.PeerIP
+	}
+	if remotePub == "" {
+		pcfg := loadPeerConfig()
+		remotePub = pcfg.PeerURL
+	}
+
+	peerGre := st.Gre.PeerIP
+	if isIran {
+		if peerGre == "" {
+			peerGre = defaultForeignGRE
+		}
+	} else {
+		if peerGre == "" {
+			peerGre = defaultIranGRE
+		}
+	}
+
+	var outMsg strings.Builder
+	outMsg.WriteString(fmt.Sprintf("Switching engine to %s (%s)...\n", targetEngine, targetTransport))
+
+	// Stop previous services
+	_ = exec.Command("systemctl", "stop", "frps").Run()
+	_ = exec.Command("systemctl", "stop", "frpc").Run()
+	_ = exec.Command("systemctl", "stop", "backhaul-server").Run()
+	_ = exec.Command("systemctl", "stop", "backhaul-client").Run()
+
+	switch targetEngine {
+	case "frp":
+		// Ensure GRE is active
+		_ = exec.Command("systemctl", "restart", "gre-tunnel").Run()
+		if isIran {
+			// Write frps.toml
+			effTLS := "0"
+			if p, err := os.ReadFile("/etc/gre-panel/perf.json"); err == nil {
+				var pj struct {
+					TLSEnabled bool `json:"tls_enabled"`
+				}
+				if json.Unmarshal(p, &pj) == nil && pj.TLSEnabled {
+					effTLS = "1"
+				}
+			}
+			tlsLine := ""
+			if effTLS == "1" {
+				tlsLine = "\ntransport.tls.force = true\n"
+			}
+			frpsToml := fmt.Sprintf(`bindAddr = "0.0.0.0"
+bindPort = %d
+auth.method = "token"
+auth.token = %q%stransport.tcpMux = true
+transport.tcpMuxKeepaliveInterval = 15
+transport.heartbeatTimeout = 30
+transport.maxPoolCount = 50
+`, port, token, tlsLine)
+			_ = os.MkdirAll("/etc/frp", 0755)
+			_ = os.WriteFile("/etc/frp/frps.toml", []byte(frpsToml), 0644)
+			_ = exec.Command("systemctl", "restart", "frps").Run()
+			_ = exec.Command("systemctl", "enable", "frps").Run()
+			outMsg.WriteString("frps service configured and started.\n")
+		} else {
+			// Foreign FRP client
+			var frpcBuf strings.Builder
+			frpcBuf.WriteString(fmt.Sprintf(`serverAddr = %q
+serverPort = %d
+auth.method = "token"
+auth.token = %q
+transport.tcpMux = true
+transport.tcpMuxKeepaliveInterval = 15
+transport.heartbeatTimeout = 30
+`, peerGre, port, token))
+			for _, p := range proxyPorts {
+				frpcBuf.WriteString(fmt.Sprintf(`
+[[proxies]]
+name = "tcp-%d"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = %d
+remotePort = %d
+`, p, p, p))
+			}
+			_ = os.MkdirAll("/etc/frp", 0755)
+			_ = os.WriteFile("/etc/frp/frpc.toml", []byte(frpcBuf.String()), 0644)
+			_ = exec.Command("systemctl", "restart", "frpc").Run()
+			_ = exec.Command("systemctl", "enable", "frpc").Run()
+			outMsg.WriteString("frpc service configured and started.\n")
+		}
+
+	case "backhaul":
+		// Standalone Backhaul (no GRE)
+		_ = exec.Command("systemctl", "stop", "gre-tunnel").Run()
+		if isIran {
+			_ = writeBackhaulServerConfig("/etc/backhaul/config.toml", fmt.Sprintf("0.0.0.0:%d", port), targetTransport, token, rawPorts)
+			_ = exec.Command("systemctl", "restart", "backhaul-server").Run()
+			_ = exec.Command("systemctl", "enable", "backhaul-server").Run()
+			outMsg.WriteString("backhaul-server configured and started.\n")
+		} else {
+			remoteAddr := fmt.Sprintf("%s:%d", remotePub, port)
+			_ = writeBackhaulClientConfig("/etc/backhaul/client.toml", remoteAddr, targetTransport, token)
+			_ = exec.Command("systemctl", "restart", "backhaul-client").Run()
+			_ = exec.Command("systemctl", "enable", "backhaul-client").Run()
+			outMsg.WriteString("backhaul-client configured and started.\n")
+		}
+
+	case "gre-backhaul":
+		// GRE + Backhaul
+		_ = exec.Command("systemctl", "restart", "gre-tunnel").Run()
+		if isIran {
+			_ = writeBackhaulServerConfig("/etc/backhaul/config.toml", fmt.Sprintf("0.0.0.0:%d", port), targetTransport, token, rawPorts)
+			_ = exec.Command("systemctl", "restart", "backhaul-server").Run()
+			_ = exec.Command("systemctl", "enable", "backhaul-server").Run()
+			outMsg.WriteString("backhaul-server (over GRE) configured and started.\n")
+		} else {
+			remoteAddr := fmt.Sprintf("%s:%d", peerGre, port)
+			_ = writeBackhaulClientConfig("/etc/backhaul/client.toml", remoteAddr, targetTransport, token)
+			_ = exec.Command("systemctl", "restart", "backhaul-client").Run()
+			_ = exec.Command("systemctl", "enable", "backhaul-client").Run()
+			outMsg.WriteString("backhaul-client (over GRE) configured and started.\n")
+		}
+	}
+
+	// If master with active Peer Link, propagate to worker
+	if isIran {
+		go func() {
+			time.Sleep(1 * time.Second)
+			_ = syncEngineToPeer(targetEngine, targetTransport)
+		}()
+	}
+
+	return outMsg.String(), nil
 }

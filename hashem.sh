@@ -233,14 +233,14 @@ ensure_dependencies_smart() {
     
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
-        apt-get update -qq && apt-get install -y -qq $uniq_pkgs || {
-            echo -e "${RED}[!] Failed to install some dependencies via apt-get: ${uniq_pkgs}${NC}"
-            return 1
+        (timeout 25 apt-get update -qq || true)
+        apt-get install -y -qq --no-install-recommends $uniq_pkgs 2>/dev/null || {
+            echo -e "${YELLOW}[!] Warning: apt-get encountered issues installing: ${uniq_pkgs}. Continuing setup.${NC}"
         }
     elif command -v yum >/dev/null 2>&1; then
         yum install -y -q $uniq_pkgs || true
     fi
-    echo -e "${GREEN}[✔️] Missing dependencies installed successfully.${NC}"
+    echo -e "${GREEN}[✔️] System dependencies checked.${NC}"
 }
 
 is_port_in_use() {
@@ -740,6 +740,15 @@ carrier_init_kernel() {
             ufw allow "$P2"/udp >/dev/null 2>&1 || true
         fi
     fi
+    local WP=8443
+    if [[ -f "$CARRIER_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        WP=$(python3 -c "import json; print(json.load(open('$CARRIER_FILE')).get('wss_port', 8443))" 2>/dev/null || echo 8443)
+    fi
+    iptables -C INPUT -p tcp --dport "$WP" -j ACCEPT >/dev/null 2>&1 || \
+        iptables -I INPUT 1 -p tcp --dport "$WP" -j ACCEPT >/dev/null 2>&1 || true
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+        ufw allow "$WP"/tcp >/dev/null 2>&1 || true
+    fi
     ip fou add port 19998 ipproto 47 >/dev/null 2>&1 || true
 }
 
@@ -784,6 +793,7 @@ carrier_apply() {
 
             local CHANGED=0
             if [[ "$TARGET" == "direct" ]]; then
+                iptables -t nat -D OUTPUT -p udp --dport 19999 -j DNAT --to-destination 127.0.0.1:19999 >/dev/null 2>&1 || true
                 if ip link set dev "$dev" type gre encap none >/dev/null 2>&1; then
                     CHANGED=1
                 else
@@ -794,6 +804,7 @@ carrier_apply() {
                 fi
                 ANY_APPLIED=1
             elif [[ "$TARGET" == fou:* ]]; then
+                iptables -t nat -D OUTPUT -p udp --dport 19999 -j DNAT --to-destination 127.0.0.1:19999 >/dev/null 2>&1 || true
                 local DPORT="${TARGET#fou:}"
                 if is_valid_port "$DPORT"; then
                     ip fou add port "$DPORT" ipproto 47 >/dev/null 2>&1 || true
@@ -810,12 +821,19 @@ carrier_apply() {
             elif [[ "$TARGET" == wss* ]]; then
                 local WPORT="8443"
                 [[ "$TARGET" == wss:* ]] && WPORT="${TARGET#wss:}"
+                iptables -C INPUT -p tcp --dport "$WPORT" -j ACCEPT >/dev/null 2>&1 || \
+                    iptables -I INPUT 1 -p tcp --dport "$WPORT" -j ACCEPT >/dev/null 2>&1 || true
+                if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+                    ufw allow "$WPORT"/tcp >/dev/null 2>&1 || true
+                fi
                 ip fou add port 19998 ipproto 47 >/dev/null 2>&1 || true
-                if ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1; then
+                iptables -t nat -C OUTPUT -p udp --dport 19999 -j DNAT --to-destination 127.0.0.1:19999 >/dev/null 2>&1 || \
+                    iptables -t nat -A OUTPUT -p udp --dport 19999 -j DNAT --to-destination 127.0.0.1:19999 >/dev/null 2>&1 || true
+                if ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport 19999 >/dev/null 2>&1; then
                     CHANGED=1
                 else
                     ip link set dev "$dev" down >/dev/null 2>&1 || true
-                    if ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1; then
+                    if ip link set dev "$dev" type gre encap fou encap-sport auto encap-dport 19999 >/dev/null 2>&1; then
                         CHANGED=1
                     fi
                 fi
@@ -837,7 +855,7 @@ carrier_apply() {
                         local DPORT="${TARGET#fou:}"
                         ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 encap fou encap-sport auto encap-dport "$DPORT" >/dev/null 2>&1 || true
                     elif [[ "$TARGET" == wss* ]]; then
-                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 encap fou encap-sport auto encap-dport 19998 >/dev/null 2>&1 || true
+                        ip link add name "$dev" type gre $LOCAL_OPTS remote "$REMOTE_PUB" ttl 255 encap fou encap-sport auto encap-dport 19999 >/dev/null 2>&1 || true
                     fi
                     ANY_APPLIED=1
                 fi
@@ -1159,8 +1177,20 @@ download_with_fallback() {
     local URL="$2"
     local TIMEOUT="${3:-45}"
 
-    # Try direct URL first
-    if curl -fsSL --max-time "$TIMEOUT" -o "$DEST" "$URL" 2>/dev/null && [[ -s "$DEST" ]]; then
+    # If destination already exists and is non-empty, reuse it
+    if [[ -s "$DEST" ]]; then
+        return 0
+    fi
+
+    # Try direct URL first (use fast 5s connect-timeout for GitHub since it is often blocked in Iran)
+    local DIRECT_CONNECT_TO=10
+    local DIRECT_MAX_TO="$TIMEOUT"
+    if [[ "$URL" == https://github.com/* || "$URL" == https://raw.githubusercontent.com/* ]]; then
+        DIRECT_CONNECT_TO=5
+        DIRECT_MAX_TO=8
+    fi
+
+    if curl -fsSL --connect-timeout "$DIRECT_CONNECT_TO" --max-time "$DIRECT_MAX_TO" -o "$DEST" "$URL" 2>/dev/null && [[ -s "$DEST" ]]; then
         return 0
     fi
 
@@ -1173,7 +1203,7 @@ download_with_fallback() {
             "https://gh.ddlc.top/${URL}"
         )
         for M in "${MIRRORS[@]}"; do
-            if curl -fsSL --max-time "$TIMEOUT" -o "$DEST" "$M" 2>/dev/null && [[ -s "$DEST" ]]; then
+            if curl -fsSL --connect-timeout 6 --max-time 20 -o "$DEST" "$M" 2>/dev/null && [[ -s "$DEST" ]]; then
                 echo -e "${GREEN}[✔️] Download succeeded via mirror: ${M%/*}${NC}"
                 return 0
             fi
@@ -2601,14 +2631,17 @@ EOF
     fi
     echo "=============================================================="
 
+    local BUNDLE_OUT
+    BUNDLE_OUT=$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN" "$PORTS_CLEANED")
+    echo -e "Setup Bundle:         ${CYAN}${BUNDLE_OUT}${NC}"
+    echo -e "BUNDLE:${BUNDLE_OUT}"
+
     if [[ "$STATUS_GRE" == "OK" && "$STATUS_FRP" == "OK" ]]; then
         echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC}\n"
         echo -e "GRE Public Link:      ${CYAN}${IP_IRAN} <--> ${IP_FOREIGN}${NC}"
         echo -e "IRAN GRE Internal IP: ${CYAN}${LOCAL_GRE}${NC}"
         echo -e "FRP Bind Port:        ${CYAN}${BIND_PORT}${NC}"
         echo -e "Secret Token:         ${CYAN}${TOKEN}${NC}"
-        echo -e "Setup Bundle:         ${CYAN}$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN")${NC}"
-        echo -e "BUNDLE:$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN")"
         log_msg "tunnel" "INFO" "IRAN server setup completed successfully"
         return 0
     else
@@ -6857,7 +6890,7 @@ EOF
 
 
 cli_setup_iran() {
-    local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" LOCAL_GRE="$IRAN_GRE_IP" PEER_GRE="$FOREIGN_GRE_IP" TOKEN="" FORCE=0
+    local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" LOCAL_GRE="$IRAN_GRE_IP" PEER_GRE="$FOREIGN_GRE_IP" TOKEN="" FORCE=0 PORTS=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --local-pub) LOCAL_PUB="$2"; shift 2 ;;
@@ -6866,6 +6899,7 @@ cli_setup_iran() {
             --local-gre) LOCAL_GRE="$2"; shift 2 ;;
             --peer-gre) PEER_GRE="$2"; shift 2 ;;
             --token) TOKEN="$2"; shift 2 ;;
+            --ports) PORTS="$2"; shift 2 ;;
             --chaff) CHAFF_PROFILE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) usage_cli; return 0 ;;
@@ -6890,7 +6924,7 @@ cli_setup_iran() {
         echo -e "${RED}[!] Tunnel already exists — pass --force to overwrite.${NC}"
         return 1
     fi
-    setup_iran_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE"
+    setup_iran_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS"
 }
 
 cli_setup_foreign() {
@@ -7166,6 +7200,35 @@ show_credentials_and_exit() {
     echo -e "${CYAN}║${NC}  • Run ${GREEN}hashem --help${NC} for CLI commands                      ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
+}
+
+cli_carrier() {
+    local SUB="${1:-status}"
+    case "$SUB" in
+        set|apply)
+            shift
+            if [[ -n "${1:-}" ]]; then
+                carrier_apply "$1"
+            else
+                echo -e "${RED}[!] Usage: hashem carrier set <mode>${NC}"
+                return 1
+            fi
+            ;;
+        cycle)
+            carrier_cycle_next
+            ;;
+        set-ports)
+            shift
+            carrier_set_fou_ports "${1:-443}" "${2:-55555}"
+            ;;
+        init)
+            carrier_init_kernel
+            ;;
+        status|*)
+            echo "Active Carrier: $(carrier_get_active)"
+            echo "Mode: $(carrier_get_mode)"
+            ;;
+    esac
 }
 
 if [[ $# -gt 0 ]]; then

@@ -38,6 +38,11 @@ type PeerApplyCarrierRequest struct {
 	Carrier string `json:"carrier"` // "direct", "fou:443", "wss:8443", etc.
 }
 
+type PeerApplyEngineRequest struct {
+	Engine    string `json:"engine"`    // "frp", "backhaul", "gre-backhaul"
+	Transport string `json:"transport"` // "tcpmux", "tcp", "ws", "wss"
+}
+
 type PeerConfigUpdateRequest struct {
 	Action             string  `json:"action,omitempty"` // "save", "test"
 	PeerURL            string  `json:"peer_url,omitempty"`
@@ -238,6 +243,40 @@ func handlePeerApplyCarrier(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// POST /api/peer/apply-engine
+func handlePeerApplyEngine(w http.ResponseWriter, r *http.Request) {
+	var req PeerApplyEngineRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, r, "E-ACTION-01", "invalid request json")
+		return
+	}
+
+	engine := strings.TrimSpace(req.Engine)
+	if engine == "" {
+		writeAPIError(w, r, "E-ACTION-01", "engine parameter required")
+		return
+	}
+
+	log.Printf("[PeerSync] Received remote engine apply command: %s (%s)", engine, req.Transport)
+	out, err := switchTunnelEngine(engine, req.Transport)
+	if err != nil {
+		log.Printf("[PeerSync] Error applying engine %s: %v (%s)", engine, err, out)
+		writeAPIError(w, r, "E-ENGINE-01", fmt.Sprintf("failed applying engine: %v", err))
+		return
+	}
+
+	c := loadPeerConfig()
+	c.IsConnected = true
+	c.LastSync = time.Now().Format("2006-01-02 15:04:05")
+	_ = savePeerConfig(c)
+
+	writeJSON(w, map[string]any{
+		"status": "ok",
+		"engine": engine,
+		"detail": out,
+	})
+}
+
 // POST /api/peer/ping
 func handlePeerPing(w http.ResponseWriter, r *http.Request) {
 	carrierCfg := loadCarrierConfig()
@@ -366,17 +405,32 @@ func sendToPeer(path string, method string, payload any) ([]byte, error) {
 
 	// 1. Try Internal tunnel IP first if configured
 	if c.InternalIP != "" {
-		port := c.InternalPort
-		if port <= 0 {
-			port = cfg.Port
+		portList := []int{}
+		if c.InternalPort > 0 {
+			portList = append(portList, c.InternalPort)
 		}
-		targetURLs = append(targetURLs, fmt.Sprintf("http://%s:%d%s", c.InternalIP, port, fullPath))
+		if cfg.Port > 0 && cfg.Port != c.InternalPort {
+			portList = append(portList, cfg.Port)
+		}
+		if len(portList) == 0 {
+			portList = []int{8080, 80}
+		}
+		for _, p := range portList {
+			targetURLs = append(targetURLs, fmt.Sprintf("http://%s:%d%s", c.InternalIP, p, fullPath))
+		}
 	}
 
 	// 2. Try Public URL as fallback
 	if c.PeerURL != "" {
 		u := strings.TrimRight(c.PeerURL, "/")
 		targetURLs = append(targetURLs, u+fullPath)
+		// If PeerURL has no port and cfg.Port is known, also add with port
+		if !strings.Contains(u, ":") || strings.HasSuffix(u, "://") {
+			if cfg.Port > 0 {
+				targetURLs = append(targetURLs, fmt.Sprintf("%s:%d%s", u, cfg.Port, fullPath))
+			}
+			targetURLs = append(targetURLs, fmt.Sprintf("%s:8080%s", u, fullPath))
+		}
 	}
 
 	if len(targetURLs) == 0 {
@@ -457,4 +511,62 @@ func syncCarrierToPeer(carrier string) error {
 	log.Printf("[PeerSync] Commanding peer worker to apply carrier: %s", carrier)
 	_, err := sendToPeer("/api/peer/apply-carrier", "POST", PeerApplyCarrierRequest{Carrier: carrier})
 	return err
+}
+
+// syncEngineToPeer tells the remote worker to apply the specified tunnel engine.
+func syncEngineToPeer(engine, transport string) error {
+	c := loadPeerConfig()
+	if c.Role != "master" {
+		return nil
+	}
+
+	log.Printf("[PeerSync] Commanding peer worker to apply engine: %s (%s)", engine, transport)
+	_, err := sendToPeer("/api/peer/apply-engine", "POST", PeerApplyEngineRequest{Engine: engine, Transport: transport})
+	return err
+}
+
+var peerSyncOnce sync.Once
+
+// startPeerSyncWorker initializes the background Peer Link monitoring and auto-sync loop.
+func startPeerSyncWorker() {
+	peerSyncOnce.Do(func() {
+		go peerSyncLoop()
+	})
+}
+
+func peerSyncLoop() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		c := loadPeerConfig()
+		if c.PeerSecret == "" {
+			continue
+		}
+
+		if c.Role == "worker" {
+			if !c.IsConnected {
+				st := localStatus()
+				localInner := st.Gre.Inner
+				if localInner == "" {
+					localInner = defaultForeignGRE
+				}
+				innerIP := strings.Split(localInner, "/")[0]
+				_, err := sendToPeer("/api/peer/handshake", "POST", PeerHandshakeRequest{
+					Role:       "worker",
+					PublicIP:   detectPublicIP(),
+					PanelPort:  cfg.Port,
+					InternalIP: innerIP,
+				})
+				if err == nil {
+					log.Printf("[PeerSync] Background handshake succeeded with master")
+				}
+			} else {
+				// Periodically test link to update latency & maintain health
+				_, _, _ = testPeerLink()
+			}
+		} else if c.Role == "master" && c.IsConnected {
+			_, _, _ = testPeerLink()
+		}
+	}
 }

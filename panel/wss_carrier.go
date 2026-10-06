@@ -26,6 +26,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	LocalBridgeFOUPort     = 19998
+	LocalBridgeCapturePort = 19999
+)
+
 type wssConfig struct {
 	Enabled        bool   `json:"enabled"`
 	Role           string `json:"role"`             // "server", "client", "auto"
@@ -104,6 +109,12 @@ func defaultWSSConfig() wssConfig {
 	remoteAddr := ""
 	st := localStatus()
 	peerIP := peerOr(st)
+	if peerIP == "" {
+		peerIP = st.RemotePub
+	}
+	if peerIP == "" && st.Gre.PeerIP != "" {
+		peerIP = st.Gre.PeerIP
+	}
 	if peerIP != "" {
 		remoteAddr = net.JoinHostPort(peerIP, "8443")
 	}
@@ -113,7 +124,7 @@ func defaultWSSConfig() wssConfig {
 		Role:           role,
 		ListenPort:     8443,
 		RemoteAddr:     remoteAddr,
-		LocalBridgeUDP: 19998,
+		LocalBridgeUDP: LocalBridgeFOUPort,
 		AuthToken:      token,
 		UseTLS:         true,
 		SNI:            "",
@@ -350,17 +361,24 @@ func (m *wssCarrierManager) runServer() {
 	}
 
 	// Prepare local UDP socket to send/recv to/from FOU
-	udpAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("127.0.0.1:%d", m.cfg.LocalBridgeUDP))
+	fouPort := m.cfg.LocalBridgeUDP
+	if fouPort <= 0 {
+		fouPort = LocalBridgeFOUPort
+	}
+	udpAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("127.0.0.1:%d", fouPort))
 	if err != nil {
 		m.setErr(fmt.Errorf("resolve local udp: %w", err))
 		return
 	}
 
-	// Bind local UDP receiver
-	udpConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	// Bind local UDP receiver on LocalBridgeCapturePort (19999) with fallback to ephemeral
+	udpConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: LocalBridgeCapturePort})
 	if err != nil {
-		m.setErr(fmt.Errorf("listen local udp: %w", err))
-		return
+		udpConn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+		if err != nil {
+			m.setErr(fmt.Errorf("listen local udp: %w", err))
+			return
+		}
 	}
 	m.connMu.Lock()
 	m.udpConn = udpConn
@@ -454,16 +472,24 @@ func (m *wssCarrierManager) runServer() {
 
 // runClient connects to remote WSS server with auto-reconnection
 func (m *wssCarrierManager) runClient() {
-	udpAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("127.0.0.1:%d", m.cfg.LocalBridgeUDP))
+	fouPort := m.cfg.LocalBridgeUDP
+	if fouPort <= 0 {
+		fouPort = LocalBridgeFOUPort
+	}
+	udpAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("127.0.0.1:%d", fouPort))
 	if err != nil {
 		m.setErr(fmt.Errorf("resolve local udp: %w", err))
 		return
 	}
 
-	udpConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	// Bind local UDP receiver on LocalBridgeCapturePort (19999) with fallback to ephemeral
+	udpConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: LocalBridgeCapturePort})
 	if err != nil {
-		m.setErr(fmt.Errorf("listen local udp: %w", err))
-		return
+		udpConn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+		if err != nil {
+			m.setErr(fmt.Errorf("listen local udp: %w", err))
+			return
+		}
 	}
 	m.connMu.Lock()
 	m.udpConn = udpConn

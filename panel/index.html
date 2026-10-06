@@ -866,6 +866,42 @@
           <pre id="actOut" class="logs hidden u-mt-4" ></pre>
           <div class="qs-hint" id="tuneHint">Optimize: FQ+BBR + 16MB TCP buffers + MTU 1380 + MSS clamp 1340 + keepalive. Backs up current settings first — Restore brings them back.</div>
         </div>
+
+        <!-- Live Tunnel Engine Switcher -->
+        <div class="tunnel-card u-mt-4" id="liveEngineCard" style="border:1px solid rgba(56,189,248,0.25); background:linear-gradient(180deg, rgba(15,23,42,0.6) 0%, rgba(9,14,26,0.8) 100%);">
+          <div class="tc-header">
+            <p class="tc-title">⚡ Live Tunnel Engine Switcher</p>
+            <span class="badge info" id="activeEngineBadge">FRP</span>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+            Switch tunneling engine live on the fly without losing server tokens or port mappings. Both servers will re-link seamlessly.
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px">
+            <div>
+              <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Target Engine</label>
+              <select class="hashem-input" id="liveEngineSelect" style="width:100%">
+                <option value="frp">🚀 GRE + FRP Reverse Tunnel</option>
+                <option value="backhaul">🌐 Standalone Backhaul (Multiplexed)</option>
+                <option value="gre-backhaul">⚡ GRE + Backhaul Dual-Layer</option>
+              </select>
+            </div>
+            <div id="liveTransportWrap">
+              <label style="font-size:11px;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Transport Protocol</label>
+              <select class="hashem-input" id="liveTransportSelect" style="width:100%">
+                <option value="tcpmux" selected>TCPMUX (Multi-stream TCP - Recommended)</option>
+                <option value="wssmux">WSSMUX (WebSocket + TLS Obfuscation)</option>
+                <option value="tcp">TCP (Standard Plain TCP)</option>
+                <option value="ws">WS (Plain WebSocket)</option>
+                <option value="wsmux">WSMUX (Multiplexed WebSocket)</option>
+                <option value="wss">WSS (TLS WebSocket)</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button class="hashem-btn hashem-btn-primary" id="liveSwitchEngineBtn" style="padding:6px 18px">Switch Tunnel Engine Now</button>
+            <span id="liveEngineStatusTxt" style="font-size:12px;color:var(--text-muted)"></span>
+          </div>
+        </div>
       </section>
       <section id="tab-setup" hidden>
         <div class="qs" id="setupCard">
@@ -1227,8 +1263,10 @@
             <label for="carrierModeSelect">Carrier Selection / Policy</label>
             <div class="u-flex-center-wrap10">
               <select class="hashem-input u-max-w-260" id="carrierModeSelect" >
-                <option value="direct" selected>Direct GRE (Protocol 47)</option>
-                <option value="wss:8443">WSS Carrier : 8443 (WebSocket over TLS)</option>
+                <option value="direct" selected>🟢 Direct GRE (Protocol 47)</option>
+                <option value="fou:443">⚡ GRE over FOU (UDP 443)</option>
+                <option value="fou:55555">⚡ GRE over FOU (UDP 55555)</option>
+                <option value="wss:8443">🛡️ Obfuscated WSS (TLS 8443)</option>
               </select>
               <button class="hashem-btn hashem-btn-secondary" id="carrierSaveModeBtn">Save Mode</button>
               <span class="status-indicator" id="carrierStatusInd"><span class="dot"></span><span id="carrierStatusTxt">—</span></span>
@@ -2229,12 +2267,28 @@ function renderTunnel(st) {
       <div class="peer-acts" style="display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--ln);padding-top:12px">
         <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('ping', 0)">Ping</button>
         <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="editMainPortsClick()">✏️ Edit Tunnel</button>
+        ${st.role === 'iran' ? '<button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="copyMainIranBundle()">📦 Copy Bundle</button>' : ''}
         <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('restart-gre', 0)">Restart GRE</button>
         <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('restart-frps', 0)">Restart FRP</button>
       </div>
     </div>`;
   $('tunnel').innerHTML = mainCard;
   window._lastLocal = st;
+  // Sync live engine switcher card
+  const eng = st.engine || st.tunnel_engine || 'frp';
+  const aBadge = $('activeEngineBadge');
+  if (aBadge) {
+    aBadge.textContent = eng.toUpperCase();
+    aBadge.className = 'badge ' + (eng === 'frp' ? 'info' : 'ok');
+  }
+  const lSel = $('liveEngineSelect');
+  if (lSel && document.activeElement !== lSel) {
+    lSel.value = eng;
+  }
+  const tSel = $('liveTransportSelect');
+  if (tSel && st.transport && document.activeElement !== tSel) {
+    tSel.value = st.transport;
+  }
   // role-specific button label: foreign runs frpc, so show the right name.
   const rb = $('frpRestartBtn');
   if (rb) rb.textContent = (st.frp_svc === 'frpc' || /foreign/i.test(st.role || '')) ? 'Restart frpc' : 'Restart frps';
@@ -3173,12 +3227,66 @@ function renderSetupLock() {
 }
 $('setupUnlockBtn').onclick = () => { setupUnlocked = true; renderSetupLock(); };
 $('setupRelockBtn').onclick = () => { setupUnlocked = false; renderSetupLock(); };
-$('setupAddBtn').onclick = () => { const c = $('setupAddPeerStep'); if (c && c.scrollIntoView) c.scrollIntoView({behavior: 'smooth', block: 'start'}); };
+function renderIranBundleBox(bundleStr) {
+  const bb = $('setupBundle');
+  if (!bb || !bundleStr) return;
+  window._currentIranBundle = bundleStr;
+  bb.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+      <span style="font-weight:600;color:var(--tx)">📦 Setup Bundle (Copy to Foreign server)</span>
+      <button type="button" class="hashem-btn hashem-btn-primary" id="copyIranBundleBtn" style="padding:4px 14px;font-size:12px">📋 Copy Bundle</button>
+    </div>
+    <div style="font-family:var(--font-mono);font-size:12px;background:rgba(0,0,0,0.35);padding:10px 12px;border-radius:var(--r-sm);word-break:break-all;color:var(--cyan);user-select:all;border:1px solid rgba(56,189,248,0.25)">${esc(bundleStr)}</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Paste this single string into the Foreign server token box to establish the tunnel and peer link automatically.</div>
+  `;
+  bb.classList.remove('hidden');
+  const btn = $('copyIranBundleBtn');
+  if (btn) {
+    btn.onclick = () => {
+      (navigator.clipboard ? navigator.clipboard.writeText(bundleStr) : Promise.reject())
+        .then(() => {
+          btn.textContent = '✔️ Copied!';
+          setTimeout(() => { btn.textContent = '📋 Copy Bundle'; }, 2000);
+          toastOk('Bundle Copied!', 'Paste into Foreign server');
+        })
+        .catch(() => {
+          prompt('Copy setup bundle:', bundleStr);
+        });
+    };
+  }
+}
+
+async function copyMainIranBundle() {
+  try {
+    let b = window._currentIranBundle;
+    if (!b) {
+      const d = await api('/api/setup');
+      if (d && d.bundle) {
+        b = d.bundle;
+        window._currentIranBundle = b;
+      }
+    }
+    if (!b) {
+      toastWarn('No bundle found', 'Setup an Iran tunnel first');
+      return;
+    }
+    await (navigator.clipboard ? navigator.clipboard.writeText(b) : Promise.reject());
+    toastOk('Bundle Copied!', 'Paste on Foreign server');
+  } catch(e) {
+    if (window._currentIranBundle) prompt('Copy setup bundle:', window._currentIranBundle);
+    else toastWarn('Copy failed', e.message);
+  }
+}
+
 async function loadSetupDefaults() {
   try {
     const d = await api('/api/setup');
     setupExists = !!d.exists;
     setupUnlocked = false;
+    if (d.bundle) {
+      window._currentIranBundle = d.bundle;
+      renderIranBundleBox(d.bundle);
+    }
     if (!$('sLocalPub').value) $('sLocalPub').value = d.local_public || '';
     if (!$('fLocalPub').value) $('fLocalPub').value = d.local_public || '';
     $('sLocalGre').value = '10.10.10.2'; $('sPeerGre').value = '10.10.10.1';
@@ -3234,9 +3342,8 @@ async function doSetup() {
     $('setupToken').classList.add('hidden');
     $('setupBundle').classList.add('hidden');
     if (r.bundle) {
-      const bb = $('setupBundle');
-      bb.innerHTML = '📦 Setup bundle (paste on the Foreign side — fills everything): <b>' + esc(r.bundle) + '</b>';
-      bb.classList.remove('hidden');
+      window._currentIranBundle = r.bundle;
+      renderIranBundleBox(r.bundle);
     }
     if (r.token) {
       const t = $('setupToken');
@@ -4221,8 +4328,18 @@ async function loadCarrier() {
       $('carrierPortsVal').textContent = (curPorts && curPorts.length > 0) ? curPorts.join(', ') : 'None';
     }
 
-    if ($('carrierModeSelect')) {
-      $('carrierModeSelect').value = s.mode || 'direct';
+    const cms = $('carrierModeSelect');
+    if (cms && document.activeElement !== cms) {
+      const p1 = s.fou_port1 || (curPorts[0] || 443);
+      const p2 = s.fou_port2 || (curPorts[1] || 55555);
+      const wp = s.wss_port || 8443;
+      const opts = [
+        { v: 'direct', t: '🟢 Direct GRE (Protocol 47)' },
+        { v: `fou:${p1}`, t: `⚡ GRE over FOU (UDP ${p1})` },
+        { v: `fou:${p2}`, t: `⚡ GRE over FOU (UDP ${p2})` },
+        { v: `wss:${wp}`, t: `🛡️ Obfuscated WSS (TLS ${wp})` }
+      ];
+      cms.innerHTML = opts.map(o => `<option value="${o.v}" ${o.v === curActive ? 'selected' : ''}>${o.t}</option>`).join('');
     }
 
     if ($('carrierPortsInput') && document.activeElement !== $('carrierPortsInput')) {
@@ -4309,13 +4426,42 @@ if (carrierSaveModeBtn) {
     const m = $('carrierModeSelect') ? $('carrierModeSelect').value : 'direct';
     carrierSaveModeBtn.disabled = true;
     try {
-      const res = await api('/api/carrier', { action: 'set-mode', mode: m });
-      toastOk('Carrier Policy Updated', 'Mode set to: ' + m);
+      const res = await api('/api/carrier', { action: 'set-active', target: m });
+      toastOk('Carrier Switched', 'Active: ' + (res.active || res.active_carrier || m));
       await loadCarrier();
     } catch (e) {
       toastErr('Save mode failed', e.message);
     } finally {
       carrierSaveModeBtn.disabled = false;
+    }
+  };
+}
+
+const liveSwitchEngineBtn = $('liveSwitchEngineBtn');
+if (liveSwitchEngineBtn) {
+  liveSwitchEngineBtn.onclick = async () => {
+    const eng = $('liveEngineSelect') ? $('liveEngineSelect').value : 'frp';
+    const trans = $('liveTransportSelect') ? $('liveTransportSelect').value : 'tcpmux';
+    const stTxt = $('liveEngineStatusTxt');
+    liveSwitchEngineBtn.disabled = true;
+    const oldTxt = liveSwitchEngineBtn.textContent;
+    liveSwitchEngineBtn.innerHTML = '<span class="ent-spinner"></span> Switching Engine…';
+    if (stTxt) stTxt.textContent = 'Stopping previous services & applying new engine...';
+    try {
+      const res = await api('/api/action', {
+        action: 'switch-engine',
+        target_engine: eng,
+        target_transport: trans
+      });
+      toastOk('Engine Switched', `Active: ${eng.toUpperCase()} (${trans})`);
+      if (stTxt) stTxt.textContent = '✔️ Successfully switched to ' + eng.toUpperCase();
+      setTimeout(() => { refresh(); if (stTxt) stTxt.textContent = ''; }, 2500);
+    } catch(e) {
+      toastErr('Engine Switch Failed', e.message);
+      if (stTxt) stTxt.textContent = '⚠️ ' + e.message;
+    } finally {
+      liveSwitchEngineBtn.disabled = false;
+      liveSwitchEngineBtn.textContent = oldTxt;
     }
   };
 }

@@ -19,6 +19,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -138,16 +139,154 @@ func ensureFreshScript(script string) {
 
 // ---- GET /api/setup: defaults + whether a tunnel already exists ----
 
+func currentIranBundle() (string, string) {
+	st := localStatus()
+	iranPub := detectPublicIP()
+	if iranPub == "" {
+		iranPub = st.LocalPub
+	}
+
+	var setupMeta struct {
+		Role       string `json:"role"`
+		LocalPub   string `json:"local_public"`
+		RemotePub  string `json:"remote_public"`
+		Token      string `json:"token"`
+		IranGre    string `json:"iran_gre"`
+		ForeignGre string `json:"foreign_gre"`
+		FrpPort    int    `json:"frp_port"`
+		Ports      string `json:"ports"`
+		Engine     string `json:"engine"`
+		Transport  string `json:"transport"`
+	}
+	if sData, err := os.ReadFile(filepath.Join(configDir, "setup.json")); err == nil {
+		_ = json.Unmarshal(sData, &setupMeta)
+	}
+	if iranPub == "" {
+		iranPub = setupMeta.LocalPub
+	}
+	if iranPub == "" {
+		iranPub = "127.0.0.1"
+	}
+
+	// Backhaul server
+	if st.FrpSvc == "backhaul-server" || st.Engine == "backhaul" || st.Engine == "gre-backhaul" || setupMeta.Engine == "backhaul" || setupMeta.Engine == "gre-backhaul" {
+		data, err := os.ReadFile("/etc/backhaul/config.toml")
+		if err != nil {
+			data, err = os.ReadFile("/etc/backhaul/server.toml")
+		}
+		if err == nil {
+			var token, transport string
+			var rawPorts []string
+			for _, line := range strings.Split(string(data), "\n") {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "token") {
+					parts := strings.Split(trimmed, "=")
+					if len(parts) >= 2 {
+						token = strings.Trim(strings.TrimSpace(parts[1]), `"' `)
+					}
+				}
+				if strings.HasPrefix(trimmed, "transport") {
+					parts := strings.Split(trimmed, "=")
+					if len(parts) >= 2 {
+						transport = strings.Trim(strings.TrimSpace(parts[1]), `"' `)
+					}
+				}
+				if strings.HasPrefix(trimmed, `"`) {
+					pStr := strings.Trim(trimmed, `", `)
+					if pStr != "" {
+						rawPorts = append(rawPorts, pStr)
+					}
+				}
+			}
+			bindPort := st.BindPort
+			if bindPort <= 0 {
+				bindPort = st.FrpPort
+			}
+			if bindPort <= 0 {
+				bindPort = setupMeta.FrpPort
+			}
+			if bindPort <= 0 {
+				bindPort = 3080
+			}
+			if token != "" {
+				if st.Engine == "gre-backhaul" || setupMeta.Engine == "gre-backhaul" || st.Gre.Exists {
+					return MakeGreBackhaulBundle(iranPub, bindPort, defaultIranGRE, defaultForeignGRE, transport, token, rawPorts), token
+				}
+				return MakeBackhaulBundle(iranPub, bindPort, transport, token, rawPorts), token
+			}
+		}
+	}
+
+	// FRP server
+	data, err := os.ReadFile("/etc/frp/frps.toml")
+	if err == nil {
+		var token string
+		for _, line := range strings.Split(string(data), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "auth.token") {
+				parts := strings.Split(trimmed, "=")
+				if len(parts) >= 2 {
+					token = strings.Trim(strings.TrimSpace(parts[1]), `"' `)
+				}
+			}
+		}
+		if token != "" && st.FrpPort > 0 {
+			return MakeBundle(iranPub, st.FrpPort, defaultIranGRE, defaultForeignGRE, token, st.ProxyPorts), token
+		}
+	}
+
+	// Fallback to setup.json metadata if server is configured but TOML not accessible
+	if setupMeta.Token != "" {
+		p := setupMeta.FrpPort
+		if p <= 0 {
+			p = st.FrpPort
+		}
+		if p <= 0 {
+			p = 7000
+		}
+		iGre := setupMeta.IranGre
+		if iGre == "" {
+			iGre = defaultIranGRE
+		}
+		fGre := setupMeta.ForeignGre
+		if fGre == "" {
+			fGre = defaultForeignGRE
+		}
+		ports := st.ProxyPorts
+		if len(ports) == 0 && setupMeta.Ports != "" {
+			for _, part := range strings.Split(setupMeta.Ports, ",") {
+				if v, err := strconv.Atoi(strings.TrimSpace(part)); err == nil {
+					ports = append(ports, v)
+				}
+			}
+		}
+		if setupMeta.Engine == "backhaul" {
+			return MakeBackhaulBundle(iranPub, p, setupMeta.Transport, setupMeta.Token, []string{setupMeta.Ports}), setupMeta.Token
+		}
+		if setupMeta.Engine == "gre-backhaul" {
+			return MakeGreBackhaulBundle(iranPub, p, iGre, fGre, setupMeta.Transport, setupMeta.Token, []string{setupMeta.Ports}), setupMeta.Token
+		}
+		return MakeBundle(iranPub, p, iGre, fGre, setupMeta.Token, ports), setupMeta.Token
+	}
+
+	return "", ""
+}
+
 func handleSetupGet(w http.ResponseWriter, r *http.Request) {
 	st := localStatus()
-	writeJSON(w, map[string]any{
+	resp := map[string]any{
 		"local_public": detectPublicIP(),
 		"iran_gre":     defaultIranGRE,
 		"foreign_gre":  defaultForeignGRE,
 		"frp_port":     randomFrpPort(),
 		"role_guess":   st.Role,
 		"exists":       tunnelExists(),
-	})
+	}
+	if bStr, tok := currentIranBundle(); bStr != "" {
+		resp["bundle"] = bStr
+		resp["token"] = tok
+	}
+	writeJSON(w, resp)
 }
 
 func tunnelExists() bool {
@@ -284,6 +423,17 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 
 	var ports []int
 	var rawPorts []string
+	if body.Ports != "" {
+		if body.Engine == "backhaul" || body.Engine == "gre-backhaul" {
+			rawPorts = parseRawPorts(body.Ports)
+			ports = extractNumericPorts(rawPorts)
+		} else {
+			ports = parsePorts(body.Ports)
+			for _, p := range ports {
+				rawPorts = append(rawPorts, strconv.Itoa(p))
+			}
+		}
+	}
 	if body.Role == "foreign" || body.Role == "add-peer" {
 		if body.Token == "" {
 			writeAPIError(w, r, "E-SETUP-08", "")
@@ -296,15 +446,6 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		if isBundle(body.Token) && len(body.Token) > 256 {
 			writeAPIError(w, r, "E-SETUP-09", "")
 			return
-		}
-		if body.Engine == "backhaul" || body.Engine == "gre-backhaul" {
-			rawPorts = parseRawPorts(body.Ports)
-			ports = extractNumericPorts(rawPorts)
-		} else {
-			ports = parsePorts(body.Ports)
-			for _, p := range ports {
-				rawPorts = append(rawPorts, strconv.Itoa(p))
-			}
 		}
 		if len(rawPorts) == 0 && len(ports) == 0 {
 			writeAPIError(w, r, "E-SETUP-10", "")
@@ -345,7 +486,14 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		recordError(code, r.Method+" "+r.URL.Path, err.Error())
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(info.Status)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error_code": code, "error": err.Error(), "hint": info.Hint, "steps": steps})
+		resp := map[string]any{"error_code": code, "error": err.Error(), "hint": info.Hint, "steps": steps}
+		if token != "" {
+			resp["token"] = token
+		}
+		if bundle != "" {
+			resp["bundle"] = bundle
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 		return
 	}
 	out := map[string]any{"status": "ok", "steps": steps}
@@ -371,7 +519,7 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		if body.Token != "" {
 			pcfg.PeerSecret = body.Token
 		}
-		if body.LocalGre != "" {
+		if body.PeerGre != "" {
 			pcfg.InternalIP = body.PeerGre
 		}
 		if body.RemotePub != "" {
@@ -384,13 +532,19 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		_ = savePeerConfig(pcfg)
 
 		go func() {
-			time.Sleep(2 * time.Second)
-			_, _ = sendToPeer("/api/peer/handshake", "POST", PeerHandshakeRequest{
-				Role:       "worker",
-				PublicIP:   detectPublicIP(),
-				PanelPort:  cfg.Port,
-				InternalIP: pcfg.InternalIP,
-			})
+			for attempt := 1; attempt <= 6; attempt++ {
+				time.Sleep(time.Duration(attempt*2) * time.Second)
+				_, err := sendToPeer("/api/peer/handshake", "POST", PeerHandshakeRequest{
+					Role:       "worker",
+					PublicIP:   detectPublicIP(),
+					PanelPort:  cfg.Port,
+					InternalIP: body.LocalGre,
+				})
+				if err == nil {
+					log.Printf("[PeerSync] Auto-connected handshake with master on attempt %d", attempt)
+					break
+				}
+			}
 		}()
 	}
 
@@ -529,6 +683,9 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 				"--local-gre", b.LocalGre, "--peer-gre", b.PeerGre,
 				"--token", token,
 			}
+			if len(rawPorts) > 0 {
+				args = append(args, "--ports", strings.Join(rawPorts, ","))
+			}
 		default:
 			strs := make([]string, len(ports))
 			for i, p := range ports {
@@ -568,6 +725,19 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 	if b.Role == "iran" || b.Role == "add-peer" {
 		steps = append([]string{"token generated (copy to Foreign side)"}, steps...)
 	}
+
+	var bundleStr string
+	if b.Role == "iran" || b.Role == "add-peer" {
+		switch b.Engine {
+		case "backhaul":
+			bundleStr = MakeBackhaulBundle(b.LocalPub, b.FrpPort, b.Transport, token, rawPorts)
+		case "gre-backhaul":
+			bundleStr = MakeGreBackhaulBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, b.Transport, token, rawPorts)
+		default:
+			bundleStr = MakeBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, token, ports)
+		}
+	}
+
 	if runErr != nil {
 		errText := runErr.Error()
 		if len(steps) > 0 {
@@ -578,21 +748,10 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 		if b.Role == "add-peer" && strings.Contains(strings.Join(steps, "\n"), "Unknown command") {
 			errText += " — panel hashem.sh is an old version: run Update to latest, or re-run install.sh on this host"
 		}
-		return "", "", steps, fmt.Errorf("hashem.sh %s failed: %s", args[0], errText)
+		return token, bundleStr, steps, fmt.Errorf("hashem.sh %s failed: %s", args[0], errText)
 	}
-	if b.Role == "iran" || b.Role == "add-peer" {
-		var bundleStr string
-		switch b.Engine {
-		case "backhaul":
-			bundleStr = MakeBackhaulBundle(b.LocalPub, b.FrpPort, b.Transport, token, rawPorts)
-		case "gre-backhaul":
-			bundleStr = MakeGreBackhaulBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, b.Transport, token, rawPorts)
-		default:
-			bundleStr = MakeBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, token, ports)
-		}
-		return token, bundleStr, steps, nil
-	}
-	return "", "", steps, nil
+
+	return token, bundleStr, steps, nil
 }
 
 // ---- peers API: list tunnels + token lookup ----
@@ -665,10 +824,132 @@ type peerPatchRequest struct {
 	RawPorts  *[]string `json:"raw_ports,omitempty"`
 }
 
+func (p *peerPatchRequest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ID        any             `json:"id"`
+		Name      string          `json:"name,omitempty"`
+		RemotePub string          `json:"remote_pub,omitempty"`
+		Carrier   string          `json:"carrier,omitempty"`
+		Engine    string          `json:"engine,omitempty"`
+		Transport string          `json:"transport,omitempty"`
+		Ports     json.RawMessage `json:"ports,omitempty"`
+		RawPorts  json.RawMessage `json:"raw_ports,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	if raw.ID != nil {
+		switch v := raw.ID.(type) {
+		case float64:
+			p.ID = int(v)
+		case string:
+			v = strings.TrimSpace(v)
+			if v != "" {
+				if idNum, err := strconv.Atoi(v); err == nil {
+					p.ID = idNum
+				} else {
+					return fmt.Errorf("invalid id: %s", v)
+				}
+			}
+		case int:
+			p.ID = v
+		default:
+			return fmt.Errorf("invalid id type")
+		}
+	}
+
+	p.Name = raw.Name
+	p.RemotePub = raw.RemotePub
+	p.Carrier = raw.Carrier
+	p.Engine = raw.Engine
+	p.Transport = raw.Transport
+
+	parsePorts := func(msg json.RawMessage) ([]int, []string, bool) {
+		trimmed := strings.TrimSpace(string(msg))
+		if trimmed == "" || trimmed == "null" {
+			return nil, nil, false
+		}
+		// String format: e.g. "443, 2083" or "8080=80"
+		if strings.HasPrefix(trimmed, `"`) {
+			var s string
+			if err := json.Unmarshal(msg, &s); err == nil {
+				s = strings.TrimSpace(s)
+				if s == "" {
+					return []int{}, []string{}, true
+				}
+				var nums []int
+				var raws []string
+				parts := strings.Split(s, ",")
+				for _, part := range parts {
+					part = strings.TrimSpace(part)
+					if part == "" {
+						continue
+					}
+					raws = append(raws, part)
+					if n, err := strconv.Atoi(part); err == nil {
+						nums = append(nums, n)
+					}
+				}
+				return nums, raws, true
+			}
+		}
+		// Array format: e.g. [443, 2083] or ["443", "8080=80"]
+		var slice []any
+		if err := json.Unmarshal(msg, &slice); err == nil {
+			var nums []int
+			var raws []string
+			for _, item := range slice {
+				switch v := item.(type) {
+				case float64:
+					n := int(v)
+					nums = append(nums, n)
+					raws = append(raws, strconv.Itoa(n))
+				case string:
+					v = strings.TrimSpace(v)
+					if v != "" {
+						raws = append(raws, v)
+						if n, err := strconv.Atoi(v); err == nil {
+							nums = append(nums, n)
+						}
+					}
+				}
+			}
+			return nums, raws, true
+		}
+		return nil, nil, false
+	}
+
+	if len(raw.RawPorts) > 0 {
+		nums, raws, ok := parsePorts(raw.RawPorts)
+		if ok {
+			p.RawPorts = &raws
+			if len(nums) > 0 {
+				p.Ports = &nums
+			}
+		}
+	}
+
+	if len(raw.Ports) > 0 {
+		nums, raws, ok := parsePorts(raw.Ports)
+		if ok {
+			if p.Ports == nil || len(*p.Ports) == 0 {
+				p.Ports = &nums
+			}
+			if p.RawPorts == nil || len(*p.RawPorts) == 0 {
+				p.RawPorts = &raws
+			}
+		}
+	}
+
+	return nil
+}
+
 func handlePeersPatch(w http.ResponseWriter, r *http.Request) {
 	var body peerPatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeAPIError(w, r, "E-PEER-07", "bad request body")
+		writeAPIError(w, r, "E-PEER-07", "bad request body: "+err.Error())
 		return
 	}
 	if body.ID < 0 {
