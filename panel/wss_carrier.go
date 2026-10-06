@@ -316,15 +316,19 @@ func (m *wssCarrierManager) stop() error {
 		_ = m.activeConn.Close()
 		m.activeConn = nil
 	}
+	srv := m.httpServer
+	m.httpServer = nil
+	udp := m.udpConn
+	m.udpConn = nil
 	m.connMu.Unlock()
 
-	if m.httpServer != nil {
+	if srv != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = m.httpServer.Shutdown(ctx)
+		_ = srv.Shutdown(ctx)
 	}
-	if m.udpConn != nil {
-		_ = m.udpConn.Close()
+	if udp != nil {
+		_ = udp.Close()
 	}
 	atomic.StoreInt32(&m.connected, 0)
 	return nil
@@ -358,8 +362,17 @@ func (m *wssCarrierManager) runServer() {
 		m.setErr(fmt.Errorf("listen local udp: %w", err))
 		return
 	}
+	m.connMu.Lock()
 	m.udpConn = udpConn
-	defer udpConn.Close()
+	m.connMu.Unlock()
+	defer func() {
+		m.connMu.Lock()
+		if m.udpConn == udpConn {
+			m.udpConn = nil
+		}
+		m.connMu.Unlock()
+		_ = udpConn.Close()
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tunnel-stream", func(w http.ResponseWriter, r *http.Request) {
@@ -396,7 +409,16 @@ func (m *wssCarrierManager) runServer() {
 		Addr:    fmt.Sprintf(":%d", m.cfg.ListenPort),
 		Handler: mux,
 	}
+	m.connMu.Lock()
 	m.httpServer = server
+	m.connMu.Unlock()
+	defer func() {
+		m.connMu.Lock()
+		if m.httpServer == server {
+			m.httpServer = nil
+		}
+		m.connMu.Unlock()
+	}()
 
 	// TLS Setup
 	if m.cfg.UseTLS {
@@ -443,8 +465,17 @@ func (m *wssCarrierManager) runClient() {
 		m.setErr(fmt.Errorf("listen local udp: %w", err))
 		return
 	}
+	m.connMu.Lock()
 	m.udpConn = udpConn
-	defer udpConn.Close()
+	m.connMu.Unlock()
+	defer func() {
+		m.connMu.Lock()
+		if m.udpConn == udpConn {
+			m.udpConn = nil
+		}
+		m.connMu.Unlock()
+		_ = udpConn.Close()
+	}()
 
 	for m.running {
 		select {

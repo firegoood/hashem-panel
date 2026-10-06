@@ -408,6 +408,13 @@ func handleWatchdogPost(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func getBackupDir() string {
+	if v := os.Getenv("GRE_BACKUP_DIR"); v != "" {
+		return v
+	}
+	return "/var/backups/hashem"
+}
+
 func handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 	f := r.URL.Query().Get("f")
 	base := filepath.Base(f)
@@ -415,7 +422,7 @@ func handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, "E-WD-01", "invalid backup file name")
 		return
 	}
-	path := filepath.Join("/var/backups/hashem", base)
+	path := filepath.Join(getBackupDir(), base)
 	st, err := os.Stat(path)
 	if err != nil || st.IsDir() {
 		writeAPIError(w, r, "E-WD-01", "backup file not found")

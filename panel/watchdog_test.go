@@ -56,8 +56,9 @@ func TestWatchdogAPIEndpoints(t *testing.T) {
 	}
 
 	// Create dummy backup
-	backupDir := "/var/backups/hashem"
-	_ = os.MkdirAll(backupDir, 0700)
+	backupDir := t.TempDir()
+	os.Setenv("GRE_BACKUP_DIR", backupDir)
+	defer os.Unsetenv("GRE_BACKUP_DIR")
 	dummyBackup := filepath.Join(backupDir, "hashem-backup-20260927-120000.enc")
 	_ = os.WriteFile(dummyBackup, []byte("ENCRYPTED-DATA"), 0600)
 	defer os.Remove(dummyBackup)
