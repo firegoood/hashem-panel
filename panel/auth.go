@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -41,24 +40,7 @@ var (
 )
 
 func clientIP(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		ip := strings.TrimSpace(parts[0])
-		if ip != "" {
-			if host, _, err := net.SplitHostPort(ip); err == nil {
-				return host
-			}
-			return strings.Trim(ip, "[]")
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		return host
-	}
-	return strings.Trim(r.RemoteAddr, "[]")
+	return ClientIP(r)
 }
 
 func pruneAttemptsLocked(now time.Time) {
@@ -112,6 +94,7 @@ func recordLoginFailure(ip string) {
 
 	if shouldLog {
 		recordError("E-AUTH-02", "login", "brute-force lockout for IP "+ip+" (5 failures)")
+		LogSecurityAudit("lockout_triggered", "unknown", ip, "5 failed attempts within window")
 	}
 }
 
@@ -121,12 +104,45 @@ func recordLoginSuccess(ip string) {
 	attemptMu.Unlock()
 }
 
-func sessionCookie(value string, maxAge int) *http.Cookie {
+func isRequestHTTPS(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		remoteHost = strings.Trim(r.RemoteAddr, "[]")
+	}
+	if IsTrustedProxy(remoteHost) {
+		proto := r.Header.Get("X-Forwarded-Proto")
+		if strings.EqualFold(proto, "https") {
+			return true
+		}
+	}
+	return false
+}
+
+func sessionCookie(r *http.Request, value string, maxAge int) *http.Cookie {
 	return &http.Cookie{
 		Name:     "gre_session",
 		Value:    value,
 		Path:     "/" + cfg.BasePath + "/",
 		HttpOnly: true,
+		Secure:   isRequestHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
+	}
+}
+
+func csrfCookie(r *http.Request, value string, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name:     "gre_csrf",
+		Value:    value,
+		Path:     "/" + cfg.BasePath + "/",
+		HttpOnly: false, // Accessible to frontend scripts to include in X-CSRF-Token header
+		Secure:   isRequestHTTPS(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   maxAge,
 	}
@@ -164,7 +180,7 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if checkLocked(ip) {
-		writeAPIError(w, r, "E-AUTH-02", "")
+		writeAPIError(w, r, "E-AUTH-02", "Too many failed attempts. Temporarily locked.")
 		return
 	}
 	var body struct {
@@ -180,6 +196,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if subtle.ConstantTimeCompare([]byte(body.Username), []byte(cfg.Username)) != 1 ||
 		subtle.ConstantTimeCompare([]byte(got), []byte(cfg.PassHash)) != 1 {
 		recordLoginFailure(ip)
+		LogSecurityAudit("login_failed", body.Username, ip, "invalid credentials")
 		writeAPIError(w, r, "E-AUTH-02", "")
 		return
 	}
@@ -187,43 +204,89 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	mac := sha256.Sum256(append(nonce[:], []byte(cfg.PassHash)...))
 	tok := hex.EncodeToString(mac[:])
 	addSession(tok) // persistent: survives restarts, 24h absolute expiry
-	http.SetCookie(w, sessionCookie(tok, 86400))
-	writeJSON(w, map[string]string{"status": "ok"})
+
+	csrfTok := GenerateCSRFToken(tok)
+	http.SetCookie(w, sessionCookie(r, tok, 86400))
+	http.SetCookie(w, csrfCookie(r, csrfTok, 86400))
+
+	LogSecurityAudit("login_success", cfg.Username, ip, "authenticated successfully")
+	writeJSON(w, map[string]string{
+		"status":     "ok",
+		"csrf_token": csrfTok,
+	})
 }
 
 func handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("gre_session"); err == nil {
 		dropSession(c.Value)
 	}
-	http.SetCookie(w, sessionCookie("", -1))
+	http.SetCookie(w, sessionCookie(r, "", -1))
+	http.SetCookie(w, csrfCookie(r, "", -1))
+	LogSecurityAudit("logout", cfg.Username, clientIP(r), "logged out")
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 func handlePassword(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Password string `json:"password"`
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+		Password        string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Password) < 4 {
-		writeAPIError(w, r, "E-AUTH-04", "")
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeAPIError(w, r, "E-AUTH-04", "invalid request body")
 		return
 	}
+
+	ip := clientIP(r)
+
+	// Verify current password
+	currH := sha256.Sum256([]byte(body.CurrentPassword))
+	gotCurr := hex.EncodeToString(currH[:])
+	if subtle.ConstantTimeCompare([]byte(gotCurr), []byte(cfg.PassHash)) != 1 {
+		recordLoginFailure(ip)
+		LogSecurityAudit("password_change_rejected", cfg.Username, ip, "incorrect current password")
+		writeAPIError(w, r, "E-AUTH-07", "current password does not match")
+		return
+	}
+
+	targetPass := strings.TrimSpace(body.NewPassword)
+	if targetPass == "" {
+		targetPass = strings.TrimSpace(body.Password)
+	}
+
+	// Password strength validation (NIST 800-63B)
+	if err := ValidatePasswordStrength(targetPass); err != nil {
+		LogSecurityAudit("password_change_rejected", cfg.Username, ip, "strength check failed: "+err.Error())
+		writeAPIError(w, r, "E-AUTH-04", err.Error())
+		return
+	}
+
 	mu.Lock()
-	h := sha256.Sum256([]byte(body.Password))
+	h := sha256.Sum256([]byte(targetPass))
 	cfg.PassHash = hex.EncodeToString(h[:])
 	_ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600)
-	// keep plaintext copy in sync (user choice: viewable via script menu)
-	_ = os.WriteFile(filepath.Join(configDir, "panel.pass"), []byte(body.Password), 0600)
+	// CWE-256: Plaintext passwords are NEVER stored on disk!
 	if _, err := rand.Read(nonce[:]); err != nil {
 		mu.Unlock()
 		writeAPIError(w, r, "E-AUTH-05", "")
 		return
 	}
 	mu.Unlock()
-	// password change invalidates all other sessions (user choice).
+
+	// Invalidate all existing sessions
 	dropAllSessions()
+
 	mac := sha256.Sum256(append(nonce[:], []byte(cfg.PassHash)...))
 	tok := hex.EncodeToString(mac[:])
-	addSession(tok) // keep the changer logged in
-	http.SetCookie(w, sessionCookie(tok, 86400))
-	writeJSON(w, map[string]string{"status": "ok"})
+	addSession(tok) // Keep the changer logged in with a fresh session
+	csrfTok := GenerateCSRFToken(tok)
+
+	http.SetCookie(w, sessionCookie(r, tok, 86400))
+	http.SetCookie(w, csrfCookie(r, csrfTok, 86400))
+
+	LogSecurityAudit("password_changed", cfg.Username, ip, "password changed successfully")
+	writeJSON(w, map[string]string{
+		"status":     "ok",
+		"csrf_token": csrfTok,
+	})
 }

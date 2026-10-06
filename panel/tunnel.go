@@ -19,7 +19,11 @@ import (
 func handleStatus(w http.ResponseWriter, r *http.Request) {
 	st := localStatus()
 	peers := livePeers()
-	writeJSON(w, map[string]any{"local": st, "peers": peers, "peer_count": len(peers)})
+	resp := map[string]any{"local": st, "peers": peers, "peer_count": len(peers)}
+	if c, err := r.Cookie("gre_session"); err == nil && c.Value != "" {
+		resp["csrf_token"] = GenerateCSRFToken(c.Value)
+	}
+	writeJSON(w, resp)
 }
 
 func handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -31,9 +35,10 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	// allowed units: legacy frps/frpc, per-peer frps-N, GRE units, panel itself
 	allowed := map[string]bool{"frps": true, "frpc": true, "gre-panel": true,
-		"gre-tunnel": true, "gre-tunnel.service": true}
+		"gre-tunnel": true, "gre-tunnel.service": true,
+		"backhaul": true, "backhaul-server": true, "backhaul-client": true}
 	if !allowed[svc] {
-		if strings.HasPrefix(svc, "frps-") || strings.HasPrefix(svc, "gre-t") {
+		if strings.HasPrefix(svc, "frps-") || strings.HasPrefix(svc, "gre-t") || strings.HasPrefix(svc, "backhaul-") {
 			allowed[svc] = true
 		}
 	}
@@ -186,17 +191,23 @@ func removeViaInstaller() (string, error) {
 // a registry fall back to the old single-tunnel view.
 
 type peerRecord struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	LocalPub  string `json:"local_pub"`
-	RemotePub string `json:"remote_pub"`
-	FrpPort   int    `json:"frp_port"`
-	LocalGre  string `json:"local_gre"`
-	PeerGre   string `json:"peer_gre"`
-	Ports     []int  `json:"ports"`
-	GreIf     string `json:"gre_if"`
-	FrpsSvc   string `json:"frps_svc"`
-	Legacy    bool   `json:"legacy,omitempty"`
+	ID        int      `json:"id"`
+	Name      string   `json:"name"`
+	LocalPub  string   `json:"local_pub"`
+	RemotePub string   `json:"remote_pub"`
+	FrpPort   int      `json:"frp_port"`
+	LocalGre  string   `json:"local_gre"`
+	PeerGre   string   `json:"peer_gre"`
+	Ports     []int    `json:"ports"`
+	RawPorts  []string `json:"raw_ports,omitempty"`
+	Token     string   `json:"token,omitempty"`
+	GreIf     string   `json:"gre_if"`
+	FrpsSvc   string   `json:"frps_svc"`
+	Carrier   string   `json:"carrier,omitempty"`
+	Engine    string   `json:"engine,omitempty"`    // "frp" | "backhaul" | "gre-backhaul"
+	Transport string   `json:"transport,omitempty"` // "tcpmux" | "wssmux" | "tcp" | etc.
+	NoGre     bool     `json:"no_gre,omitempty"`
+	Legacy    bool     `json:"legacy,omitempty"`
 }
 
 type peerLive struct {
@@ -324,20 +335,29 @@ func livePeers() []peerLive {
 	out := make([]peerLive, 0, len(recs))
 	for _, p := range recs {
 		l := peerLive{peerRecord: p}
-		if _, err := exec.Command("ip", "tunnel", "show").CombinedOutput(); err == nil {
+		if p.NoGre {
+			l.GreInner = "standalone"
+			l.GreUp = true
+		} else if _, err := exec.Command("ip", "tunnel", "show").CombinedOutput(); err == nil {
 			// presence check via interface address (works without parsing tun show)
 			l.GreInner = ifaceInner(p.GreIf)
 			l.GreUp = l.GreInner != ""
 		}
 		l.FrpUp = svcActive(p.FrpsSvc)
-		if p.PeerGre != "" {
+		pingTarget := p.PeerGre
+		if pingTarget == "" && p.NoGre {
+			pingTarget = p.RemotePub
+		}
+		if pingTarget != "" {
 			start := time.Now()
-			if err := exec.Command("ping", "-c", "1", "-W", "2", p.PeerGre).Run(); err == nil {
+			if err := exec.Command("ping", "-c", "1", "-W", "2", pingTarget).Run(); err == nil {
 				l.PingOK = true
 				l.PingMs = fmt.Sprintf("%.0fms", float64(time.Since(start).Microseconds())/1000)
 			}
 		}
-		l.Rx, l.Tx = ifaceTraffic(p.GreIf)
+		if !p.NoGre {
+			l.Rx, l.Tx = ifaceTraffic(p.GreIf)
+		}
 		out = append(out, l)
 	}
 	return out
@@ -442,6 +462,8 @@ type greState struct {
 
 type tunnelStatus struct {
 	Role       string   `json:"role"`
+	Engine     string   `json:"engine,omitempty"`
+	Transport  string   `json:"transport,omitempty"`
 	Gre        greState `json:"gre"`
 	GrePeer    string   `json:"gre_peer"`
 	PingOK     bool     `json:"ping_ok"`
@@ -487,16 +509,21 @@ func localStatus() tunnelStatus {
 			}
 		}
 	}
-	// FRP role: which unit file exists / is active
-	for _, svc := range []string{"frps", "frpc"} {
+	// FRP / Backhaul role: which unit file exists / is active
+	for _, svc := range []string{"frps", "frpc", "backhaul-server", "backhaul-client"} {
 		if out, err := exec.Command("systemctl", "is-active", svc).CombinedOutput(); err == nil &&
 			strings.TrimSpace(string(out)) == "active" {
 			st.FrpUp = true
 			st.FrpSvc = svc
-			if svc == "frps" {
+			switch svc {
+			case "frps":
 				st.Role = "iran (server)"
-			} else {
+			case "frpc":
 				st.Role = "foreign (client)"
+			case "backhaul-server":
+				st.Role = "iran (backhaul)"
+			case "backhaul-client":
+				st.Role = "foreign (backhaul)"
 			}
 			break
 		}
@@ -509,10 +536,61 @@ func localStatus() tunnelStatus {
 		} else if _, err := os.Stat("/etc/frp/frpc.toml"); err == nil {
 			st.Role = "foreign (client)"
 			st.FrpSvc = "frpc"
+		} else if _, err := os.Stat("/etc/backhaul/config.toml"); err == nil {
+			st.Role = "iran (backhaul)"
+			st.FrpSvc = "backhaul-server"
+		} else if _, err := os.Stat("/etc/backhaul/client.toml"); err == nil {
+			st.Role = "foreign (backhaul)"
+			st.FrpSvc = "backhaul-client"
 		}
 	}
-	// ports & proxies from toml
-	tomlPath := "/etc/frp/frps.toml"
+	// ports & proxies from Backhaul or FRP
+	if strings.HasPrefix(st.FrpSvc, "backhaul") {
+		if st.Gre.Exists {
+			st.Engine = "gre-backhaul"
+		} else {
+			st.Engine = "backhaul"
+		}
+		bhPath := "/etc/backhaul/config.toml"
+		if st.FrpSvc == "backhaul-client" {
+			if _, err := os.Stat("/etc/backhaul/client.toml"); err == nil {
+				bhPath = "/etc/backhaul/client.toml"
+			}
+		}
+		if data, err := os.ReadFile(bhPath); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "transport") {
+					parts := strings.Split(trimmed, "=")
+					if len(parts) >= 2 {
+						st.Transport = strings.Trim(strings.TrimSpace(parts[1]), `"' `)
+					}
+				}
+				if strings.HasPrefix(trimmed, "bind_addr") || strings.HasPrefix(trimmed, "remote_addr") {
+					parts := strings.Split(trimmed, ":")
+					if len(parts) >= 2 {
+						pStr := strings.Trim(parts[len(parts)-1], `" ')`)
+						if v, err := strconv.Atoi(pStr); err == nil {
+							st.BindPort = v
+							st.FrpPort = v
+						}
+					}
+				}
+				if strings.HasPrefix(trimmed, `"`) {
+					pStr := strings.Trim(trimmed, `", `)
+					st.Proxies = append(st.Proxies, pStr)
+					basePart := strings.Split(strings.Split(pStr, "-")[0], "=")[0]
+					if v, err := strconv.Atoi(basePart); err == nil {
+						st.ProxyPorts = append(st.ProxyPorts, v)
+					}
+				}
+			}
+		}
+	} else {
+		if st.FrpSvc != "" {
+			st.Engine = "frp"
+		}
+		tomlPath := "/etc/frp/frps.toml"
 	if st.FrpSvc == "frpc" {
 		tomlPath = "/etc/frp/frpc.toml"
 	}
@@ -559,6 +637,7 @@ func localStatus() tunnelStatus {
 				}
 			}
 		}
+	}
 	}
 	// de-duplicate proxy ports (each proxy has local+remote for the same port)
 	st.ProxyPorts = uniqInts(st.ProxyPorts)

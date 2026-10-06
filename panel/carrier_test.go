@@ -22,8 +22,8 @@ func TestCarrierDefaultsAndLoadSave(t *testing.T) {
 
 	// Default when file is missing
 	def := loadCarrierConfig()
-	if def.Mode != "auto" {
-		t.Fatalf("expected mode=auto, got %s", def.Mode)
+	if def.Mode != "direct" {
+		t.Fatalf("expected mode=direct, got %s", def.Mode)
 	}
 	if def.ActiveCarrier != "direct" {
 		t.Fatalf("expected active_carrier=direct, got %s", def.ActiveCarrier)
@@ -71,7 +71,7 @@ func TestCarrierAPIEndpoints(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Mode != "auto" || resp.ActiveCarrier != "direct" || resp.Active != "direct" {
+	if resp.Mode != "direct" || resp.ActiveCarrier != "direct" || resp.Active != "direct" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 	if len(resp.FouPorts) != 2 || resp.FouPorts[0] != 443 || resp.FouPorts[1] != 55555 {
@@ -97,8 +97,8 @@ func TestCarrierAPIEndpoints(t *testing.T) {
 
 	// Verify carrier changed
 	cfg := loadCarrierConfig()
-	if cfg.ActiveCarrier != "fou:443" {
-		t.Fatalf("expected active_carrier=fou:443 after cycle, got %s", cfg.ActiveCarrier)
+	if cfg.ActiveCarrier != "wss:8443" {
+		t.Fatalf("expected active_carrier=wss:8443 after cycle, got %s", cfg.ActiveCarrier)
 	}
 
 	// POST set-ports

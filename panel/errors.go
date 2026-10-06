@@ -38,11 +38,13 @@ type errInfo struct {
 var errCatalog = map[string]errInfo{
 	// auth
 	"E-AUTH-01": {401, "unauthorized (login required)", "Log in again from the login screen."},
-	"E-AUTH-02": {401, "wrong username or password", "Check caps-lock; view the password via the server menu if needed."},
+	"E-AUTH-02": {401, "wrong username or password", "Check caps-lock; or use GRE_PANEL_PASSWORD to reset."},
 	"E-AUTH-03": {400, "bad login request", "Reload the page and try again."},
-	"E-AUTH-04": {400, "password must be at least 4 characters", "Pick a longer password."},
+	"E-AUTH-04": {400, "password does not meet complexity requirements", "Must be at least 12 characters and contain uppercase, lowercase, numbers, and special symbols."},
 	"E-AUTH-05": {500, "cannot switch password", "Disk write failed — check /etc/gre-panel permissions."},
 	"E-AUTH-06": {401, "session expired", "Log in again from the login screen."},
+	"E-AUTH-07": {401, "current password is incorrect", "Verify your current password before setting a new one."},
+	"E-AUTH-08": {403, "invalid or missing CSRF token", "Refresh the page and try again."},
 	// setup validation
 	"E-SETUP-01": {400, "bad setup request (invalid JSON)", "Reload the page and resubmit the form."},
 	"E-SETUP-02": {400, "role must be iran, foreign or add-peer", "Pick the role from the Setup tab buttons."},
@@ -72,10 +74,11 @@ var errCatalog = map[string]errInfo{
 	// update
 	"E-UPDATE-01": {502, "cannot check latest release", "Server has no GitHub access (filter/DNS) — retry later."},
 	"E-UPDATE-02": {502, "panel download failed", "GitHub unreachable mid-download — retry; check Iran network filter."},
-	"E-UPDATE-03": {502, "downloaded file failed verification", "Stale release redirect (HTML instead of ELF) — retry in a minute."},
+	"E-UPDATE-03": {502, "downloaded file failed verification", "Corrupted download or non-ELF binary — retry update."},
 	"E-UPDATE-04": {500, "cannot install new binary (rolled back)", "Disk full or /usr/local/bin not writable — old binary kept."},
 	"E-UPDATE-05": {400, "unsupported arch for update", "Only amd64/arm64 prebuilt binaries are published."},
 	"E-UPDATE-06": {500, "cannot sync hashem.sh installer script", "Panel binary updated, but installer script download failed — check internet or DNS."},
+	"E-UPDATE-07": {502, "checksum verification failed", "Downloaded binary or script failed SHA256 checksum check."},
 	// log diagnostics (annotation only, also reused by status hints)
 	"E-GRE-01": {0, "GRE interface missing / down", "Tunnel setup did not create it, or it was deleted — reinstall that peer."},
 	"E-GRE-02": {0, "GRE ping failed (100% loss / unreachable)", "Peers cannot reach each other: firewall, wrong public IP, or GRE blocked."},

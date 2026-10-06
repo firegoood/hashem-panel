@@ -2,7 +2,7 @@ package main
 
 // Update API: check for a newer prebuilt panel release and install it.
 // Same safety rules as hashem.sh update_all(): verify download, keep local
-// config (panel.json / panel.pass) untouched, restart the service, and
+// config (panel.json) untouched, restart the service, and
 // never leave the system in a broken state on failure.
 
 import (
@@ -10,10 +10,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -57,7 +59,7 @@ func latestReleaseTag() (string, error) {
 // next to the panel binary (the panel shells out to hashem.sh for all
 // setup Peer/tunnel work — a stale hashem.sh would break add-peer with
 // E-INSTALL-02 "Unknown command"), and restarts the service.
-// panel.json / panel.pass are never touched, so local credentials survive.
+// panel.json is never touched, so local credentials survive.
 const panelScriptName = "hashem.sh"
 
 func handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +78,9 @@ func handleUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]string{"status": "ok", "detail": "already latest (" + panelVersion + ")"})
 		return
 	}
+
+	LogSecurityAudit("update_initiated", cfg.Username, ClientIP(r), "from="+panelVersion+" to="+latest+" asset="+asset)
+
 	dlURL := "https://github.com/pdnczone/hashem-panel/releases/download/" + latest + "/" + asset
 	tmp, err := os.CreateTemp("", "gre-panel-update-*")
 	if err != nil {
@@ -84,11 +89,28 @@ func handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
+
 	if err := downloadFile(dlURL, tmp); err != nil {
+		LogSecurityAudit("update_failed", cfg.Username, ClientIP(r), "download error: "+err.Error())
 		writeAPIError(w, r, "E-UPDATE-02", err.Error())
 		return
 	}
+
+	// Verify SHA256 checksum if available in official release manifest
+	manifest, _ := fetchChecksumManifest(latest)
+	if manifest != nil {
+		if expectedHash, ok := manifest[asset]; ok {
+			if err := VerifyFileSHA256(tmpPath, expectedHash); err != nil {
+				LogSecurityAudit("update_checksum_failed", cfg.Username, ClientIP(r), "asset="+asset+" err="+err.Error())
+				writeAPIError(w, r, "E-UPDATE-07", err.Error())
+				return
+			}
+			LogSecurityAudit("update_checksum_verified", cfg.Username, ClientIP(r), "asset="+asset+" sha256="+expectedHash)
+		}
+	}
+
 	if err := verifyELF(tmpPath); err != nil {
+		LogSecurityAudit("update_failed", cfg.Username, ClientIP(r), "ELF verification failed: "+err.Error())
 		writeAPIError(w, r, "E-UPDATE-03", err.Error())
 		return
 	}
@@ -106,6 +128,7 @@ func handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := copyFile(tmpPath, exe); err != nil {
 		_ = os.Rename(bak, exe) // roll back
+		LogSecurityAudit("update_rollback", cfg.Username, ClientIP(r), "copy failed: "+err.Error())
 		writeAPIError(w, r, "E-UPDATE-04", err.Error())
 		return
 	}
@@ -115,6 +138,8 @@ func handleUpdate(w http.ResponseWriter, r *http.Request) {
 	// the latest from main, syntax-check it, then replace. Best effort —
 	// a failed script sync never blocks the binary update.
 	syncPanelScript()
+
+	LogSecurityAudit("update_success", cfg.Username, ClientIP(r), "installed version "+latest)
 	writeJSON(w, map[string]string{"status": "ok", "detail": "updated to " + latest + " — restarting panel"})
 	go func() {
 		time.Sleep(500 * time.Millisecond)
@@ -133,27 +158,80 @@ func panelAsset() (arch, asset string, err error) {
 	return "", "", fmt.Errorf("unsupported arch for update: %s", runtime.GOARCH)
 }
 
-func downloadFile(url string, tmp *os.File) error {
-	client := &http.Client{Timeout: 90 * time.Second}
-	resp, err := client.Get(url)
-	if err != nil || (resp != nil && resp.StatusCode != http.StatusOK) {
+// isOfficialGitHubURL restricts downloads to official GitHub repositories only (CWE-494)
+func isOfficialGitHubURL(u string) bool {
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Host)
+	return host == "github.com" || host == "raw.githubusercontent.com" ||
+		host == "api.github.com" || host == "objects.githubusercontent.com"
+}
+
+// fetchChecksumManifest attempts to download checksums.txt or SHA256SUMS from the release.
+func fetchChecksumManifest(tag string) (map[string]string, error) {
+	candidates := []string{
+		"https://github.com/pdnczone/hashem-panel/releases/download/" + tag + "/checksums.txt",
+		"https://github.com/pdnczone/hashem-panel/releases/download/" + tag + "/SHA256SUMS",
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	for _, u := range candidates {
+		resp, err := client.Get(u)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			data, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err == nil && len(data) > 0 {
+				return ParseChecksumManifest(string(data)), nil
+			}
+		}
 		if resp != nil {
 			resp.Body.Close()
 		}
-		// Proxy fallback for Iran users (circumvent filtering / 404s due to DNS)
-		resp, err = client.Get("https://ghfast.top/" + url)
 	}
-	if err != nil {
-		return err
+	return nil, fmt.Errorf("no checksum manifest found")
+}
+
+func downloadFile(rawURL string, tmp *os.File) error {
+	// Pin only to official GitHub URLs (CWE-494: no untrusted mirrors)
+	if !isOfficialGitHubURL(rawURL) {
+		return fmt.Errorf("untrusted download URL domain: %s", rawURL)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("http %s", resp.Status)
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	var lastErr error
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		req, err := http.NewRequest("GET", rawURL, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("User-Agent", "hashem-panel-updater/"+panelVersion)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("http %s", resp.Status)
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+			continue
+		}
+
+		if _, err := io.Copy(tmp, resp.Body); err != nil {
+			resp.Body.Close()
+			lastErr = err
+			continue
+		}
+		resp.Body.Close()
+		return tmp.Close()
 	}
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		return err
-	}
-	return tmp.Close()
+
+	return fmt.Errorf("download failed after 3 attempts: %v", lastErr)
 }
 
 // verifyELF rejects empty files and non-ELF downloads (e.g. an HTML
@@ -239,6 +317,12 @@ func syncPanelScript() {
 		recordError("E-UPDATE-06", "script-sync", "download: "+err.Error())
 		return
 	}
+	// Verify script integrity: minimum size and shebang check (CWE-95)
+	content, err := os.ReadFile(tmpPath)
+	if err != nil || len(content) < 500 || (!strings.HasPrefix(string(content), "#!/bin/bash") && !strings.HasPrefix(string(content), "#!/usr/bin/env bash")) {
+		recordError("E-UPDATE-06", "script-sync", "integrity check failed: invalid or corrupt script header")
+		return
+	}
 	chk := exec.Command("bash", "-n", tmpPath)
 	if out, err := chk.CombinedOutput(); err != nil {
 		recordError("E-UPDATE-06", "script-sync", "bash -n failed: "+string(out))
@@ -249,6 +333,7 @@ func syncPanelScript() {
 		return
 	}
 	_ = os.Chmod(target, 0755)
+	LogSecurityAudit("script_synced", "system", "local", "target="+target)
 	// Migrate servers to the new name: refresh the hashem copies + legacy
 	// gre.sh symlink, and drop a stale standalone gre.sh file (symlink wins
 	// so old lookup paths keep working).
@@ -278,6 +363,12 @@ func syncChaffScript() {
 		recordError("E-UPDATE-06", "script-sync", "chaff download: "+err.Error())
 		return
 	}
+	// Verify chaff script integrity
+	chaffContent, err := os.ReadFile(tmpPath)
+	if err != nil || len(chaffContent) < 100 || (!strings.HasPrefix(string(chaffContent), "#!/bin/bash") && !strings.HasPrefix(string(chaffContent), "#!/usr/bin/env bash")) {
+		recordError("E-UPDATE-06", "script-sync", "chaff integrity check failed: invalid script header")
+		return
+	}
 	if out, err := exec.Command("bash", "-n", tmpPath).CombinedOutput(); err != nil {
 		recordError("E-UPDATE-06", "script-sync", "chaff bash -n failed: "+string(out))
 		return
@@ -288,6 +379,7 @@ func syncChaffScript() {
 	}
 	_ = os.Chmod("/usr/local/bin/hashem-chaff.sh", 0755)
 	_ = os.Remove("/usr/local/bin/gre-chaff.sh")
+	LogSecurityAudit("script_synced", "system", "local", "target=/usr/local/bin/hashem-chaff.sh")
 }
 
 const scriptURL = "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem.sh"

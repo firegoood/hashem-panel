@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -96,6 +97,24 @@ func TestHandlePeersPatchValidation(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "E-PEER-05",
 		},
+		{
+			name:       "no fields to update",
+			body:       `{"id": 1}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "E-PEER-07",
+		},
+		{
+			name:       "invalid remote IP format",
+			body:       `{"id": 1, "remote_pub": "not-an-ip"}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "E-PEER-07",
+		},
+		{
+			name:       "invalid carrier mode",
+			body:       `{"id": 1, "carrier": "unknown_carrier"}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "E-PEER-07",
+		},
 	}
 
 	for _, tc := range tests {
@@ -113,3 +132,105 @@ func TestHandlePeersPatchValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestHandlePeersPatchFullUpdate(t *testing.T) {
+	oldConfigDir := configDir
+	tmpDir := t.TempDir()
+	configDir = tmpDir
+	defer func() { configDir = oldConfigDir }()
+
+	// Write initial peers.json
+	initialPeers := `{
+  "peers": [
+    {
+      "id": 1,
+      "name": "germany-old",
+      "local_pub": "1.2.3.4",
+      "remote_pub": "198.51.100.1",
+      "frp_port": 25000,
+      "local_gre": "10.10.10.2",
+      "peer_gre": "10.10.10.1",
+      "ports": [80],
+      "token": "testtok123",
+      "gre_if": "gre-t1",
+      "frps_svc": "frps"
+    },
+    {
+      "id": 2,
+      "name": "finland-peer",
+      "local_pub": "1.2.3.4",
+      "remote_pub": "198.51.100.99",
+      "frp_port": 25001,
+      "local_gre": "10.10.20.2",
+      "peer_gre": "10.10.20.1",
+      "ports": [8080],
+      "token": "testtok456",
+      "gre_if": "gre-t2",
+      "frps_svc": "frps-2"
+    }
+  ]
+}`
+	if err := os.WriteFile(peersFile(), []byte(initialPeers), 0600); err != nil {
+		t.Fatalf("failed to write mock peers.json: %v", err)
+	}
+
+	// 1. Successful full update of peer 1
+	patchBody := `{
+		"id": 1,
+		"name": "germany-new",
+		"remote_pub": "198.51.100.50",
+		"carrier": "fou:443",
+		"ports": [443, 2083]
+	}`
+	req := httptest.NewRequest("PATCH", "/api/peers", bytes.NewBufferString(patchBody))
+	w := httptest.NewRecorder()
+	handlePeersPatch(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("patch failed: status %d, body %s", w.Code, w.Body.String())
+	}
+
+	// Verify peers.json was updated
+	updated := loadPeers()
+	if len(updated) != 2 {
+		t.Fatalf("expected 2 peers, got %d", len(updated))
+	}
+	p1 := updated[0]
+	if p1.Name != "germany-new" {
+		t.Errorf("expected name 'germany-new', got %q", p1.Name)
+	}
+	if p1.RemotePub != "198.51.100.50" {
+		t.Errorf("expected remote_pub '198.51.100.50', got %q", p1.RemotePub)
+	}
+	if p1.Carrier != "fou:443" {
+		t.Errorf("expected carrier 'fou:443', got %q", p1.Carrier)
+	}
+	if len(p1.Ports) != 2 || p1.Ports[0] != 443 || p1.Ports[1] != 2083 {
+		t.Errorf("expected ports [443, 2083], got %v", p1.Ports)
+	}
+
+	// 2. Reject duplicate IP clash with peer 2
+	clashIPBody := `{
+		"id": 1,
+		"remote_pub": "198.51.100.99"
+	}`
+	req2 := httptest.NewRequest("PATCH", "/api/peers", bytes.NewBufferString(clashIPBody))
+	w2 := httptest.NewRecorder()
+	handlePeersPatch(w2, req2)
+	if w2.Code != http.StatusConflict || !strings.Contains(w2.Body.String(), "E-PEER-03") {
+		t.Errorf("expected 409 E-PEER-03 for IP clash, got status %d body %s", w2.Code, w2.Body.String())
+	}
+
+	// 3. Reject port clash with peer 2
+	clashPortBody := `{
+		"id": 1,
+		"ports": [8080]
+	}`
+	req3 := httptest.NewRequest("PATCH", "/api/peers", bytes.NewBufferString(clashPortBody))
+	w3 := httptest.NewRecorder()
+	handlePeersPatch(w3, req3)
+	if w3.Code != http.StatusConflict || !strings.Contains(w3.Body.String(), "E-PEER-02") {
+		t.Errorf("expected 409 E-PEER-02 for port clash, got status %d body %s", w3.Code, w3.Body.String())
+	}
+}
+

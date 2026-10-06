@@ -129,6 +129,14 @@ func ensureFreeHTTPPort() {
 
 func loadOrInit() {
 	_ = os.MkdirAll(configDir, 0700)
+
+	// CWE-256 Migration: Delete legacy plaintext panel.pass if it exists on disk
+	legacyPassFile := filepath.Join(configDir, "panel.pass")
+	if _, err := os.Stat(legacyPassFile); err == nil {
+		_ = os.Remove(legacyPassFile)
+		log.Printf("Security migration (CWE-256): deleted legacy plaintext password file %s", legacyPassFile)
+	}
+
 	data, err := os.ReadFile(cfgPath())
 	if err == nil && json.Unmarshal(data, &cfg) == nil && cfg.PassHash != "" {
 		// Test/dev override: fixed password via env (takes effect on restart).
@@ -136,12 +144,13 @@ func loadOrInit() {
 			h := sha256.Sum256([]byte(pw))
 			cfg.PassHash = hex.EncodeToString(h[:])
 			_ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600)
+			log.Printf("panel password updated from GRE_PANEL_PASSWORD environment variable")
 		}
 		return
 	}
 	pass := os.Getenv("GRE_PANEL_PASSWORD")
 	if pass == "" {
-		pass = randomDigits(8)
+		pass = SecureRandomPassword(16)
 	}
 	h := sha256.Sum256([]byte(pass))
 	cfg = panelConfig{
@@ -151,9 +160,11 @@ func loadOrInit() {
 		BasePath: randomBase(12),
 	}
 	_ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600)
-	// plaintext copy so the server admin can view it later via script menu (user choice)
-	_ = os.WriteFile(filepath.Join(configDir, "panel.pass"), []byte(pass), 0600)
-	log.Printf("panel password: %s (user %s) — change it from Settings", pass, cfg.Username)
+	// CWE-256: Plaintext passwords are NEVER stored on disk!
+	log.Printf("==================================================================")
+	log.Printf("INITIAL PANEL PASSWORD: %s (user: %s)", pass, cfg.Username)
+	log.Printf("Please record this password now. Plaintext is not stored on disk.")
+	log.Printf("==================================================================")
 }
 
 func mustJSON(v any) []byte {
@@ -212,8 +223,8 @@ func main() {
 	mux.HandleFunc("GET "+base+"/xterm.css", serveAsset("xterm.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET "+base+"/api/term/ws", requireAuth(handleTermWS))
 	mux.HandleFunc("GET "+base+"/api/term/status", requireAuth(handleTermStatus))
-	mux.HandleFunc("POST "+base+"/api/term/kill", requireAuth(handleTermKill))
-	mux.HandleFunc("POST "+base+"/api/term/enable", requireAuth(handleTermEnable))
+	mux.HandleFunc("POST "+base+"/api/term/kill", requireAuth(requireCSRF(handleTermKill)))
+	mux.HandleFunc("POST "+base+"/api/term/enable", requireAuth(requireCSRF(handleTermEnable)))
 	mux.HandleFunc("GET "+base+"/api/health", handleHealth)
 	mux.HandleFunc("GET "+base+"/api/status", requireAuth(handleStatus))
 	mux.HandleFunc("GET "+base+"/api/dashboard", requireAuth(handleDashboard))
@@ -221,28 +232,28 @@ func main() {
 	mux.HandleFunc("POST "+base+"/api/logout", handleLogout)
 	mux.HandleFunc("GET "+base+"/api/logs", requireAuth(handleLogs))
 	mux.HandleFunc("GET "+base+"/api/errors", requireAuth(handleErrors))
-	mux.HandleFunc("POST "+base+"/api/action", requireAuth(handleAction))
-	mux.HandleFunc("POST "+base+"/api/password", requireAuth(handlePassword))
+	mux.HandleFunc("POST "+base+"/api/action", requireAuth(requireCSRF(handleAction)))
+	mux.HandleFunc("POST "+base+"/api/password", requireAuth(requireCSRF(handlePassword)))
 	mux.HandleFunc("GET "+base+"/api/setup", requireAuth(handleSetupGet))
 	mux.HandleFunc("GET "+base+"/api/version", requireAuth(handleVersion))
-	mux.HandleFunc("POST "+base+"/api/update", requireAuth(handleUpdate))
-	mux.HandleFunc("POST "+base+"/api/setup", requireAuth(handleSetupPost))
+	mux.HandleFunc("POST "+base+"/api/update", requireAuth(requireCSRF(handleUpdate)))
+	mux.HandleFunc("POST "+base+"/api/setup", requireAuth(requireCSRF(handleSetupPost)))
 	mux.HandleFunc("GET "+base+"/api/peers", requireAuth(handlePeersGet))
-	mux.HandleFunc("POST "+base+"/api/peers", requireAuth(handlePeersPost))
-	mux.HandleFunc("PATCH "+base+"/api/peers", requireAuth(handlePeersPatch))
+	mux.HandleFunc("POST "+base+"/api/peers", requireAuth(requireCSRF(handlePeersPost)))
+	mux.HandleFunc("PATCH "+base+"/api/peers", requireAuth(requireCSRF(handlePeersPatch)))
 	mux.HandleFunc("GET "+base+"/api/tls", requireAuth(handleTLSGet))
-	mux.HandleFunc("POST "+base+"/api/tls", requireAuth(handleTLSIssue))
-	mux.HandleFunc("POST "+base+"/api/tls/renew", requireAuth(handleTLSRenew))
+	mux.HandleFunc("POST "+base+"/api/tls", requireAuth(requireCSRF(handleTLSIssue)))
+	mux.HandleFunc("POST "+base+"/api/tls/renew", requireAuth(requireCSRF(handleTLSRenew)))
 	mux.HandleFunc("GET "+base+"/api/watchdog", requireAuth(handleWatchdogGet))
-	mux.HandleFunc("POST "+base+"/api/watchdog", requireAuth(handleWatchdogPost))
+	mux.HandleFunc("POST "+base+"/api/watchdog", requireAuth(requireCSRF(handleWatchdogPost)))
 	mux.HandleFunc("GET "+base+"/api/watchdog/backup-download", requireAuth(handleBackupDownload))
-	mux.HandleFunc("POST "+base+"/api/watchdog/backup-download", requireAuth(handleBackupDownload))
+	mux.HandleFunc("POST "+base+"/api/watchdog/backup-download", requireAuth(requireCSRF(handleBackupDownload)))
 	mux.HandleFunc("GET "+base+"/api/perf", requireAuth(handlePerfGet))
-	mux.HandleFunc("POST "+base+"/api/perf", requireAuth(handlePerfPost))
+	mux.HandleFunc("POST "+base+"/api/perf", requireAuth(requireCSRF(handlePerfPost)))
 	mux.HandleFunc("GET "+base+"/api/carrier", requireAuth(handleCarrierGet))
-	mux.HandleFunc("POST "+base+"/api/carrier", requireAuth(handleCarrierPost))
+	mux.HandleFunc("POST "+base+"/api/carrier", requireAuth(requireCSRF(handleCarrierPost)))
 	mux.HandleFunc("GET "+base+"/api/doctor", requireAuth(handleDoctorGet))
-	mux.HandleFunc("POST "+base+"/api/doctor", requireAuth(handleDoctorPost))
+	mux.HandleFunc("POST "+base+"/api/doctor", requireAuth(requireCSRF(handleDoctorPost)))
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("gre-panel listening on %s under /%s", addr, cfg.BasePath)

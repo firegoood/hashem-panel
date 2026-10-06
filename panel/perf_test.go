@@ -54,6 +54,7 @@ func TestPerfDefaultsAndLoadSave(t *testing.T) {
 		DPIEnabled:       false,
 		DPIRate:          "500/min",
 		DPIBurst:         150,
+		FRPMaxPool:       50,
 	}
 	if err := savePerfConfig(custom); err != nil {
 		t.Fatalf("savePerfConfig failed: %v", err)

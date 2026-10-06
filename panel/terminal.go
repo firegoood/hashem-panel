@@ -28,6 +28,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -196,6 +197,13 @@ func handleTermWS(w http.ResponseWriter, r *http.Request) {
 	termCur = s
 	termMu.Unlock()
 
+	clientIP := ClientIP(r)
+	LogSecurityAudit("terminal_connect", cfg.Username, clientIP, "session="+s.id)
+
+	// Interactive warning banner informing operator of monitoring
+	warnBanner := fmt.Sprintf("\r\n\x1b[1;33m*** NOTICE: Terminal session opened for user '%s' from %s. Session ID: %s. All commands are audited. ***\x1b[0m\r\n\r\n", cfg.Username, clientIP, s.id)
+	_, _ = pf.Write([]byte(warnBanner))
+
 	_ = conn.WriteJSON(termMsg{V: termProtoV, T: "hello", D: s.id})
 
 	// pty -> ws pump.
@@ -268,7 +276,10 @@ func handleTermWS(w http.ResponseWriter, r *http.Request) {
 
 	// ws -> pty pump (this goroutine owns conn reads).
 	var lineBuf strings.Builder
-	defer termClose(s)
+	defer func() {
+		LogSecurityAudit("terminal_disconnect", cfg.Username, clientIP, "session="+s.id)
+		termClose(s)
+	}()
 	conn.SetReadLimit(64 * 1024)
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -316,6 +327,7 @@ func handleTermWS(w http.ResponseWriter, r *http.Request) {
 						red := redactTermLine(lineBuf.String())
 						if strings.TrimSpace(red) != "" {
 							recordError("E-TERM-00", "WS "+r.URL.Path, "session "+s.id+": "+red)
+							LogSecurityAudit("terminal_command", cfg.Username, clientIP, "session="+s.id+" cmd="+red)
 						}
 						lineBuf.Reset()
 					}

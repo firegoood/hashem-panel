@@ -1,0 +1,42 @@
+name: Security & Integrity CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-and-security:
+    name: Security Tests & SAST
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Run Go Unit & Security Tests
+        run: |
+          cd panel
+          go test -v -race ./...
+
+      - name: Run Gosec Security Scanner
+        uses: securego/gosec@master
+        with:
+          args: '-no-fail -fmt sarif -out gosec.sarif ./panel/...'
+
+      - name: Run Go Vulnerability Check
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          cd panel
+          govulncheck ./...
+
+      - name: Validate Shell Script Syntax
+        run: |
+          bash -n hashem.sh
+          bash -n hashem-chaff.sh

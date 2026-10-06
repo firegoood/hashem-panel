@@ -920,7 +920,12 @@ except Exception:
 
 # ---- setup bundle: one readable string with everything foreign needs ----
 # Format: hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>][_fou<P1>-<P2>]
+# Format: bh1_<IRAN_PUB>_<BH_PORT>_<TRANSPORT>_<TOKEN>[_<PORTS>]
+# Format: gh1_<IRAN_PUB>_<BH_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TRANSPORT>_<TOKEN>[_<PORTS>]
 BUNDLE_PREFIX="hsh1_"
+BUNDLE_PREFIX_BACKHAUL="bh1_"
+BUNDLE_PREFIX_GRE_BACKHAUL="gh1_"
+
 bundle_make() { # $1=iran_pub $2=frp_port $3=iran_gre $4=foreign_gre $5=token [$6="p1 p2"] [$7="p1-p2"]
     local IRAN_PUB=$1 FRP_PORT=$2 IRAN_GRE=$3 FOREIGN_GRE=$4 TOKEN=$5 PORTS_SP=${6:-} FOU_ARG=${7:-}
     local PORTS_DASH=""
@@ -938,9 +943,72 @@ bundle_make() { # $1=iran_pub $2=frp_port $3=iran_gre $4=foreign_gre $5=token [$
         echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}__fou${FOU_ARG}"
     fi
 }
+
+bundle_make_backhaul() { # $1=iran_pub $2=bh_port $3=transport $4=token [$5="ports"]
+    local IRAN_PUB=$1 BH_PORT=$2 TRANSPORT=${3:-tcpmux} TOKEN=$4 PORTS=${5:-}
+    local P_STR=""
+    if [[ -n "$PORTS" ]]; then
+        P_STR=$(echo "$PORTS" | tr ' ' ',' | tr -s ',')
+    fi
+    if [[ -n "$P_STR" ]]; then
+        echo "${BUNDLE_PREFIX_BACKHAUL}${IRAN_PUB}_${BH_PORT}_${TRANSPORT}_${TOKEN}_${P_STR}"
+    else
+        echo "${BUNDLE_PREFIX_BACKHAUL}${IRAN_PUB}_${BH_PORT}_${TRANSPORT}_${TOKEN}"
+    fi
+}
+
+bundle_make_gre_backhaul() { # $1=iran_pub $2=bh_port $3=iran_gre $4=foreign_gre $5=transport $6=token [$7="ports"]
+    local IRAN_PUB=$1 BH_PORT=$2 IRAN_GRE=$3 FOREIGN_GRE=$4 TRANSPORT=${5:-tcpmux} TOKEN=$6 PORTS=${7:-}
+    local P_STR=""
+    if [[ -n "$PORTS" ]]; then
+        P_STR=$(echo "$PORTS" | tr ' ' ',' | tr -s ',')
+    fi
+    if [[ -n "$P_STR" ]]; then
+        echo "${BUNDLE_PREFIX_GRE_BACKHAUL}${IRAN_PUB}_${BH_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TRANSPORT}_${TOKEN}_${P_STR}"
+    else
+        echo "${BUNDLE_PREFIX_GRE_BACKHAUL}${IRAN_PUB}_${BH_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TRANSPORT}_${TOKEN}"
+    fi
+}
+
 bundle_parse() {
-    B_IRAN_PUB=""; B_FRP_PORT=""; B_IRAN_GRE=""; B_FOREIGN_GRE=""; B_TOKEN=""; B_PORTS=""; B_FOU_P1=443; B_FOU_P2=55555
-    local IN=$1 rest a b c d e f g
+    local IN=$1
+    if [[ "$IN" == ${BUNDLE_PREFIX_BACKHAUL}* ]]; then
+        B_ENGINE="backhaul"; B_IRAN_PUB=""; B_FRP_PORT=""; B_TRANSPORT="tcpmux"; B_TOKEN=""; B_PORTS=""
+        local rest=${IN#${BUNDLE_PREFIX_BACKHAUL}}
+        local a b c d e
+        IFS=_ read -r a b c d e <<<"$rest"
+        [[ -n "$a" && -n "$b" && -n "$c" && -n "$d" ]] || return 1
+        is_valid_ip "$a" || return 1
+        is_valid_port "$b" || return 1
+        [[ ${#d} -ge 1 && ${#d} -le 128 ]] || return 1
+        B_IRAN_PUB="$a"
+        B_FRP_PORT="$((10#$b))"
+        B_TRANSPORT="$c"
+        B_TOKEN="$d"
+        B_PORTS="${e:-}"
+        return 0
+    elif [[ "$IN" == ${BUNDLE_PREFIX_GRE_BACKHAUL}* ]]; then
+        B_ENGINE="gre-backhaul"; B_IRAN_PUB=""; B_FRP_PORT=""; B_IRAN_GRE=""; B_FOREIGN_GRE=""; B_TRANSPORT="tcpmux"; B_TOKEN=""; B_PORTS=""
+        local rest=${IN#${BUNDLE_PREFIX_GRE_BACKHAUL}}
+        local a b c d e f g
+        IFS=_ read -r a b c d e f g <<<"$rest"
+        [[ -n "$a" && -n "$b" && -n "$c" && -n "$d" && -n "$e" && -n "$f" ]] || return 1
+        is_valid_ip "$a" || return 1
+        is_valid_port "$b" || return 1
+        is_valid_ip "$c" || return 1
+        is_valid_ip "$d" || return 1
+        [[ ${#f} -ge 1 && ${#f} -le 128 ]] || return 1
+        B_IRAN_PUB="$a"
+        B_FRP_PORT="$((10#$b))"
+        B_IRAN_GRE="$c"
+        B_FOREIGN_GRE="$d"
+        B_TRANSPORT="$e"
+        B_TOKEN="$f"
+        B_PORTS="${g:-}"
+        return 0
+    fi
+    B_ENGINE="frp"; B_IRAN_PUB=""; B_FRP_PORT=""; B_IRAN_GRE=""; B_FOREIGN_GRE=""; B_TOKEN=""; B_PORTS=""; B_FOU_P1=443; B_FOU_P2=55555
+    local rest a b c d e f g
     [[ "$IN" == ${BUNDLE_PREFIX}* ]] || return 1
     rest=${IN#${BUNDLE_PREFIX}}
     IFS=_ read -r a b c d e f g <<<"$rest"
@@ -1145,6 +1213,191 @@ install_frp_binaries() {
 
     rm -rf "$TMP_DIR"
     echo -e "${GREEN}[✔️] FRP installed to ${INSTALL_DIR}.${NC}"
+}
+
+BACKHAUL_CONFIG_DIR="/etc/backhaul"
+DEFAULT_BACKHAUL_VERSION="v0.7.2"
+
+install_backhaul_binaries() {
+    if [[ -x "${INSTALL_DIR}/backhaul" ]]; then
+        return 0
+    fi
+    detect_arch
+    local BH_ARCH="$FRP_ARCH"
+    local BH_VER="$DEFAULT_BACKHAUL_VERSION"
+    echo -e "${CYAN}[*] Downloading Backhaul ${BH_VER} (${BH_ARCH})...${NC}"
+
+    mkdir -p "$BACKHAUL_CONFIG_DIR"
+    local TMP_DIR
+    TMP_DIR=$(mktemp -d)
+    local TAR_FILE="backhaul_linux_${BH_ARCH}.tar.gz"
+    local DOWNLOAD_URL="https://github.com/Musixal/Backhaul/releases/download/${BH_VER}/${TAR_FILE}"
+
+    if ! download_with_fallback "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL" 60; then
+        echo -e "${RED}[!] Failed to download Backhaul from GitHub or mirrors.${NC}"
+        rm -rf "$TMP_DIR"
+        return 1
+    fi
+
+    tar -xzf "${TMP_DIR}/${TAR_FILE}" -C "$TMP_DIR"
+    if [[ -f "${TMP_DIR}/backhaul" ]]; then
+        cp "${TMP_DIR}/backhaul" "$INSTALL_DIR/" 2>/dev/null
+    else
+        local FOUND
+        FOUND=$(find "$TMP_DIR" -type f -name "backhaul" 2>/dev/null | head -n 1)
+        if [[ -n "$FOUND" ]]; then
+            cp "$FOUND" "$INSTALL_DIR/" 2>/dev/null
+        fi
+    fi
+    chmod +x "${INSTALL_DIR}/backhaul" 2>/dev/null
+
+    rm -rf "$TMP_DIR"
+    if [[ -x "${INSTALL_DIR}/backhaul" ]]; then
+        echo -e "${GREEN}[✔️] Backhaul installed to ${INSTALL_DIR}/backhaul.${NC}"
+        return 0
+    else
+        echo -e "${RED}[!] Backhaul binary extraction failed.${NC}"
+        return 1
+    fi
+}
+
+backhaul_ensure_tls() {
+    mkdir -p "$BACKHAUL_CONFIG_DIR"
+    if [[ ! -f "${BACKHAUL_CONFIG_DIR}/server.crt" || ! -f "${BACKHAUL_CONFIG_DIR}/server.key" ]]; then
+        echo -e "${CYAN}[*] Generating self-signed TLS certificate for Backhaul WSS...${NC}"
+        openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+            -keyout "${BACKHAUL_CONFIG_DIR}/server.key" \
+            -out "${BACKHAUL_CONFIG_DIR}/server.crt" \
+            -subj "/CN=backhaul" >/dev/null 2>&1 || true
+        chmod 600 "${BACKHAUL_CONFIG_DIR}/server.key" 2>/dev/null || true
+    fi
+}
+
+backhaul_write_server_conf() {
+    local CONF_FILE="$1"
+    local BIND_ADDR="$2"
+    local TRANSPORT="${3:-tcpmux}"
+    local TOKEN="$4"
+    local PORTS_LIST="$5"
+
+    mkdir -p "$(dirname "$CONF_FILE")"
+    if [[ "$TRANSPORT" == "wss" || "$TRANSPORT" == "wssmux" ]]; then
+        backhaul_ensure_tls
+    fi
+
+    cat <<EOF > "$CONF_FILE"
+[server]
+bind_addr = "${BIND_ADDR}"
+transport = "${TRANSPORT}"
+token = "${TOKEN}"
+keepalive_period = 75
+nodelay = true
+heartbeat = 40
+channel_size = 2048
+sniffer = false
+web_port = 0
+sniffer_log = ""
+log_level = "info"
+EOF
+
+    if [[ "$TRANSPORT" == "wss" || "$TRANSPORT" == "wssmux" ]]; then
+        cat <<EOF >> "$CONF_FILE"
+tls_cert = "${BACKHAUL_CONFIG_DIR}/server.crt"
+tls_key = "${BACKHAUL_CONFIG_DIR}/server.key"
+EOF
+    fi
+
+    echo "ports = [" >> "$CONF_FILE"
+    local FIRST=1
+    IFS=',' read -ra ADDR <<< "$PORTS_LIST"
+    for p in "${ADDR[@]}"; do
+        p=$(echo "$p" | xargs)
+        [[ -z "$p" ]] && continue
+        if [[ $FIRST -eq 1 ]]; then
+            echo "  \"$p\"" >> "$CONF_FILE"
+            FIRST=0
+        else
+            echo "  ,\"$p\"" >> "$CONF_FILE"
+        fi
+    done
+    echo "]" >> "$CONF_FILE"
+}
+
+backhaul_write_client_conf() {
+    local CONF_FILE="$1"
+    local REMOTE_ADDR="$2"
+    local TRANSPORT="${3:-tcpmux}"
+    local TOKEN="$4"
+
+    mkdir -p "$(dirname "$CONF_FILE")"
+    cat <<EOF > "$CONF_FILE"
+[client]
+remote_addr = "${REMOTE_ADDR}"
+transport = "${TRANSPORT}"
+token = "${TOKEN}"
+connection_pool = 8
+nodelay = true
+retry_interval = 3
+keepalive_period = 75
+sniffer = false
+web_port = 0
+sniffer_log = ""
+log_level = "info"
+EOF
+}
+
+setup_backhaul_server_systemd() {
+    local SVC_NAME="${1:-backhaul-server}"
+    local CONF_FILE="${2:-${BACKHAUL_CONFIG_DIR}/config.toml}"
+
+    cat <<EOF > "/etc/systemd/system/${SVC_NAME}.service"
+[Unit]
+Description=Backhaul Server Tunnel (${SVC_NAME})
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=${INSTALL_DIR}/backhaul -c ${CONF_FILE}
+Restart=always
+RestartSec=3s
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable "${SVC_NAME}.service" >/dev/null 2>&1 || true
+    systemctl restart "${SVC_NAME}.service"
+}
+
+setup_backhaul_client_systemd() {
+    local SVC_NAME="${1:-backhaul-client}"
+    local CONF_FILE="${2:-${BACKHAUL_CONFIG_DIR}/client.toml}"
+
+    cat <<EOF > "/etc/systemd/system/${SVC_NAME}.service"
+[Unit]
+Description=Backhaul Client Tunnel (${SVC_NAME})
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=${INSTALL_DIR}/backhaul -c ${CONF_FILE}
+Restart=always
+RestartSec=3s
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable "${SVC_NAME}.service" >/dev/null 2>&1 || true
+    systemctl restart "${SVC_NAME}.service"
 }
 
 setup_gre_systemd() {
@@ -2564,6 +2817,407 @@ EOF
     fi
 }
 
+setup_backhaul_iran_server_noninteractive() {
+    local IP_IRAN=$1 IP_FOREIGN=$2 BIND_PORT=$3 TOKEN=$4 TRANSPORT=${5:-tcpmux} PORTS=${6:-}
+    
+    log_msg "tunnel" "INFO" "Starting Standalone Backhaul IRAN server setup: port ${BIND_PORT}, transport ${TRANSPORT}"
+    backup_configs "pre_setup_backhaul_iran"
+    ensure_dependencies_smart
+
+    local STATUS_BH="OK"
+    local STATUS_PANEL="OK"
+    local BH_ERR="" PANEL_ERR=""
+
+    install_backhaul_binaries || { STATUS_BH="FAILED"; BH_ERR="Failed to download/install backhaul binary"; }
+    backhaul_ensure_tls "$TRANSPORT"
+
+    if [[ "$STATUS_BH" == "OK" ]]; then
+        mkdir -p "${BACKHAUL_CONFIG_DIR}"
+        backhaul_write_server_conf "${BACKHAUL_CONFIG_DIR}/config.toml" "0.0.0.0:${BIND_PORT}" "$TRANSPORT" "$TOKEN" "$PORTS"
+        setup_backhaul_server_systemd "backhaul-server" "${BACKHAUL_CONFIG_DIR}/config.toml"
+
+        local _bh_ok=0
+        for _i in {1..5}; do
+            sleep 2
+            if systemctl is-active --quiet backhaul-server 2>/dev/null; then
+                _bh_ok=1
+                break
+            fi
+        done
+
+        if [[ "$_bh_ok" -ne 1 ]]; then
+            STATUS_BH="FAILED"
+            BH_ERR="backhaul-server service failed to start — check: journalctl -u backhaul-server"
+            log_msg "tunnel" "ERROR" "backhaul-server service failed to start"
+        fi
+    fi
+
+    if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+        ufw allow "${BIND_PORT}/tcp" >/dev/null 2>&1 || true
+    fi
+
+    tune_apply >/dev/null 2>&1 || true
+    watchdog_on >/dev/null 2>&1 || true
+
+    if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
+        echo -e "${CYAN}[*] Skipping panel install (called from panel or flag).${NC}"
+    else
+        if ! install_panel_smart; then
+            STATUS_PANEL="FAILED"
+            PANEL_ERR="Panel installation or start failed"
+        fi
+    fi
+
+    echo -e "\n=============================================================="
+    echo "                   INSTALLATION SUMMARY"
+    echo "=============================================================="
+    if [[ "$STATUS_BH" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     Backhaul Server Service (listening on :${BIND_PORT}, transport: ${TRANSPORT})"
+    else
+        echo -e "[${RED}FAILED${NC}] Backhaul Server Service (${BH_ERR})"
+    fi
+
+    if [[ "${GRE_SKIP_PANEL:-0}" != "1" ]]; then
+        if [[ "$STATUS_PANEL" == "OK" ]]; then
+            echo -e "[${GREEN}OK${NC}]     Web Panel (healthy and accessible)"
+        else
+            echo -e "[${RED}FAILED${NC}] Web Panel (${PANEL_ERR})"
+        fi
+    fi
+    echo "=============================================================="
+
+    if [[ "$STATUS_BH" == "OK" ]]; then
+        echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC}\n"
+        echo -e "Iran Public IP:       ${CYAN}${IP_IRAN}${NC}"
+        echo -e "Backhaul Port:        ${CYAN}${BIND_PORT}${NC}"
+        echo -e "Transport Protocol:   ${CYAN}${TRANSPORT}${NC}"
+        echo -e "Secret Token:         ${CYAN}${TOKEN}${NC}"
+        local BUNDLE_STR
+        BUNDLE_STR=$(bundle_make_backhaul "$IP_IRAN" "$BIND_PORT" "$TRANSPORT" "$TOKEN" "$PORTS")
+        echo -e "Setup Bundle:         ${CYAN}${BUNDLE_STR}${NC}"
+        echo -e "BUNDLE:${BUNDLE_STR}"
+        log_msg "tunnel" "INFO" "IRAN Backhaul server setup completed successfully"
+        return 0
+    else
+        echo -e "Overall Installation Status: ${RED}PARTIALLY FAILED${NC}"
+        log_msg "tunnel" "ERROR" "IRAN Backhaul server setup failed"
+        return 1
+    fi
+}
+
+setup_backhaul_foreign_server_noninteractive() {
+    local IP_FOREIGN=$1 IP_IRAN=$2 SERVER_PORT=$3 TOKEN=$4 TRANSPORT=${5:-tcpmux}
+    
+    log_msg "tunnel" "INFO" "Starting Standalone Backhaul FOREIGN setup: remote ${IP_IRAN}:${SERVER_PORT}, transport ${TRANSPORT}"
+    backup_configs "pre_setup_backhaul_foreign"
+    ensure_dependencies_smart
+
+    local STATUS_BH="OK"
+    local STATUS_PANEL="OK"
+    local BH_ERR="" PANEL_ERR=""
+
+    install_backhaul_binaries || { STATUS_BH="FAILED"; BH_ERR="Failed to install backhaul binary"; }
+    backhaul_ensure_tls "$TRANSPORT"
+
+    if [[ "$STATUS_BH" == "OK" ]]; then
+        mkdir -p "${BACKHAUL_CONFIG_DIR}"
+        backhaul_write_client_conf "${BACKHAUL_CONFIG_DIR}/client.toml" "${IP_IRAN}:${SERVER_PORT}" "$TRANSPORT" "$TOKEN"
+        setup_backhaul_client_systemd "backhaul-client" "${BACKHAUL_CONFIG_DIR}/client.toml"
+
+        local _bh_ok=0
+        for _i in {1..5}; do
+            sleep 2
+            if systemctl is-active --quiet backhaul-client 2>/dev/null; then
+                _bh_ok=1
+                break
+            fi
+        done
+
+        if [[ "$_bh_ok" -ne 1 ]]; then
+            STATUS_BH="FAILED"
+            BH_ERR="backhaul-client service failed to start — check: journalctl -u backhaul-client"
+            log_msg "tunnel" "ERROR" "backhaul-client service failed to start"
+        fi
+    fi
+
+    tune_apply >/dev/null 2>&1 || true
+    watchdog_on >/dev/null 2>&1 || true
+
+    if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
+        echo -e "${CYAN}[*] Skipping panel install (called from panel or flag).${NC}"
+    else
+        if ! install_panel_smart; then
+            STATUS_PANEL="FAILED"
+            PANEL_ERR="Panel installation or start failed"
+        fi
+    fi
+
+    echo -e "\n=============================================================="
+    echo "                   INSTALLATION SUMMARY"
+    echo "=============================================================="
+    if [[ "$STATUS_BH" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     Backhaul Client Service (connected to ${IP_IRAN}:${SERVER_PORT}, transport: ${TRANSPORT})"
+    else
+        echo -e "[${RED}FAILED${NC}] Backhaul Client Service (${BH_ERR})"
+    fi
+
+    if [[ "${GRE_SKIP_PANEL:-0}" != "1" ]]; then
+        if [[ "$STATUS_PANEL" == "OK" ]]; then
+            echo -e "[${GREEN}OK${NC}]     Web Panel (healthy and accessible)"
+        else
+            echo -e "[${RED}FAILED${NC}] Web Panel (${PANEL_ERR})"
+        fi
+    fi
+    echo "=============================================================="
+
+    if [[ "$STATUS_BH" == "OK" ]]; then
+        echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC}\n"
+        log_msg "tunnel" "INFO" "FOREIGN Backhaul client setup completed successfully"
+        return 0
+    else
+        echo -e "Overall Installation Status: ${RED}FAILED${NC}"
+        log_msg "tunnel" "ERROR" "FOREIGN Backhaul client setup failed"
+        return 1
+    fi
+}
+
+setup_gre_backhaul_iran_server_noninteractive() {
+    local IP_IRAN=$1 IP_FOREIGN=$2 BIND_PORT=$3 TOKEN=$4
+    local LOCAL_GRE=${5:-$IRAN_GRE_IP} PEER_GRE=${6:-$FOREIGN_GRE_IP}
+    local TRANSPORT=${7:-tcpmux} PORTS=${8:-}
+    
+    log_msg "tunnel" "INFO" "Starting GRE+Backhaul IRAN setup: GRE ${IP_IRAN} <-> ${IP_FOREIGN}, port: ${BIND_PORT}, transport: ${TRANSPORT}"
+    backup_configs "pre_setup_gre_backhaul_iran"
+    ensure_dependencies_smart
+
+    local STATUS_GRE="OK"
+    local STATUS_BH="OK"
+    local STATUS_PANEL="OK"
+    local GRE_ERR="" BH_ERR="" PANEL_ERR=""
+
+    # 1. Setup GRE interface
+    if ! setup_gre_systemd "$IP_IRAN" "$IP_FOREIGN" "$LOCAL_GRE" "$PEER_GRE"; then
+        STATUS_GRE="FAILED"
+        GRE_ERR="GRE interface failed to start or configure IP"
+        log_msg "tunnel" "ERROR" "GRE setup failed on IRAN server"
+    fi
+
+    # 2. Setup Backhaul Server
+    install_backhaul_binaries || { STATUS_BH="FAILED"; BH_ERR="Failed to install backhaul binary"; }
+    backhaul_ensure_tls "$TRANSPORT"
+
+    if [[ "$STATUS_BH" == "OK" ]]; then
+        mkdir -p "${BACKHAUL_CONFIG_DIR}"
+        backhaul_write_server_conf "${BACKHAUL_CONFIG_DIR}/config.toml" "0.0.0.0:${BIND_PORT}" "$TRANSPORT" "$TOKEN" "$PORTS"
+        setup_backhaul_server_systemd "backhaul-server" "${BACKHAUL_CONFIG_DIR}/config.toml"
+        sed -i "s/After=network.target/After=network.target ${TUNNEL_NAME}.service/" /etc/systemd/system/backhaul-server.service 2>/dev/null || true
+        systemctl daemon-reload
+        systemctl restart backhaul-server
+
+        local _bh_ok=0
+        for _i in {1..5}; do
+            sleep 2
+            if systemctl is-active --quiet backhaul-server 2>/dev/null; then
+                _bh_ok=1
+                break
+            fi
+        done
+
+        if [[ "$_bh_ok" -ne 1 ]]; then
+            STATUS_BH="FAILED"
+            BH_ERR="backhaul-server service failed to start — check: journalctl -u backhaul-server"
+            log_msg "tunnel" "ERROR" "backhaul-server service failed to start"
+        fi
+    fi
+
+    if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+        ufw allow "${BIND_PORT}/tcp" >/dev/null 2>&1 || true
+    fi
+
+    local DPI_EN=$(perf_get_dpi_enabled)
+    if [[ "$DPI_EN" == "1" ]]; then
+        dpi_shield_on >/dev/null 2>&1 || true
+    fi
+    tune_apply >/dev/null 2>&1 || true
+    watchdog_on >/dev/null 2>&1 || true
+
+    # 3. Web Panel
+    if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
+        echo -e "${CYAN}[*] Skipping panel install (called from panel or flag).${NC}"
+    else
+        if ! install_panel_smart; then
+            STATUS_PANEL="FAILED"
+            PANEL_ERR="Panel installation or start failed"
+        fi
+    fi
+
+    # 4. Summary & Verification
+    echo -e "\n=============================================================="
+    echo "                   INSTALLATION SUMMARY"
+    echo "=============================================================="
+    if [[ "$STATUS_GRE" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     GRE Tunnel Interface (${TUNNEL_NAME}: ${IP_IRAN} <-> ${IP_FOREIGN}, IP: ${LOCAL_GRE})"
+    else
+        echo -e "[${RED}FAILED${NC}] GRE Tunnel Interface (${GRE_ERR})"
+    fi
+
+    if [[ "$STATUS_BH" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     Backhaul Server Service (listening on :${BIND_PORT}, transport: ${TRANSPORT})"
+    else
+        echo -e "[${RED}FAILED${NC}] Backhaul Server Service (${BH_ERR})"
+    fi
+
+    if [[ "${GRE_SKIP_PANEL:-0}" != "1" ]]; then
+        if [[ "$STATUS_PANEL" == "OK" ]]; then
+            echo -e "[${GREEN}OK${NC}]     Web Panel (healthy and accessible)"
+        else
+            echo -e "[${RED}FAILED${NC}] Web Panel (${PANEL_ERR})"
+        fi
+    fi
+    echo "=============================================================="
+
+    if [[ "$STATUS_GRE" == "OK" && "$STATUS_BH" == "OK" ]]; then
+        echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC}\n"
+        echo -e "GRE Public Link:      ${CYAN}${IP_IRAN} <--> ${IP_FOREIGN}${NC}"
+        echo -e "IRAN GRE Internal IP: ${CYAN}${LOCAL_GRE}${NC}"
+        echo -e "Backhaul Port:        ${CYAN}${BIND_PORT}${NC}"
+        echo -e "Transport Protocol:   ${CYAN}${TRANSPORT}${NC}"
+        echo -e "Secret Token:         ${CYAN}${TOKEN}${NC}"
+        local BUNDLE_STR
+        BUNDLE_STR=$(bundle_make_gre_backhaul "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TRANSPORT" "$TOKEN" "$PORTS")
+        echo -e "Setup Bundle:         ${CYAN}${BUNDLE_STR}${NC}"
+        echo -e "BUNDLE:${BUNDLE_STR}"
+        log_msg "tunnel" "INFO" "IRAN GRE+Backhaul setup completed successfully"
+        return 0
+    else
+        echo -e "Overall Installation Status: ${RED}PARTIALLY FAILED${NC}"
+        log_msg "tunnel" "ERROR" "IRAN GRE+Backhaul setup partially failed: GRE=${STATUS_GRE}, BH=${STATUS_BH}"
+        return 1
+    fi
+}
+
+setup_gre_backhaul_foreign_server_noninteractive() {
+    local IP_FOREIGN=$1 IP_IRAN=$2 SERVER_PORT=$3 TOKEN=$4
+    local LOCAL_GRE=${5:-$FOREIGN_GRE_IP} PEER_GRE=${6:-$IRAN_GRE_IP}
+    local TRANSPORT=${7:-tcpmux}
+    
+    log_msg "tunnel" "INFO" "Starting GRE+Backhaul FOREIGN setup: GRE ${IP_FOREIGN} <-> ${IP_IRAN}, port: ${SERVER_PORT}, transport: ${TRANSPORT}"
+    backup_configs "pre_setup_gre_backhaul_foreign"
+    ensure_dependencies_smart
+
+    local STATUS_GRE="OK"
+    local STATUS_PING="OK"
+    local STATUS_BH="OK"
+    local STATUS_PANEL="OK"
+    local GRE_ERR="" PING_ERR="" BH_ERR="" PANEL_ERR=""
+
+    carrier_init_kernel 2>/dev/null || true
+    if ! setup_gre_systemd "$IP_FOREIGN" "$IP_IRAN" "$LOCAL_GRE" "$PEER_GRE"; then
+        STATUS_GRE="FAILED"
+        GRE_ERR="GRE interface failed to configure or initialize"
+        log_msg "tunnel" "ERROR" "GRE setup failed on FOREIGN server"
+    fi
+    carrier_apply_active "$TUNNEL_NAME" >/dev/null 2>&1 || true
+
+    echo -e "${CYAN}[*] Testing GRE internal ping to Iran (${PEER_GRE})...${NC}"
+    if ping -c 3 -W 2 "$PEER_GRE" >/dev/null 2>&1; then
+        echo -e "${GREEN}[✔️] GRE Tunnel link is UP and reachable!${NC}"
+    else
+        STATUS_PING="WARN"
+        PING_ERR="Ping to peer GRE IP ${PEER_GRE} timed out (may need Iran side up)"
+        echo -e "${YELLOW}[!] Warning: Ping to ${PEER_GRE} did not respond yet.${NC}"
+    fi
+
+    install_backhaul_binaries || { STATUS_BH="FAILED"; BH_ERR="Failed to install backhaul binary"; }
+    backhaul_ensure_tls "$TRANSPORT"
+
+    if [[ "$STATUS_BH" == "OK" ]]; then
+        mkdir -p "${BACKHAUL_CONFIG_DIR}"
+        # In GRE+Backhaul, foreign client dials Iran via the GRE internal IP (PEER_GRE)
+        backhaul_write_client_conf "${BACKHAUL_CONFIG_DIR}/client.toml" "${PEER_GRE}:${SERVER_PORT}" "$TRANSPORT" "$TOKEN"
+        setup_backhaul_client_systemd "backhaul-client" "${BACKHAUL_CONFIG_DIR}/client.toml"
+        sed -i "s/After=network.target/After=network.target ${TUNNEL_NAME}.service/" /etc/systemd/system/backhaul-client.service 2>/dev/null || true
+        systemctl daemon-reload
+        systemctl restart backhaul-client
+
+        local _bh_ok=0
+        for _i in {1..5}; do
+            sleep 2
+            if systemctl is-active --quiet backhaul-client 2>/dev/null; then
+                _bh_ok=1
+                break
+            fi
+        done
+
+        if [[ "$_bh_ok" -ne 1 ]]; then
+            STATUS_BH="FAILED"
+            BH_ERR="backhaul-client service failed to start — check: journalctl -u backhaul-client"
+            log_msg "tunnel" "ERROR" "backhaul-client service failed to start"
+        fi
+    fi
+
+    local DPI_EN=$(perf_get_dpi_enabled)
+    if [[ "$DPI_EN" == "1" ]]; then
+        dpi_shield_on >/dev/null 2>&1 || true
+    fi
+    tune_apply >/dev/null 2>&1 || true
+    watchdog_on >/dev/null 2>&1 || true
+
+    if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
+        echo -e "${CYAN}[*] Skipping panel install (called from panel or flag).${NC}"
+    else
+        if ! install_panel_smart; then
+            STATUS_PANEL="FAILED"
+            PANEL_ERR="Panel installation or start failed"
+        fi
+    fi
+
+    echo -e "\n=============================================================="
+    echo "                   INSTALLATION SUMMARY"
+    echo "=============================================================="
+    if [[ "$STATUS_GRE" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     GRE Tunnel Interface (${TUNNEL_NAME}: ${IP_FOREIGN} <-> ${IP_IRAN}, IP: ${LOCAL_GRE})"
+    else
+        echo -e "[${RED}FAILED${NC}] GRE Tunnel Interface (${GRE_ERR})"
+    fi
+
+    if [[ "$STATUS_PING" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     GRE Ping Connectivity (Peer ${PEER_GRE} reachable)"
+    else
+        echo -e "[${YELLOW}WARN${NC}]   GRE Ping Connectivity (${PING_ERR})"
+    fi
+
+    if [[ "$STATUS_BH" == "OK" ]]; then
+        echo -e "[${GREEN}OK${NC}]     Backhaul Client Service (connected to ${PEER_GRE}:${SERVER_PORT}, transport: ${TRANSPORT})"
+    else
+        echo -e "[${RED}FAILED${NC}] Backhaul Client Service (${BH_ERR})"
+    fi
+
+    if [[ "${GRE_SKIP_PANEL:-0}" != "1" ]]; then
+        if [[ "$STATUS_PANEL" == "OK" ]]; then
+            echo -e "[${GREEN}OK${NC}]     Web Panel (healthy and accessible)"
+        else
+            echo -e "[${RED}FAILED${NC}] Web Panel (${PANEL_ERR})"
+        fi
+    fi
+    echo "=============================================================="
+
+    local _ping_blocking=0
+    if [[ "$STATUS_PING" != "OK" && "$STATUS_BH" != "OK" ]]; then
+        _ping_blocking=1
+    fi
+
+    if [[ "$STATUS_GRE" == "OK" && "$STATUS_BH" == "OK" && "$_ping_blocking" -eq 0 ]]; then
+        echo -e "Overall Installation Status: ${GREEN}SUCCESS${NC}\n"
+        log_msg "tunnel" "INFO" "FOREIGN GRE+Backhaul setup completed successfully"
+        return 0
+    else
+        echo -e "Overall Installation Status: ${RED}PARTIALLY FAILED${NC}"
+        log_msg "tunnel" "ERROR" "FOREIGN GRE+Backhaul setup partially failed: GRE=${STATUS_GRE}, BH=${STATUS_BH}"
+        return 1
+    fi
+}
+
 # ---- Multi-peer tunnels: up to MAX_PEERS foreign servers on one Iran ----
 # Peer 1 reuses the legacy names (gre-tunnel, frps.toml, frps.service) so
 # existing installs keep working. Peers 2..5 get gre-tN + frps-N.toml +
@@ -2817,14 +3471,324 @@ cli_remove_peer() {
     else
         systemctl stop "$SVC" "${GIF}.service" "gre-chaff-${ID}.service" >/dev/null 2>&1
         systemctl disable "$SVC" "${GIF}.service" "gre-chaff-${ID}.service" >/dev/null 2>&1
-        rm -f "/etc/systemd/system/${SVC}.service" "/etc/systemd/system/${GIF}.service" "/etc/frp/frps-${ID}.toml" "/etc/systemd/system/gre-chaff-${ID}.service"
+        rm -f "/etc/systemd/system/${SVC}.service" "/etc/systemd/system/${GIF}.service" "/etc/frp/frps-${ID}.toml" "/etc/backhaul/server-${ID}.toml" "/etc/systemd/system/gre-chaff-${ID}.service"
         systemctl daemon-reload; systemctl reset-failed >/dev/null 2>&1 || true
-        ip tunnel del "$GIF" >/dev/null 2>&1 || true
+        if [[ "$GIF" != "none" && -n "$GIF" ]]; then
+            ip tunnel del "$GIF" >/dev/null 2>&1 || true
+        fi
     fi
     PEERS_F="$PEERS_FILE" PEER_ID="$ID" python3 -c \
 'import json,os; f=os.environ["PEERS_F"]; d=json.load(open(f)); d["peers"]=[p for p in d.get("peers",[]) if p["id"]!=int(os.environ["PEER_ID"])]; json.dump(d,open(f,"w"),indent=2)' \
         || echo -e "${YELLOW}[!] peers registry already gone — nothing left to clean.${NC}"
     echo -e "${GREEN}[✔️] Peer '${NAME}' (id ${ID}) removed.${NC}"
+}
+
+cli_add_backhaul_peer() {
+    local NAME="" LOCAL_PUB="" REMOTE_PUB="" PORT="" TOKEN="" LOCAL_GRE="" PEER_GRE="" PORTS="" TRANSPORT="tcpmux" NO_GRE=0 FORCE=0 BUNDLE=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --name) NAME="$2"; shift 2 ;;
+            --local-pub) LOCAL_PUB="$2"; shift 2 ;;
+            --remote-pub) REMOTE_PUB="$2"; shift 2 ;;
+            --port) PORT="$2"; shift 2 ;;
+            --token) TOKEN="$2"; shift 2 ;;
+            --local-gre) LOCAL_GRE="$2"; shift 2 ;;
+            --peer-gre) PEER_GRE="$2"; shift 2 ;;
+            --transport) TRANSPORT="$2"; shift 2 ;;
+            --ports) PORTS="$2"; shift 2 ;;
+            --no-gre) NO_GRE=1; shift ;;
+            --bundle) BUNDLE="$2"; shift 2 ;;
+            --force) FORCE=1; shift ;;
+            -h|--help) echo 'Usage: hashem.sh add-backhaul-peer --remote-pub IP --port P --transport T --token K --ports "443, 10000-10050" [--no-gre]'; return 0 ;;
+            *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
+        esac
+    done
+    if [[ -n "$BUNDLE" ]]; then
+        bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad bundle: $BUNDLE${NC}"; return 1; }
+        [[ -z "$LOCAL_PUB" ]] && LOCAL_PUB=$B_IRAN_PUB
+        [[ -z "$PORT" ]] && PORT=$B_FRP_PORT
+        [[ -z "$TRANSPORT" ]] && TRANSPORT=$B_TRANSPORT
+        [[ -z "$TOKEN" ]] && TOKEN=$B_TOKEN
+        [[ -z "$PORTS" ]] && PORTS=$B_PORTS
+        if [[ "$B_ENGINE" == "backhaul" ]]; then
+            NO_GRE=1
+        else
+            [[ -z "$LOCAL_GRE" ]] && LOCAL_GRE=$B_IRAN_GRE
+            [[ -z "$PEER_GRE" ]] && PEER_GRE=$B_FOREIGN_GRE
+        fi
+    fi
+    LOCAL_PUB=${LOCAL_PUB:-$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')}
+    [[ -z "$LOCAL_PUB" ]] && LOCAL_PUB=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
+    PORT=${PORT:-$(gen_random_port)}
+    is_valid_ip "$LOCAL_PUB" || { echo -e "${RED}[!] Invalid local IP: '$LOCAL_PUB'${NC}"; return 1; }
+    is_valid_port "$PORT" || { echo -e "${RED}[!] Invalid control port: '$PORT'${NC}"; return 1; }
+    if grep -q "\"remote_pub\": *\"${REMOTE_PUB}\"" "$PEERS_FILE" 2>/dev/null; then
+        echo -e "${RED}[!] Foreign IP ${REMOTE_PUB} is already used by another tunnel.${NC}"; return 1
+    fi
+    [[ -n "$TOKEN" ]] || { echo -e "${RED}[!] --token is required.${NC}"; return 1; }
+    peer_init; peer_require_py || return 1
+    local ID
+    ID=$(peer_next_id)
+    [[ "$ID" -ge 1 ]] || { echo -e "${RED}[!] Peer table full (max ${MAX_PEERS}).${NC}"; return 1; }
+
+    # Control port check
+    if ss -tln 2>/dev/null | grep -q ":${PORT} "; then
+        echo -e "${RED}[!] Control port ${PORT} is already in use.${NC}"; return 1
+    fi
+
+    [[ -z "$NAME" ]] && NAME="peer-${ID}"
+    install_backhaul_binaries || return 1
+    backhaul_ensure_tls "$TRANSPORT"
+
+    local GRE_IF="none" SVC_NAME="backhaul-server-${ID}" CONF_FILE="/etc/backhaul/server-${ID}.toml"
+    local ENGINE="backhaul"
+    if [[ "$NO_GRE" -eq 1 ]]; then
+        ENGINE="backhaul"
+        GRE_IF="none"
+        backhaul_write_server_conf "$CONF_FILE" "0.0.0.0:${PORT}" "$TRANSPORT" "$TOKEN" "$PORTS"
+        setup_backhaul_server_systemd "$SVC_NAME" "$CONF_FILE"
+    else
+        ENGINE="gre-backhaul"
+        is_valid_ip "$LOCAL_GRE" || { echo -e "${RED}[!] Invalid local GRE IP: '$LOCAL_GRE'${NC}"; return 1; }
+        is_valid_ip "$PEER_GRE" || { echo -e "${RED}[!] Invalid peer GRE IP: '$PEER_GRE'${NC}"; return 1; }
+        if [[ "$ID" -eq 1 ]] && ! tunnel_present; then
+            GRE_IF="$TUNNEL_NAME"
+            setup_gre_systemd "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE" "$PEER_GRE"
+        else
+            GRE_IF="gre-t${ID}"
+            setup_gre_iface "$GRE_IF" "$LOCAL_PUB" "$REMOTE_PUB" "$LOCAL_GRE" "$PEER_GRE"
+        fi
+        backhaul_write_server_conf "$CONF_FILE" "0.0.0.0:${PORT}" "$TRANSPORT" "$TOKEN" "$PORTS"
+        setup_backhaul_server_systemd "$SVC_NAME" "$CONF_FILE"
+        sed -i "s/After=network.target/After=network.target ${GRE_IF}.service/" "/etc/systemd/system/${SVC_NAME}.service" 2>/dev/null || true
+        systemctl daemon-reload; systemctl restart "$SVC_NAME"
+    fi
+
+    sleep 1
+    if ! systemctl is-active --quiet "$SVC_NAME"; then
+        echo -e "${RED}[!] Error: ${SVC_NAME} failed to start. Review config in ${CONF_FILE}.${NC}"
+        return 1
+    fi
+
+    # Record peer into peers.json
+    local NUM_PORTS_JSON
+    NUM_PORTS_JSON=$(python3 -c '
+import sys, json, re
+raw = sys.argv[1]
+nums = []
+for tok in re.split(r"[, ]+", raw):
+    tok = tok.strip()
+    if not tok: continue
+    if "=" in tok: tok = tok.split("=")[0]
+    if "-" in tok:
+        parts = tok.split("-")
+        try:
+            start, end = int(parts[0]), int(parts[1])
+            nums.extend(range(start, min(end + 1, start + 100)))
+        except: pass
+    else:
+        try: nums.append(int(tok))
+        except: pass
+print(json.dumps(nums))
+' "$PORTS")
+
+    PEERS_F="$PEERS_FILE" python3 - "$ID" "$NAME" "$LOCAL_PUB" "$REMOTE_PUB" "$PORT" "$TOKEN" "${LOCAL_GRE:-}" "${PEER_GRE:-}" "$NUM_PORTS_JSON" "$GRE_IF" "$SVC_NAME" "$ENGINE" "$TRANSPORT" "$NO_GRE" "$PORTS" <<'PYEOF'
+import json, os, sys
+f = os.environ["PEERS_F"]
+iid, name, lip, rip, fport, tok, lgre, pgre, pjson, gif, svc, eng, trans, nogre, raw_p = sys.argv[1:]
+d = json.load(open(f))
+d.setdefault("peers", []).append({
+  "id": int(iid), "name": name, "local_pub": lip, "remote_pub": rip,
+  "frp_port": int(fport), "token": tok, "local_gre": lgre, "peer_gre": pgre,
+  "ports": json.loads(pjson), "gre_if": gif, "frps_svc": svc, "legacy": False,
+  "engine": eng, "transport": trans, "no_gre": nogre == "1", "raw_ports": raw_p
+})
+json.dump(d, open(f, "w"), indent=2)
+PYEOF
+
+    echo -e "${GREEN}[✔️] Backhaul Peer '${NAME}' (id ${ID}) added [Engine: ${ENGINE}, Transport: ${TRANSPORT}]!${NC}"
+    if [[ "$NO_GRE" -eq 1 ]]; then
+        echo -e "BUNDLE:$(bundle_make_backhaul "$LOCAL_PUB" "$PORT" "$TRANSPORT" "$TOKEN" "$PORTS")"
+    else
+        echo -e "BUNDLE:$(bundle_make_gre_backhaul "$LOCAL_PUB" "$PORT" "$LOCAL_GRE" "$PEER_GRE" "$TRANSPORT" "$TOKEN" "$PORTS")"
+    fi
+}
+
+# edit full configuration of one peer ($1=id, [--name], [--remote-pub], [--carrier], [--ports])
+cli_edit_peer() {
+    local ID="" NAME="" REMOTE_PUB="" CARRIER="" PORTS=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --id) ID="$2"; shift 2 ;;
+            --name) NAME="$2"; shift 2 ;;
+            --remote-pub) REMOTE_PUB="$2"; shift 2 ;;
+            --carrier) CARRIER="$2"; shift 2 ;;
+            --ports) PORTS="$2"; shift 2 ;;
+            -h|--help) echo 'Usage: hashem.sh edit-peer --id N [--name LABEL] [--remote-pub IP] [--carrier direct|fou:P|wss:P] [--ports "443, 2083"]'; return 0 ;;
+            *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
+        esac
+    done
+    [[ "$ID" =~ ^[0-9]+$ ]] || { echo -e "${RED}[!] --id N is required.${NC}"; return 1; }
+    if [[ -z "$NAME" && -z "$REMOTE_PUB" && -z "$CARRIER" && -z "$PORTS" ]]; then
+        echo -e "${RED}[!] Nothing to edit — specify at least one of --name, --remote-pub, --carrier, --ports.${NC}"
+        return 1
+    fi
+
+    peer_init; peer_require_py || return 1
+    local rec
+    rec=$(peer_get "$ID")
+    [[ -n "$rec" ]] || { echo -e "${RED}[!] No peer with id $ID.${NC}"; return 1; }
+
+    local CUR_NAME CUR_REMOTE CUR_CARRIER CUR_GIF CUR_SVC
+    CUR_NAME=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))')
+    CUR_REMOTE=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("remote_pub",""))')
+    CUR_CARRIER=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("carrier","direct"))')
+    CUR_GIF=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("gre_if",""))')
+    CUR_SVC=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("frps_svc","frps"))')
+
+    # Validate remote public IP if provided
+    if [[ -n "$REMOTE_PUB" ]]; then
+        is_valid_ip "$REMOTE_PUB" || { echo -e "${RED}[!] Invalid remote public IP: ${REMOTE_PUB}${NC}"; return 1; }
+        PEERS_F="$PEERS_FILE" PEER_ID="$ID" NEW_IP="$REMOTE_PUB" python3 <<'PYEOF'
+import json, os, sys
+f = os.environ["PEERS_F"]
+pid = int(os.environ["PEER_ID"])
+new_ip = os.environ["NEW_IP"]
+d = json.load(open(f))
+for p in d.get("peers", []):
+    if p.get("id") != pid and p.get("remote_pub") == new_ip:
+        print(f"[!] IP conflict: {new_ip} already used by peer '{p.get('name')}'", file=sys.stderr)
+        sys.exit(1)
+PYEOF
+        if [[ $? -ne 0 ]]; then
+            return 1
+        fi
+    fi
+
+    # Validate carrier if provided
+    if [[ -n "$CARRIER" ]]; then
+        if [[ "$CARRIER" != "direct" && "$CARRIER" != fou:* && "$CARRIER" != wss:* && "$CARRIER" != "fou" && "$CARRIER" != "wss" ]]; then
+            echo -e "${RED}[!] Invalid carrier mode: ${CARRIER} (must be direct, fou:PORT, or wss:PORT)${NC}"
+            return 1
+        fi
+    fi
+
+    # Validate ports if provided
+    local CLEANED=""
+    if [[ -n "$PORTS" ]]; then
+        local p
+        for p in $(echo "$PORTS" | tr ',' ' '); do
+            is_valid_port "$p" && CLEANED="$CLEANED $((10#$p))"
+        done
+        CLEANED=$(echo "$CLEANED" | xargs)
+        [[ -n "$CLEANED" ]] || { echo -e "${RED}[!] --ports needs at least one valid port (1-65535).${NC}"; return 1; }
+
+        local USED entry CONFLICT=""
+        USED=$(peer_ports_used)
+        for p in $CLEANED; do
+            for entry in $USED; do
+                local port_owner="${entry#*:}" port_num="${entry%%:*}"
+                if [[ "$port_num" == "$p" ]] && [[ "$port_owner" != "$CUR_NAME" ]]; then
+                    CONFLICT="$CONFLICT $p (used by peer '${port_owner}')"
+                fi
+            done
+        done
+        if [[ -n "$CONFLICT" ]]; then
+            echo -e "${RED}[!] Port conflict — already claimed by another tunnel:${CONFLICT}${NC}"
+            return 1
+        fi
+    fi
+
+    # 1. Apply Remote IP update if changed
+    if [[ -n "$REMOTE_PUB" && "$REMOTE_PUB" != "$CUR_REMOTE" ]]; then
+        echo -e "${CYAN}[*] Updating GRE remote endpoint: ${CUR_REMOTE} -> ${REMOTE_PUB}...${NC}"
+        if ip link show "$CUR_GIF" >/dev/null 2>&1; then
+            ip tunnel change "$CUR_GIF" remote "$REMOTE_PUB" >/dev/null 2>&1 || {
+                ip link set dev "$CUR_GIF" down >/dev/null 2>&1 || true
+                ip tunnel change "$CUR_GIF" remote "$REMOTE_PUB" >/dev/null 2>&1 || true
+                ip link set dev "$CUR_GIF" up >/dev/null 2>&1 || true
+            }
+        fi
+        local SVC_FILE="/etc/systemd/system/${CUR_GIF}.service"
+        if [[ -f "$SVC_FILE" ]]; then
+            sed -i -E "s/remote [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/remote ${REMOTE_PUB}/g" "$SVC_FILE"
+            systemctl daemon-reload >/dev/null 2>&1 || true
+            systemctl restart "${CUR_GIF}.service" >/dev/null 2>&1 || true
+        fi
+        if ! ping -c 1 -W 2 "$REMOTE_PUB" >/dev/null 2>&1; then
+            echo -e "${YELLOW}[WARN] New remote IP ${REMOTE_PUB} did not reply to ping (peer may be offline or firewalling ICMP).${NC}"
+        fi
+    fi
+
+    # 2. Apply Carrier update if changed
+    if [[ -n "$CARRIER" && "$CARRIER" != "$CUR_CARRIER" ]]; then
+        echo -e "${CYAN}[*] Applying carrier mode ${CARRIER} to interface ${CUR_GIF}...${NC}"
+        carrier_apply "$CARRIER" "$CUR_GIF"
+    fi
+
+    # 3. Apply Ports update if changed
+    if [[ -n "$CLEANED" ]]; then
+        echo -e "${CYAN}[*] Updating forwarded ports for ${CUR_SVC}...${NC}"
+        local TOML_FILE="/etc/frp/frps-${ID}.toml"
+        [[ ! -f "$TOML_FILE" && "$ID" -eq 1 ]] && TOML_FILE="/etc/frp/frps.toml"
+        if [[ -f "$TOML_FILE" ]]; then
+            PEERS_F="$PEERS_FILE" TOML_F="$TOML_FILE" PORTS_CLEAN="$CLEANED" python3 <<'PYEOF'
+import os
+tf = os.environ["TOML_F"]
+ports = [int(x) for x in os.environ["PORTS_CLEAN"].split()]
+lines = open(tf).readlines()
+header = []
+in_proxy = False
+for line in lines:
+    t = line.strip()
+    if t.startswith("[[proxies]]"):
+        in_proxy = True
+        continue
+    if t.startswith("[") and not t.startswith("[[proxies]]"):
+        in_proxy = False
+    if not in_proxy:
+        header.append(line)
+out = "".join(header).rstrip() + "\n"
+for p in ports:
+    out += f"\n[[proxies]]\nname = \"tcp_{p}\"\ntype = \"tcp\"\nlocalIP = \"127.0.0.1\"\nlocalPort = {p}\nremotePort = {p}\n"
+    out += f"\n[[proxies]]\nname = \"udp_{p}\"\ntype = \"udp\"\nlocalIP = \"127.0.0.1\"\nlocalPort = {p}\nremotePort = {p}\n"
+open(tf, "w").write(out)
+PYEOF
+            systemctl reload-or-restart "$CUR_SVC" >/dev/null 2>&1 || true
+        fi
+        if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+            for p in $CLEANED; do
+                ufw allow "$p"/tcp >/dev/null 2>&1 || true
+                ufw allow "$p"/udp >/dev/null 2>&1 || true
+            done
+        fi
+    fi
+
+    # 4. Update peers.json
+    PEERS_F="$PEERS_FILE" PEER_ID="$ID" NEW_NAME="$NAME" NEW_REMOTE="$REMOTE_PUB" NEW_CARRIER="$CARRIER" NEW_PORTS="$CLEANED" python3 <<'PYEOF'
+import json, os
+f = os.environ["PEERS_F"]
+pid = int(os.environ["PEER_ID"])
+name = os.environ.get("NEW_NAME")
+rip = os.environ.get("NEW_REMOTE")
+car = os.environ.get("NEW_CARRIER")
+pstr = os.environ.get("NEW_PORTS")
+d = json.load(open(f))
+for p in d.get("peers", []):
+    if p.get("id") == pid:
+        if name:
+            p["name"] = name
+        if rip:
+            p["remote_pub"] = rip
+        if car:
+            p["carrier"] = car
+        if pstr:
+            p["ports"] = [int(x) for x in pstr.split()]
+json.dump(d, open(f, "w"), indent=2)
+PYEOF
+
+    local FINAL_NAME="${NAME:-$CUR_NAME}"
+    echo -e "${GREEN}[✔️] Peer '${FINAL_NAME}' (id ${ID}) updated successfully.${NC}"
 }
 
 # edit forwarded ports of one peer ($1=id, --ports "443, 2083")
@@ -2838,69 +3802,7 @@ cli_edit_peer_ports() {
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
         esac
     done
-    [[ "$ID" =~ ^[0-9]+$ ]] || { echo -e "${RED}[!] --id N is required.${NC}"; return 1; }
-    [[ -n "$PORTS" ]] || { echo -e "${RED}[!] --ports is required.${NC}"; return 1; }
-
-    local CLEANED="" p
-    for p in $(echo "$PORTS" | tr ',' ' '); do
-        is_valid_port "$p" && CLEANED="$CLEANED $((10#$p))"
-    done
-    CLEANED=$(echo "$CLEANED" | xargs)
-    [[ -n "$CLEANED" ]] || { echo -e "${RED}[!] --ports needs at least one valid port (1-65535).${NC}"; return 1; }
-
-    peer_init; peer_require_py || return 1
-    local rec
-    rec=$(peer_get "$ID")
-    [[ -n "$rec" ]] || { echo -e "${RED}[!] No peer with id $ID.${NC}"; return 1; }
-
-    # Port conflict check against other peers
-    local USED entry CONFLICT=""
-    USED=$(peer_ports_used)
-    for p in $CLEANED; do
-        for entry in $USED; do
-            local port_owner="${entry#*:}" port_num="${entry%%:*}"
-            local peer_name
-            peer_name=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))')
-            if [[ "$port_num" == "$p" ]] && [[ "$port_owner" != "$peer_name" ]]; then
-                CONFLICT="$CONFLICT $p (used by peer '${port_owner}')"
-            fi
-        done
-    done
-    if [[ -n "$CONFLICT" ]]; then
-        echo -e "${RED}[!] Port conflict — already claimed by another tunnel:${CONFLICT}${NC}"
-        return 1
-    fi
-
-    # Update peers.json
-    local PORTS_JSON
-    PORTS_JSON=$(echo "$CLEANED" | python3 -c 'import json,sys; print(json.dumps([int(x) for x in sys.stdin.read().split()]))')
-    PEERS_F="$PEERS_FILE" PEER_ID="$ID" PORTS_JSON="$PORTS_JSON" python3 <<'PYEOF'
-import json, os
-f = os.environ["PEERS_F"]
-pid = int(os.environ["PEER_ID"])
-new_ports = json.loads(os.environ["PORTS_JSON"])
-d = json.load(open(f))
-for p in d.get("peers", []):
-    if p.get("id") == pid:
-        p["ports"] = new_ports
-json.dump(d, open(f, "w"), indent=2)
-PYEOF
-
-    local SVC
-    SVC=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("frps_svc","frps"))')
-    systemctl reload-or-restart "$SVC" >/dev/null 2>&1 || true
-
-    # Open ports in UFW if active
-    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
-        for p in $CLEANED; do
-            ufw allow "$p"/tcp >/dev/null 2>&1 || true
-            ufw allow "$p"/udp >/dev/null 2>&1 || true
-        done
-    fi
-
-    local NAME
-    NAME=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))')
-    echo -e "${GREEN}[✔️] Peer '${NAME}' (id ${ID}) ports updated to: ${CLEANED}${NC}"
+    cli_edit_peer --id "$ID" --ports "$PORTS"
 }
 
 
@@ -2987,13 +3889,52 @@ menu_remove_peer() {
     cli_remove_peer --id "$ID"
 }
 
-menu_edit_peer_ports() {
-    echo -e "\n${YELLOW}=== Edit Peer Forwarded Ports ===${NC}"
+menu_edit_peer() {
+    echo -e "\n${YELLOW}=== Edit Peer Tunnel Configuration ===${NC}"
     peer_list_pretty || return 1
-    local ID NEW_PORTS
+    local ID
     read -p "Peer id to edit: " ID
-    read -p "New forwarded ports (comma-separated, e.g. 443, 2083, 8080): " NEW_PORTS
-    cli_edit_peer_ports --id "$ID" --ports "$NEW_PORTS"
+    [[ "$ID" =~ ^[0-9]+$ ]] || { echo -e "${RED}[!] Invalid Peer ID.${NC}"; return 1; }
+
+    peer_init; peer_require_py || return 1
+    local rec
+    rec=$(peer_get "$ID")
+    [[ -n "$rec" ]] || { echo -e "${RED}[!] No peer with id $ID.${NC}"; return 1; }
+
+    local CUR_NAME CUR_REMOTE CUR_CARRIER CUR_PORTS
+    CUR_NAME=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))')
+    CUR_REMOTE=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("remote_pub",""))')
+    CUR_CARRIER=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("carrier","direct"))')
+    CUR_PORTS=$(echo "$rec" | python3 -c 'import json,sys; print(", ".join(str(x) for x in json.load(sys.stdin).get("ports",[])))')
+
+    echo -e "\n${CYAN}Editing Peer #${ID} (${CUR_NAME}):${NC}"
+    echo -e "Press Enter on any field to keep its current value."
+
+    local NEW_NAME NEW_REMOTE CAR_OPT NEW_CARRIER="" NEW_PORTS
+    read -p "Name [${CUR_NAME}]: " NEW_NAME
+    read -p "Remote Public IP [${CUR_REMOTE}]: " NEW_REMOTE
+    echo -e "Carrier mode options: 1) Direct GRE  2) FOU:443  3) FOU:55555  4) WSS:8443  (Enter to keep '${CUR_CARRIER}')"
+    read -p "Select carrier [1-4]: " CAR_OPT
+    case "$CAR_OPT" in
+        1) NEW_CARRIER="direct" ;;
+        2) NEW_CARRIER="fou:443" ;;
+        3) NEW_CARRIER="fou:55555" ;;
+        4) NEW_CARRIER="wss:8443" ;;
+        *) NEW_CARRIER="" ;;
+    esac
+    read -p "Forwarded ports (comma-separated) [${CUR_PORTS}]: " NEW_PORTS
+
+    local ARGS=(--id "$ID")
+    [[ -n "$NEW_NAME" ]] && ARGS+=(--name "$NEW_NAME")
+    [[ -n "$NEW_REMOTE" ]] && ARGS+=(--remote-pub "$NEW_REMOTE")
+    [[ -n "$NEW_CARRIER" ]] && ARGS+=(--carrier "$NEW_CARRIER")
+    [[ -n "$NEW_PORTS" ]] && ARGS+=(--ports "$NEW_PORTS")
+
+    cli_edit_peer "${ARGS[@]}"
+}
+
+menu_edit_peer_ports() {
+    menu_edit_peer
 }
 
 setup_foreign_server() {
@@ -3018,6 +3959,14 @@ setup_foreign_server() {
                 return 0
             fi
             BUNDLE_USED=1
+            prompt_ip IP_FOREIGN "Enter FOREIGN Server Public IP" "$MY_PUBLIC_IP"
+            if [[ "$B_ENGINE" == "backhaul" ]]; then
+                setup_backhaul_foreign_server_noninteractive "$IP_FOREIGN" "$B_IRAN_PUB" "$B_FRP_PORT" "$B_TOKEN" "$B_TRANSPORT"
+                return $?
+            elif [[ "$B_ENGINE" == "gre-backhaul" ]]; then
+                setup_gre_backhaul_foreign_server_noninteractive "$IP_FOREIGN" "$B_IRAN_PUB" "$B_FRP_PORT" "$B_TOKEN" "$B_FOREIGN_GRE" "$B_IRAN_GRE" "$B_TRANSPORT"
+                return $?
+            fi
             IP_IRAN=$B_IRAN_PUB
             SERVER_PORT=$B_FRP_PORT
             TOKEN=$B_TOKEN
@@ -3026,7 +3975,6 @@ setup_foreign_server() {
             INPUT_PORTS=$(echo "$B_PORTS" | tr ' ' ',')
             carrier_set_fou_ports "$B_FOU_P1" "$B_FOU_P2" 2>/dev/null || true
             carrier_init_kernel 2>/dev/null || true
-            prompt_ip IP_FOREIGN "Enter FOREIGN Server Public IP" "$MY_PUBLIC_IP"
             if [[ -z "$INPUT_PORTS" ]]; then
                 prompt_ports INPUT_PORTS "Enter Ports to Reverse-Tunnel"
             fi
@@ -3050,7 +3998,7 @@ setup_foreign_server() {
 }
 
 check_status() {
-    echo -e "\n${YELLOW}=== Checking GRE & FRP Status ===${NC}"
+    echo -e "\n${YELLOW}=== Checking GRE & FRP / Backhaul Status ===${NC}"
 
     # 1. GRE Status
     echo -e "\n${CYAN}[1] GRE Tunnel Interface:${NC}"
@@ -3058,48 +4006,60 @@ check_status() {
         ip addr show dev "$TUNNEL_NAME"
         echo -e "${GREEN}[✔️] Interface ${TUNNEL_NAME} exists and is UP.${NC}"
     else
-        echo -e "${RED}[!] Interface ${TUNNEL_NAME} NOT found.${NC}"
+        echo -e "${YELLOW}[*] Interface ${TUNNEL_NAME} not found (may be running in No-GRE Backhaul mode).${NC}"
     fi
 
     # 2. Ping Test
-    echo -e "\n${CYAN}[2] GRE Ping Test:${NC}"
-    if ip addr show dev "$TUNNEL_NAME" 2>/dev/null | grep -q "$IRAN_GRE_IP"; then
-        TARGET_PING="$FOREIGN_GRE_IP"
-        echo "Testing ping to Foreign GRE IP ($TARGET_PING)..."
-    else
-        TARGET_PING="$IRAN_GRE_IP"
-        echo "Testing ping to Iran GRE IP ($TARGET_PING)..."
+    if ip link show "$TUNNEL_NAME" >/dev/null 2>&1; then
+        echo -e "\n${CYAN}[2] GRE Ping Test:${NC}"
+        if ip addr show dev "$TUNNEL_NAME" 2>/dev/null | grep -q "$IRAN_GRE_IP"; then
+            TARGET_PING="$FOREIGN_GRE_IP"
+            echo "Testing ping to Foreign GRE IP ($TARGET_PING)..."
+        else
+            TARGET_PING="$IRAN_GRE_IP"
+            echo "Testing ping to Iran GRE IP ($TARGET_PING)..."
+        fi
+        ping -c 3 -W 2 "$TARGET_PING" && echo -e "${GREEN}[✔️] Ping OK.${NC}" || echo -e "${YELLOW}[!] Remote peer did not answer ping.${NC}"
     fi
-    ping -c 3 -W 2 "$TARGET_PING" && echo -e "${GREEN}[✔️] Ping OK.${NC}" || echo -e "${YELLOW}[!] Remote peer did not answer ping.${NC}"
 
-    # 3. FRP Service Status
-    echo -e "\n${CYAN}[3] FRP Service Status:${NC}"
+    # 3. Service Status
+    echo -e "\n${CYAN}[3] Reverse Tunnel Service Status:${NC}"
     if systemctl is-active --quiet frps; then
-        echo -e "${GREEN}[✔️] frps (Server on IRAN) is ACTIVE and RUNNING.${NC}"
+        echo -e "${GREEN}[✔️] frps (FRP Server on IRAN) is ACTIVE and RUNNING.${NC}"
         systemctl status frps --no-pager -l
+    elif systemctl is-active --quiet backhaul-server; then
+        echo -e "${GREEN}[✔️] backhaul-server (Backhaul Server on IRAN) is ACTIVE and RUNNING.${NC}"
+        systemctl status backhaul-server --no-pager -l
     elif systemctl is-active --quiet frpc; then
-        echo -e "${GREEN}[✔️] frpc (Client on FOREIGN) is ACTIVE and RUNNING.${NC}"
+        echo -e "${GREEN}[✔️] frpc (FRP Client on FOREIGN) is ACTIVE and RUNNING.${NC}"
         systemctl status frpc --no-pager -l
+    elif systemctl is-active --quiet backhaul-client; then
+        echo -e "${GREEN}[✔️] backhaul-client (Backhaul Client on FOREIGN) is ACTIVE and RUNNING.${NC}"
+        systemctl status backhaul-client --no-pager -l
     else
-        echo -e "${RED}[!] Neither frps nor frpc is active.${NC}"
+        echo -e "${RED}[!] Neither FRP nor Backhaul service is active.${NC}"
     fi
 }
 
 show_logs() {
     echo -e "\n${YELLOW}=== Live Service Logs (Ctrl+C to exit) ===${NC}"
-    if systemctl list-unit-files | grep -q "frps.service"; then
+    if systemctl list-unit-files | grep -q "backhaul-server.service"; then
+        journalctl -u backhaul-server -n 50 -f
+    elif systemctl list-unit-files | grep -q "backhaul-client.service"; then
+        journalctl -u backhaul-client -n 50 -f
+    elif systemctl list-unit-files | grep -q "frps.service"; then
         journalctl -u frps -n 50 -f
     elif systemctl list-unit-files | grep -q "frpc.service"; then
         journalctl -u frpc -n 50 -f
     else
-        echo -e "${RED}[!] No FRP service found.${NC}"
+        echo -e "${RED}[!] No tunnel service found.${NC}"
     fi
 }
 
 restart_all() {
-    echo -e "\n${CYAN}[*] Restarting GRE and FRP services (all tunnels)...${NC}"
+    echo -e "\n${CYAN}[*] Restarting GRE and FRP/Backhaul services (all tunnels)...${NC}"
     local u
-    for u in /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-tunnel.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/gre-chaff*.service; do
+    for u in /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-tunnel.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/backhaul*.service /etc/systemd/system/gre-chaff*.service; do
         [[ -f "$u" ]] || continue
         systemctl restart "$(basename "$u")" >/dev/null 2>&1 && echo -e "${GREEN}[✔️] $(basename "$u") restarted.${NC}"
     done
@@ -3556,13 +4516,13 @@ remove_tunnel() {
 # Panel files/services are never touched here.
 remove_tunnel_force() {
         # Stop & disable services
-        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-chaff >/dev/null 2>&1
-        systemctl stop 'gre-chaff*.service' >/dev/null 2>&1 || true
-        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-chaff 'gre-chaff*.service' >/dev/null 2>&1 || true
+        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-chaff backhaul-server backhaul-client >/dev/null 2>&1
+        systemctl stop 'gre-chaff*.service' 'backhaul-server*.service' >/dev/null 2>&1 || true
+        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-chaff 'gre-chaff*.service' backhaul-server backhaul-client 'backhaul-server*.service' >/dev/null 2>&1 || true
 
-        # Remove systemd files (legacy + all peer tunnels + chaff + dpi shield)
+        # Remove systemd files (legacy + all peer tunnels + chaff + dpi shield + backhaul)
         cli_dpi_shield off >/dev/null 2>&1 || true
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-dpi.service
+        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/backhaul*.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-dpi.service
         systemctl daemon-reload
         systemctl reset-failed >/dev/null 2>&1 || true
 
@@ -3574,10 +4534,10 @@ remove_tunnel_force() {
 
         # Remove binaries & configs (panel untouched, peers registry cleared)
         rm -f "${INSTALL_DIR}/frps" "${INSTALL_DIR}/frpc"
-        rm -rf "$CONFIG_DIR"
+        rm -rf "$CONFIG_DIR" "$BACKHAUL_CONFIG_DIR"
         rm -f "$PEERS_FILE"
 
-        echo -e "${GREEN}[✔️] Tunnel removed — GRE interface, FRP services, binaries and configs gone. Panel still running.${NC}"
+        echo -e "${GREEN}[✔️] Tunnel removed — GRE interface, FRP/Backhaul services, binaries and configs gone. Panel still running.${NC}"
 }
 
 PANEL_DIR="/usr/local/gre-panel"
@@ -4048,43 +5008,65 @@ show_panel_url() {
     MYIP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
     echo -e "${GREEN}Panel URL:  ${CYAN}http://${MYIP:-<this-server-ip>}:${port}/${base}${NC}"
     echo -e "${GREEN}Username:   ${CYAN}${user}${NC}"
-    echo -e "${GREEN}Password:   ${CYAN}${PANEL_PASS}${NC}"
+    if [[ -n "$PANEL_PASS" ]]; then
+        echo -e "${GREEN}Password:   ${CYAN}${PANEL_PASS}${NC}"
+    else
+        echo -e "${GREEN}Password:   ${YELLOW}(hashed in panel.json — reset via CLI menu or web Settings)${NC}"
+    fi
 }
 
-# make sure a plaintext password exists and load it into $PANEL_PASS.
-# fresh installs already have it (binary writes it); old installs get a new one.
+# Dedicated backup key for encrypted backups (CWE-256: decouples backup key from login password)
+ensure_backup_key() {
+    mkdir -p /etc/gre-panel
+    if [[ ! -f /etc/gre-panel/backup.key ]]; then
+        if [[ -f /etc/gre-panel/panel.pass ]]; then
+            mv /etc/gre-panel/panel.pass /etc/gre-panel/backup.key
+            chmod 600 /etc/gre-panel/backup.key
+        else
+            tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 32 > /etc/gre-panel/backup.key
+            chmod 600 /etc/gre-panel/backup.key
+        fi
+    fi
+    # Security Migration (CWE-256): Delete legacy plaintext panel.pass
+    rm -f /etc/gre-panel/panel.pass
+}
+
+# make sure panel config exists. Passwords are never stored as plaintext on disk (CWE-256).
 ensure_panel_pass() {
-    PANEL_PASS=$(cat /etc/gre-panel/panel.pass 2>/dev/null)
-    if [[ -n "$PANEL_PASS" ]]; then return 0; fi
-    echo -e "${YELLOW}[*] No saved panel password — generating a new one...${NC}"
+    ensure_backup_key
+    if [[ -f /etc/gre-panel/panel.json ]]; then
+        PANEL_PASS=""
+        return 0
+    fi
+    echo -e "${YELLOW}[*] No panel config found — generating initial credentials...${NC}"
     local NEWPASS HASH
-    NEWPASS=$(tr -dc '0-9' </dev/urandom | head -c 8)
+    NEWPASS=$(tr -dc 'A-Za-z0-9!@#$%' </dev/urandom | head -c 16)
     HASH=$(echo -n "$NEWPASS" | sha256sum | awk '{print $1}')
     if [[ -z "$HASH" ]] || ! command -v python3 >/dev/null 2>&1; then
-        echo -e "${RED}[!] Cannot reset password (need sha256sum + python3). Change it from web Settings instead.${NC}"
-        PANEL_PASS="(unknown — reset via web Settings)"
+        echo -e "${RED}[!] Cannot initialize panel config (need sha256sum + python3).${NC}"
         return 1
     fi
     python3 - "$HASH" <<'PYEOF'
 import json, sys
 p = '/etc/gre-panel/panel.json'
-d = json.load(open(p))
+try:
+    d = json.load(open(p))
+except Exception:
+    d = {"username": "admin", "port": 7777, "base_path": "panel"}
 d['pass_hash'] = sys.argv[1]
 json.dump(d, open(p, 'w'), indent=2)
 PYEOF
-    echo -n "$NEWPASS" > /etc/gre-panel/panel.pass
-    chmod 600 /etc/gre-panel/panel.pass
-    systemctl restart gre-panel 2>/dev/null
-    sleep 2
+    chmod 600 /etc/gre-panel/panel.json
+    systemctl restart gre-panel 2>/dev/null || true
     PANEL_PASS="$NEWPASS"
+    echo -e "${GREEN}[✔️] Initial password generated: ${CYAN}${NEWPASS}${NC}"
+    echo -e "${YELLOW}[!] NOTE: Passwords are not saved in plaintext on disk (CWE-256). Record it now!${NC}"
     return 0
 }
 
-# save plaintext panel password next to config (user chose convenience over max security)
+# save_panel_pass: deprecated for CWE-256 compliance
 save_panel_pass() {
-    local pass="$1"
-    [[ -n "$pass" ]] && echo -n "$pass" > /etc/gre-panel/panel.pass 2>/dev/null
-    chmod 600 /etc/gre-panel/panel.pass 2>/dev/null || true
+    ensure_backup_key
 }
 
 # ---- Watchdog & Scheduled Encrypted Backup ----
@@ -4498,8 +5480,9 @@ backup_now() {
     mkdir -p "$OUTDIR"
     chmod 700 "$OUTDIR" 2>/dev/null || true
 
-    if [[ ! -f /etc/gre-panel/panel.pass ]]; then
-        echo -e "${RED}[!] /etc/gre-panel/panel.pass not found — cannot encrypt backup.${NC}" >&2
+    ensure_backup_key
+    if [[ ! -f /etc/gre-panel/backup.key ]]; then
+        echo -e "${RED}[!] /etc/gre-panel/backup.key not found — cannot encrypt backup.${NC}" >&2
         return 1
     fi
 
@@ -4510,7 +5493,7 @@ backup_now() {
     local FILES=()
     local f
     for f in /etc/frp/*.toml /etc/gre-panel/panel.json /etc/gre-panel/peers.json /etc/gre-panel/watchdog.json \
-             /etc/gre-panel/perf.json \
+             /etc/gre-panel/perf.json /etc/gre-panel/backup.key \
              /etc/systemd/system/gre-*.service /etc/systemd/system/frps*.service \
              /etc/systemd/system/frpc*.service /etc/systemd/system/gre-chaff*.service; do
         [[ -f "$f" ]] && FILES+=("$f")
@@ -4521,7 +5504,7 @@ backup_now() {
         return 1
     fi
 
-    if ! tar -czf - "${FILES[@]}" 2>/dev/null | openssl enc -aes-256-cbc -pbkdf2 -pass file:/etc/gre-panel/panel.pass -out "$OUT_FILE"; then
+    if ! tar -czf - "${FILES[@]}" 2>/dev/null | openssl enc -aes-256-cbc -pbkdf2 -pass file:/etc/gre-panel/backup.key -out "$OUT_FILE"; then
         echo -e "${RED}[!] Failed to create encrypted backup.${NC}" >&2
         rm -f "$OUT_FILE"
         return 1
@@ -4561,8 +5544,13 @@ backup_restore() {
         echo -e "${RED}[!] Backup file not found: '${FILE}'${NC}" >&2
         return 1
     fi
-    if [[ ! -f /etc/gre-panel/panel.pass ]]; then
-        echo -e "${RED}[!] /etc/gre-panel/panel.pass not found — cannot decrypt backup.${NC}" >&2
+    ensure_backup_key
+    local KEY_FILE="/etc/gre-panel/backup.key"
+    if [[ ! -f "$KEY_FILE" && -f "/etc/gre-panel/panel.pass" ]]; then
+        KEY_FILE="/etc/gre-panel/panel.pass"
+    fi
+    if [[ ! -f "$KEY_FILE" ]]; then
+        echo -e "${RED}[!] Backup encryption key not found — cannot decrypt backup.${NC}" >&2
         return 1
     fi
 
@@ -4570,9 +5558,9 @@ backup_restore() {
     TMP_D=$(mktemp -d)
     trap 'rm -rf "$TMP_D"' RETURN
 
-    echo -e "${CYAN}[*] Decrypting backup archive with panel password...${NC}"
-    if ! openssl enc -d -aes-256-cbc -pbkdf2 -pass file:/etc/gre-panel/panel.pass -in "$FILE" -out "$TMP_D/backup.tar.gz" 2>/dev/null; then
-        echo -e "${RED}[!] Decryption failed: invalid panel password or file corrupted.${NC}" >&2
+    echo -e "${CYAN}[*] Decrypting backup archive...${NC}"
+    if ! openssl enc -d -aes-256-cbc -pbkdf2 -pass file:"$KEY_FILE" -in "$FILE" -out "$TMP_D/backup.tar.gz" 2>/dev/null; then
+        echo -e "${RED}[!] Decryption failed: invalid encryption key or file corrupted.${NC}" >&2
         return 1
     fi
 
@@ -5203,11 +6191,11 @@ update_all() {
     PANEL_BAK=""
     if [[ -f /etc/gre-panel/panel.json ]]; then
         PANEL_BAK="$(mktemp -d)"
-        cp -a /etc/gre-panel/panel.json /etc/gre-panel/panel.pass "$PANEL_BAK/" 2>/dev/null || true
+        cp -a /etc/gre-panel/panel.json "$PANEL_BAK/" 2>/dev/null || true
     fi
     if ! install_panel; then
         echo -e "${RED}[!] Panel update failed — restoring previous config.${NC}"
-        [[ -n "$PANEL_BAK" ]] && cp -a "$PANEL_BAK/panel.json" "$PANEL_BAK/panel.pass" /etc/gre-panel/ 2>/dev/null || true
+        [[ -n "$PANEL_BAK" ]] && cp -a "$PANEL_BAK/panel.json" /etc/gre-panel/ 2>/dev/null || true
         systemctl restart gre-panel 2>/dev/null || true
         return 1
     fi
@@ -5462,7 +6450,7 @@ menu_tunnel() {
         echo "  3) Add Peer Tunnel (Multi-peer Foreign servers on Iran)"
         echo "  4) List Peer Tunnels"
         echo "  5) Remove Peer Tunnel"
-        echo "  6) Edit Peer Forwarded Ports"
+        echo "  6) Edit Peer Tunnel Configuration (Ports, IP, Carrier, Name)"
         echo "  7) Restart Tunnel Services (systemctl restart gre + frp)"
         echo "  8) Delete / Teardown Tunnel (GRE + FRP, Web Panel stays)"
         echo "  9) Tunnel Status & GRE Ping Test"
@@ -5475,7 +6463,7 @@ menu_tunnel() {
             3) menu_add_peer; pause_prompt ;;
             4) peer_list_pretty; pause_prompt ;;
             5) menu_remove_peer; pause_prompt ;;
-            6) menu_edit_peer_ports; pause_prompt ;;
+            6) menu_edit_peer; pause_prompt ;;
             7) restart_all; pause_prompt ;;
             8) remove_tunnel; pause_prompt ;;
             9) check_status; pause_prompt ;;
@@ -5768,11 +6756,16 @@ Usage:
   hashem menu                               # interactive management menu (all options)
   hashem setup-iran    --local-pub IP --remote-pub IP [--frp-port N] [--local-gre IP] [--peer-gre IP] [--token T] [--chaff low|mid|off] [--force]
   hashem setup-foreign --local-pub IP --remote-pub IP [--frp-port N] --token T --ports "443, 2083" [--local-gre IP] [--peer-gre IP] [--chaff low|mid|off] [--force]
-                       # ... or: hashem setup-foreign --bundle hsh1_...  (fills everything; explicit flags win)
+                       # ... or: hashem setup-foreign --bundle hsh1_... / bh1_... / gh1_...
+  hashem setup-backhaul-iran    --remote-pub IP --port P [--transport tcpmux] [--token K] [--ports "..."]
+  hashem setup-backhaul-foreign --bundle bh1_... | --remote-pub IP --port P --token K [--transport tcpmux]
+  hashem setup-gre-backhaul-iran    --remote-pub IP --port P [--transport tcpmux] [--local-gre IP] [--peer-gre IP] [--ports "..."]
+  hashem setup-gre-backhaul-foreign --bundle gh1_... | --remote-pub IP --port P --token K [--transport tcpmux]
+  hashem add-backhaul-peer      --remote-pub IP --port P --transport T --token K --ports "..." [--no-gre]
   hashem status | remove-tunnel [--force] | show-panel-url
   hashem uninstall [--force]                   # full wipe: tunnel + panel + 'hashem' itself
   hashem add-peer --local-pub IP --remote-pub IP [--frp-port N] --token T --local-gre IP --peer-gre IP --ports "443, 2083" [--name LABEL] [--bundle hsh1_...] [--chaff low|mid|off]
-  hashem remove-peer --id N [--force] | edit-peer-ports --id N --ports "443, 2083" | peer-list | peer-token --id N
+  hashem remove-peer --id N [--force] | edit-peer --id N [--name L] [--remote-pub IP] [--carrier C] [--ports "..."] | edit-peer-ports --id N --ports "443, 2083" | peer-list | peer-token --id N
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
   hashem carrier [status|mode auto|direct|fou:P|wss:P|set direct|fou:P|wss:P|next] # multi-carrier failover
@@ -5786,11 +6779,11 @@ Usage:
   hashem update | update-all                   # update script + panel to latest release
   hashem free-ram                              # cap journald + drop cache + 1GB swap
 
-Setup bundle (one string with everything foreign needs):
-  hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
-  e.g. hsh1_85.1.2.3_34567_10.10.10.2_10.10.10.1_AbCdEf1234567890AbCdEf1234567890_443-2083
-  Printed as BUNDLE:... by setup-iran / add-peer / peer-token; paste it as
-  --bundle (CLI), the token prompt (menu), or the Foreign token field (panel).
+Setup bundles:
+  FRP:              hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
+  Backhaul No-GRE:  bh1_<IRAN_PUB>_<BH_PORT>_<TRANSPORT>_<TOKEN>[_<PORTS>]
+  GRE + Backhaul:   gh1_<IRAN_PUB>_<BH_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TRANSPORT>_<TOKEN>[_<PORTS>]
+  Printed as BUNDLE:... by setup / add-peer; paste it into --bundle (CLI) or panel Foreign token field.
 EOF
 }
 
@@ -5858,6 +6851,13 @@ cli_setup_foreign() {
     esac
     if [[ -n "$BUNDLE" ]]; then
         bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad --bundle (want hsh1_<IRAN_PUB>_<PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]).${NC}"; return 1; }
+        if [[ "$B_ENGINE" == "backhaul" ]]; then
+            cli_setup_backhaul_foreign "$@"
+            return $?
+        elif [[ "$B_ENGINE" == "gre-backhaul" ]]; then
+            cli_setup_gre_backhaul_foreign "$@"
+            return $?
+        fi
         TOKEN=$B_TOKEN
         REMOTE_PUB=$B_IRAN_PUB
         # Bundle FRP server port is the absolute source of truth
@@ -5894,19 +6894,154 @@ cli_setup_foreign() {
     fi
 
     # Port availability check.
-    # FRP control port: warn but continue non-interactively (frpc will report
-    # start failure in the summary if it truly cannot bind).
-    # Proxy ports: frpc only declares localPort in config — it does NOT bind
-    # those ports itself. Marzban/X-UI can and should own them. Skip check.
     FRP_PORT=$(ensure_port_available "$FRP_PORT" "FRP Control Port" ${BUNDLE:+1}) || return 1
-    # (Proxy port check intentionally omitted for foreign: those ports belong
-    #  to the upstream service, not frpc.)
 
     if tunnel_present && [[ "$FORCE" -ne 1 ]]; then
         echo -e "${RED}[!] Tunnel already exists — pass --force to overwrite.${NC}"
         return 1
     fi
     setup_foreign_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$CLEANED"
+}
+
+cli_setup_backhaul_iran() {
+    local LOCAL_PUB="" REMOTE_PUB="" PORT="" TRANSPORT="tcpmux" TOKEN="" PORTS="" FORCE=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --local-pub) LOCAL_PUB="$2"; shift 2 ;;
+            --remote-pub) REMOTE_PUB="$2"; shift 2 ;;
+            --port) PORT="$2"; shift 2 ;;
+            --transport) TRANSPORT="$2"; shift 2 ;;
+            --token) TOKEN="$2"; shift 2 ;;
+            --ports) PORTS="$2"; shift 2 ;;
+            --force) FORCE=1; shift ;;
+            -h|--help) echo 'Usage: hashem setup-backhaul-iran [--local-pub IP] [--remote-pub IP] --port P [--transport T] [--token K] [--ports "..."]'; return 0 ;;
+            *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
+        esac
+    done
+    LOCAL_PUB=${LOCAL_PUB:-$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')}
+    [[ -z "$LOCAL_PUB" ]] && LOCAL_PUB=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
+    PORT=${PORT:-$(gen_random_port)}
+    is_valid_ip "$LOCAL_PUB" || { echo -e "${RED}[!] Invalid local IP: '$LOCAL_PUB'${NC}"; return 1; }
+    is_valid_port "$PORT" || { echo -e "${RED}[!] Invalid port: '$PORT'${NC}"; return 1; }
+    if [[ -z "$TOKEN" ]]; then
+        TOKEN=$(gen_token32)
+        echo -e "${CYAN}[*] Generated token: ${TOKEN}${NC}"
+    fi
+    if [[ "$FORCE" -ne 1 ]] && systemctl is-active --quiet backhaul-server 2>/dev/null; then
+        echo -e "${RED}[!] Backhaul server already active — pass --force to overwrite.${NC}"
+        return 1
+    fi
+    setup_backhaul_iran_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$PORT" "$TOKEN" "$TRANSPORT" "$PORTS"
+}
+
+cli_setup_backhaul_foreign() {
+    local LOCAL_PUB="" REMOTE_PUB="" PORT="" TRANSPORT="tcpmux" TOKEN="" BUNDLE="" FORCE=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --local-pub) LOCAL_PUB="$2"; shift 2 ;;
+            --remote-pub) REMOTE_PUB="$2"; shift 2 ;;
+            --port) PORT="$2"; shift 2 ;;
+            --transport) TRANSPORT="$2"; shift 2 ;;
+            --token) TOKEN="$2"; shift 2 ;;
+            --bundle) BUNDLE="$2"; shift 2 ;;
+            --force) FORCE=1; shift ;;
+            -h|--help) echo 'Usage: hashem setup-backhaul-foreign --remote-pub IP --port P --token K [--transport T] | --bundle bh1_...'; return 0 ;;
+            *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
+        esac
+    done
+    if [[ -n "$BUNDLE" ]]; then
+        bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad bundle: $BUNDLE${NC}"; return 1; }
+        REMOTE_PUB=$B_IRAN_PUB
+        PORT=$B_FRP_PORT
+        TRANSPORT=$B_TRANSPORT
+        TOKEN=$B_TOKEN
+    fi
+    [[ -z "$TOKEN" && -n "$BUNDLE" ]] && TOKEN=$B_TOKEN
+    LOCAL_PUB=${LOCAL_PUB:-$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')}
+    [[ -z "$LOCAL_PUB" ]] && LOCAL_PUB=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
+    is_valid_ip "$REMOTE_PUB" || { echo -e "${RED}[!] Invalid remote public IP: '$REMOTE_PUB'${NC}"; return 1; }
+    is_valid_port "$PORT" || { echo -e "${RED}[!] Invalid port: '$PORT'${NC}"; return 1; }
+    [[ -n "$TOKEN" ]] || { echo -e "${RED}[!] --token or --bundle is required.${NC}"; return 1; }
+    if [[ "$FORCE" -ne 1 ]] && systemctl is-active --quiet backhaul-client 2>/dev/null; then
+        echo -e "${RED}[!] Backhaul client already active — pass --force to overwrite.${NC}"
+        return 1
+    fi
+    setup_backhaul_foreign_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$PORT" "$TOKEN" "$TRANSPORT"
+}
+
+cli_setup_gre_backhaul_iran() {
+    local LOCAL_PUB="" REMOTE_PUB="" PORT="" LOCAL_GRE="$IRAN_GRE_IP" PEER_GRE="$FOREIGN_GRE_IP" TRANSPORT="tcpmux" TOKEN="" PORTS="" FORCE=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --local-pub) LOCAL_PUB="$2"; shift 2 ;;
+            --remote-pub) REMOTE_PUB="$2"; shift 2 ;;
+            --port) PORT="$2"; shift 2 ;;
+            --local-gre) LOCAL_GRE="$2"; shift 2 ;;
+            --peer-gre) PEER_GRE="$2"; shift 2 ;;
+            --transport) TRANSPORT="$2"; shift 2 ;;
+            --token) TOKEN="$2"; shift 2 ;;
+            --ports) PORTS="$2"; shift 2 ;;
+            --force) FORCE=1; shift ;;
+            -h|--help) echo 'Usage: hashem setup-gre-backhaul-iran --remote-pub IP [--port P] [--transport T] [--local-gre IP] [--peer-gre IP]'; return 0 ;;
+            *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
+        esac
+    done
+    LOCAL_PUB=${LOCAL_PUB:-$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')}
+    [[ -z "$LOCAL_PUB" ]] && LOCAL_PUB=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
+    PORT=${PORT:-$(gen_random_port)}
+    validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$PORT" "$LOCAL_GRE" || return 1
+    is_valid_ip "$PEER_GRE" || { echo -e "${RED}[!] Invalid peer GRE IP: '$PEER_GRE'${NC}"; return 1; }
+    if [[ -z "$TOKEN" ]]; then
+        TOKEN=$(gen_token32)
+        echo -e "${CYAN}[*] Generated token: ${TOKEN}${NC}"
+    fi
+    if tunnel_present && [[ "$FORCE" -ne 1 ]]; then
+        echo -e "${RED}[!] Tunnel already exists — pass --force to overwrite.${NC}"
+        return 1
+    fi
+    setup_gre_backhaul_iran_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$TRANSPORT" "$PORTS"
+}
+
+cli_setup_gre_backhaul_foreign() {
+    local LOCAL_PUB="" REMOTE_PUB="" PORT="" LOCAL_GRE="" PEER_GRE="" TRANSPORT="tcpmux" TOKEN="" BUNDLE="" FORCE=0
+    local FOREIGN_GRE_DEF="$FOREIGN_GRE_IP" IRAN_GRE_DEF="$IRAN_GRE_IP"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --local-pub) LOCAL_PUB="$2"; shift 2 ;;
+            --remote-pub) REMOTE_PUB="$2"; shift 2 ;;
+            --port) PORT="$2"; shift 2 ;;
+            --local-gre) LOCAL_GRE="$2"; shift 2 ;;
+            --peer-gre) PEER_GRE="$2"; shift 2 ;;
+            --transport) TRANSPORT="$2"; shift 2 ;;
+            --token) TOKEN="$2"; shift 2 ;;
+            --bundle) BUNDLE="$2"; shift 2 ;;
+            --force) FORCE=1; shift ;;
+            -h|--help) echo 'Usage: hashem setup-gre-backhaul-foreign --bundle gh1_... | --remote-pub IP --port P --token K'; return 0 ;;
+            *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
+        esac
+    done
+    if [[ -n "$BUNDLE" ]]; then
+        bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad bundle: $BUNDLE${NC}"; return 1; }
+        TOKEN=$B_TOKEN
+        REMOTE_PUB=$B_IRAN_PUB
+        PORT=$B_FRP_PORT
+        LOCAL_GRE=$B_FOREIGN_GRE
+        PEER_GRE=$B_IRAN_GRE
+        TRANSPORT=$B_TRANSPORT
+    fi
+    [[ -z "$TOKEN" && -n "$BUNDLE" ]] && TOKEN=$B_TOKEN
+    LOCAL_PUB=${LOCAL_PUB:-$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')}
+    [[ -z "$LOCAL_PUB" ]] && LOCAL_PUB=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
+    LOCAL_GRE=${LOCAL_GRE:-$FOREIGN_GRE_DEF}
+    PEER_GRE=${PEER_GRE:-$IRAN_GRE_DEF}
+    validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$PORT" "$LOCAL_GRE" || return 1
+    is_valid_ip "$PEER_GRE" || { echo -e "${RED}[!] Invalid peer GRE IP: '$PEER_GRE'${NC}"; return 1; }
+    [[ -n "$TOKEN" ]] || { echo -e "${RED}[!] --token or --bundle is required.${NC}"; return 1; }
+    if tunnel_present && [[ "$FORCE" -ne 1 ]]; then
+        echo -e "${RED}[!] Tunnel already exists — pass --force to overwrite.${NC}"
+        return 1
+    fi
+    setup_gre_backhaul_foreign_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$TRANSPORT"
 }
 
 # ---- Auto-install: first-run installs everything, shows credentials, exits ----
@@ -5983,8 +7118,14 @@ if [[ $# -gt 0 ]]; then
         menu) main_menu ;;
         setup-iran) shift; cli_setup_iran "$@" ;;
         setup-foreign) shift; cli_setup_foreign "$@" ;;
+        setup-backhaul-iran) shift; cli_setup_backhaul_iran "$@" ;;
+        setup-backhaul-foreign) shift; cli_setup_backhaul_foreign "$@" ;;
+        setup-gre-backhaul-iran) shift; cli_setup_gre_backhaul_iran "$@" ;;
+        setup-gre-backhaul-foreign) shift; cli_setup_gre_backhaul_foreign "$@" ;;
         add-peer) shift; cli_add_peer "$@" ;;
+        add-backhaul-peer) shift; cli_add_backhaul_peer "$@" ;;
         remove-peer) shift; cli_remove_peer "$@" ;;
+        edit-peer) shift; cli_edit_peer "$@" ;;
         edit-peer-ports) shift; cli_edit_peer_ports "$@" ;;
         peer-list) peer_list ;;
         logs) show_logs ;;
