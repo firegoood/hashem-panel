@@ -747,6 +747,7 @@
       <button class="nav-item" data-tab="perf" id="perfNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Performance</span></button>
       <button class="nav-item" data-tab="watchdog" id="watchdogNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span>Watchdog</span></button>
       <button class="nav-item" data-tab="doctor" id="doctorNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span>Diagnostics</span></button>
+      <button class="nav-item" data-tab="benchmark" id="benchmarkNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span>Benchmark</span></button>
       <button class="nav-item" data-tab="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg><span>Update</span><span class="badge info hidden u-ml-auto" id="updBadge" >new</span></button>
       <button class="nav-item" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg><span>Settings</span></button>
       <button class="nav-item hidden" data-tab="terminal" id="termNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span>Terminal</span><span class="term-live hidden u-ml-auto" id="termLiveDot" ></span></button>
@@ -1538,6 +1539,151 @@
           </div>
         </div>
       </section>
+      <!-- Tab: Carrier Benchmark & Auto-Pilot -->
+      <section id="tab-benchmark" hidden>
+        <!-- Peer Link & AutoPilot Top Row -->
+        <div class="u-grid-2 u-gap-16 u-mb-16">
+          <!-- Card 1: Peer Link Status -->
+          <div class="tunnel-card">
+            <div class="tc-header">
+              <span class="tc-title">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                Inter-Panel Link (Peer)
+              </span>
+              <span class="badge dim" id="peerLinkBadge">Checking...</span>
+            </div>
+            <div class="qs-hint" id="peerLinkSub">Master/Worker dual-path synchronization with remote panel.</div>
+            <div class="trow u-mt-8">
+              <span class="k">Role</span>
+              <span class="v" id="peerRoleVal">—</span>
+            </div>
+            <div class="trow">
+              <span class="k">Peer Remote URL</span>
+              <span class="v" id="peerUrlVal">—</span>
+            </div>
+            <div class="trow">
+              <span class="k">Tunnel Internal IP</span>
+              <span class="v" id="peerInternalVal">—</span>
+            </div>
+            <div class="trow">
+              <span class="k">Inter-Panel Latency</span>
+              <span class="v" id="peerLatencyVal">— ms</span>
+            </div>
+            <div class="trow">
+              <span class="k">Last Synchronized</span>
+              <span class="v" id="peerLastSyncVal">—</span>
+            </div>
+            <div class="qs-actions u-mt-12">
+              <button class="hashem-btn hashem-btn-secondary u-btn-xs" id="peerTestBtn">Test Connection</button>
+              <button class="hashem-btn hashem-btn-ghost u-btn-xs" id="peerConfigBtn">Configure Link</button>
+            </div>
+          </div>
+
+          <!-- Card 2: Auto-Pilot Settings -->
+          <div class="tunnel-card">
+            <div class="tc-header">
+              <span class="tc-title">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                Auto-Pilot Failover
+              </span>
+              <span class="badge info" id="autoPilotBadge">Active</span>
+            </div>
+            <div class="qs-hint">Probes all carriers automatically and dynamically switches Iran &amp; Foreign servers when network disruption occurs.</div>
+            <div class="fg u-mt-12">
+              <label class="u-flex-center-wrap10">
+                <input type="checkbox" id="autoPilotToggle" checked style="width:16px;height:16px;accent-color:var(--pr);">
+                <span>Enable Dynamic Carrier Self-Healing</span>
+              </label>
+            </div>
+            <div class="fg u-mt-8">
+              <label for="autoPilotThresholdInput">Packet Loss Trigger Threshold (%)</label>
+              <input class="hashem-input" id="autoPilotThresholdInput" type="number" min="5" max="90" value="20" style="max-width:140px;">
+              <span class="ent-help">If active carrier packet loss exceeds this rate, Auto-Pilot auto-switches to the best carrier.</span>
+            </div>
+            <div class="trow u-mt-4">
+              <span class="k">Last Auto-Switch</span>
+              <span class="v" id="autoPilotLastVal">—</span>
+            </div>
+            <div class="trow">
+              <span class="k">Total Auto-Switches</span>
+              <span class="v" id="autoPilotCountVal">0</span>
+            </div>
+            <div class="qs-actions u-mt-12">
+              <button class="hashem-btn hashem-btn-primary u-btn-xs" id="autoPilotSaveBtn">Save Auto-Pilot</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Carrier Matrix Leaderboard Card -->
+        <div class="tunnel-card">
+          <div class="tc-header">
+            <div>
+              <p class="tc-title">Carrier Performance Leaderboard</p>
+              <div class="qs-hint" id="benchMetaSub">Last benchmark: — · Probed carrier modes</div>
+            </div>
+            <div class="qs-actions">
+              <button class="hashem-btn hashem-btn-primary" id="benchRunBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span id="benchRunBtnTxt">Run Carrier Benchmark</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Leaderboard Table -->
+          <div class="t-scroll u-mt-12">
+            <table class="hashem-table" id="benchTable">
+              <thead>
+                <tr>
+                  <th>Rank &amp; Carrier</th>
+                  <th>Transport</th>
+                  <th>Port</th>
+                  <th>Latency (RTT)</th>
+                  <th>Packet Loss</th>
+                  <th>Jitter</th>
+                  <th>Quality Score</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="benchTableBody">
+                <tr><td colspan="9" class="u-text-center" style="padding:24px;color:var(--mu);">Click &quot;Run Carrier Benchmark&quot; to probe carrier models.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Modal / Inline Panel for Peer Configuration -->
+        <div class="tunnel-card hidden" id="peerConfigCard" style="border:1px solid var(--pr);">
+          <div class="tc-header">
+            <p class="tc-title">Configure Peer Link</p>
+            <button class="hashem-btn hashem-btn-ghost u-btn-xs" id="peerConfigCloseBtn">Close</button>
+          </div>
+          <div class="u-grid-2 u-gap-16 u-mt-8">
+            <div class="fg">
+              <label for="cfgPeerRole">Role</label>
+              <select class="hashem-input" id="cfgPeerRole">
+                <option value="master">Master (Iran - Commander)</option>
+                <option value="worker">Worker (Kharej - Responder)</option>
+              </select>
+            </div>
+            <div class="fg">
+              <label for="cfgPeerUrl">Remote Web Panel URL</label>
+              <input class="hashem-input" id="cfgPeerUrl" placeholder="http://5.6.7.8:8080">
+            </div>
+            <div class="fg">
+              <label for="cfgPeerInternal">Tunnel Internal IP</label>
+              <input class="hashem-input" id="cfgPeerInternal" placeholder="10.10.10.1">
+            </div>
+            <div class="fg">
+              <label for="cfgPeerSecret">Shared Peer Secret Key</label>
+              <input class="hashem-input" id="cfgPeerSecret" type="password" placeholder="••••••••••••••••••••••••">
+            </div>
+          </div>
+          <div class="qs-actions u-mt-12">
+            <button class="hashem-btn hashem-btn-primary" id="cfgPeerSaveBtn">Save Peer Link</button>
+          </div>
+        </div>
+      </section>
       <section id="tab-update" hidden>
         <div class="tunnel-card">
           <div class="tc-header"><p class="tc-title">Panel update</p><span class="status-indicator" id="updDot"><span class="dot"></span><span id="updDotTxt">—</span></span></div>
@@ -1831,7 +1977,7 @@ function goTab(name) {
   if (name === 'terminal' && !$('termNav').classList.contains('hidden') && $('tab-terminal').hidden && !termState.ready) { /* allowed: overlay shows connect */ }
   if (name === 'terminal' && $('termNav').classList.contains('hidden')) return; // flag off: tab doesn't exist
   if (name === 'add-peer') { goTab('setup'); const c = $('setupAddPeerStep'); if (c && c.scrollIntoView) c.scrollIntoView({behavior: 'smooth', block: 'start'}); return; }
-  ['dashboard','tunnel','setup','logs','perf','watchdog','doctor','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
+  ['dashboard','tunnel','setup','logs','perf','watchdog','doctor','benchmark','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
   document.querySelectorAll('.sidebar-nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   const dr = $('drawerNav');
   if (dr) dr.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
@@ -1839,6 +1985,7 @@ function goTab(name) {
   if (name === 'tunnel') loadCarrier();
   if (name === 'watchdog') loadWatchdog();
   if (name === 'doctor') loadDoctor();
+  if (name === 'benchmark') loadBenchmark();
   if (name === 'update') loadVersion();
   if (name === 'logs') { refreshLogPeers(); loadLogs(); loadErrors(); armLogFollow(); }
   if (name === 'terminal') termOnShow();
@@ -5081,6 +5228,234 @@ function editMainPortsClick() {
   on('editPortsNew', 'keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addEditPort(); } });
   const ov = $('editPortsModal');
   if (ov) ov.addEventListener('click', e => { if (e.target === ov) closeEditPorts(); });
+})();
+
+// ---------- Benchmark & Peer Link (tab-benchmark) ----------
+let benchData = null;
+let peerData = null;
+let benchRunning = false;
+
+async function loadBenchmark(forceRun = false) {
+  try {
+    if (forceRun) {
+      benchData = await api('/api/benchmark/run');
+    } else {
+      benchData = await api('/api/benchmark');
+    }
+  } catch (err) {
+    console.error('Failed to load benchmark:', err);
+  }
+
+  try {
+    peerData = await api('/api/peer/status');
+  } catch (err) {
+    console.error('Failed to load peer status:', err);
+  }
+
+  renderBenchmark(benchData, peerData);
+}
+
+function renderBenchmark(bench, peer) {
+  // Render Peer Link Status
+  if (peer) {
+    const isConn = peer.is_connected;
+    const badge = $('peerLinkBadge');
+    if (badge) {
+      badge.className = 'badge ' + (isConn ? 'ok' : 'err');
+      badge.textContent = isConn ? 'Connected' : (peer.peer_url ? 'Unreachable' : 'Unpaired');
+    }
+    if ($('peerRoleVal')) $('peerRoleVal').textContent = (peer.role === 'master' ? 'Master (Iran)' : 'Worker (Kharej)');
+    if ($('peerUrlVal')) $('peerUrlVal').textContent = peer.peer_url || '—';
+    if ($('peerInternalVal')) $('peerInternalVal').textContent = peer.internal_ip || '—';
+    if ($('peerLatencyVal')) $('peerLatencyVal').textContent = (peer.latency_ms > 0 ? peer.latency_ms.toFixed(1) + ' ms' : '—');
+    if ($('peerLastSyncVal')) $('peerLastSyncVal').textContent = peer.last_sync || 'Never';
+
+    // AutoPilot
+    if ($('autoPilotToggle')) $('autoPilotToggle').checked = peer.autopilot;
+    if ($('autoPilotThresholdInput')) $('autoPilotThresholdInput').value = peer.threshold || 20;
+    if ($('autoPilotBadge')) {
+      const b = $('autoPilotBadge');
+      b.className = 'badge ' + (peer.autopilot ? 'info' : 'dim');
+      b.textContent = peer.autopilot ? 'Active' : 'Disabled';
+    }
+  }
+
+  if (bench && bench.auto_pilot) {
+    if ($('autoPilotLastVal')) $('autoPilotLastVal').textContent = bench.auto_pilot.last_triggered || 'None';
+    if ($('autoPilotCountVal')) $('autoPilotCountVal').textContent = bench.auto_pilot.trigger_count || 0;
+    if ($('benchMetaSub')) {
+      $('benchMetaSub').textContent = `Last benchmark: ${bench.timestamp || '—'} · Active: ${bench.active_carrier || '—'} · Winner: ${bench.best_carrier || '—'}`;
+    }
+  }
+
+  // Render Table
+  const tbody = $('benchTableBody');
+  if (!tbody) return;
+
+  if (!bench || !bench.metrics || bench.metrics.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="u-text-center" style="padding:24px;color:var(--mu);">No benchmark metrics yet. Click "Run Carrier Benchmark".</td></tr>';
+    return;
+  }
+
+  let html = '';
+  bench.metrics.forEach((m, idx) => {
+    const isWinner = m.is_recommended;
+    const isActive = m.is_active;
+
+    // Badges & status
+    let statusClass = 'dim';
+    if (m.status === 'healthy') statusClass = 'ok';
+    else if (m.status === 'good') statusClass = 'info';
+    else if (m.status === 'warning') statusClass = 'warn';
+    else if (m.status === 'critical' || m.status === 'down') statusClass = 'err';
+
+    // Loss badge
+    let lossClass = 'ok';
+    if (m.packet_loss > 0 && m.packet_loss <= 15) lossClass = 'warn';
+    else if (m.packet_loss > 15) lossClass = 'err';
+
+    const rank = idx + 1;
+    const portStr = m.port > 0 ? m.port : 'Raw';
+
+    html += `<tr class="${isActive ? 'row-active' : ''}">
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <strong style="color:var(--mu);min-width:16px;">#${rank}</strong>
+          <div>
+            <strong>${esc(m.name)}</strong>
+            ${isActive ? '<span class="badge ok" style="margin-left:6px;font-size:10px;">ACTIVE</span>' : ''}
+            ${isWinner ? '<span class="badge info" style="margin-left:6px;font-size:10px;">RECOMMENDED</span>' : ''}
+          </div>
+        </div>
+      </td>
+      <td><span class="badge dim">${esc(m.type.toUpperCase())}</span></td>
+      <td><code>${portStr}</code></td>
+      <td>${m.avg_rtt_ms > 0 ? m.avg_rtt_ms + ' ms' : '—'}</td>
+      <td><span class="badge ${lossClass}">${m.packet_loss}%</span></td>
+      <td>${m.jitter_ms > 0 ? m.jitter_ms + ' ms' : '—'}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="flex:1;background:rgba(255,255,255,0.08);height:6px;border-radius:3px;overflow:hidden;min-width:50px;">
+            <div style="width:${m.score}%;height:100%;background:${m.score >= 70 ? 'var(--ok)' : (m.score >= 40 ? 'var(--warn)' : 'var(--err)')};"></div>
+          </div>
+          <strong style="font-size:12px;">${m.score}</strong>
+        </div>
+      </td>
+      <td><span class="badge ${statusClass}">${esc(m.status)}</span></td>
+      <td>
+        ${isActive ? '<button class="hashem-btn hashem-btn-ghost u-btn-xs" disabled style="opacity:0.6;">Current</button>' :
+          `<button class="hashem-btn ${isWinner ? 'hashem-btn-primary' : 'hashem-btn-secondary'} u-btn-xs" onclick="applyCarrierClick('${esc(m.id)}')">Switch</button>`}
+      </td>
+    </tr>`;
+  });
+
+  tbody.innerHTML = html;
+}
+
+async function runBenchmarkClick() {
+  if (benchRunning) return;
+  benchRunning = true;
+  const btn = $('benchRunBtn');
+  const txt = $('benchRunBtnTxt');
+  if (btn) btn.disabled = true;
+  if (txt) txt.textContent = 'Probing carriers...';
+  toast('Benchmarking carriers', 'Probing GRE, FOU, WSS, and transport ports...');
+
+  try {
+    await loadBenchmark(true);
+    toastOk('Benchmark Complete', `Best Carrier: ${benchData ? benchData.best_carrier : '—'}`);
+  } catch (err) {
+    toastErr('Benchmark failed', err.message || err);
+  } finally {
+    benchRunning = false;
+    if (btn) btn.disabled = false;
+    if (txt) txt.textContent = 'Run Carrier Benchmark';
+  }
+}
+
+async function applyCarrierClick(carrierId) {
+  if (!confirm(`Switch both Iran & Foreign servers to carrier "${carrierId}"?`)) return;
+  toast('Applying carrier', `Synchronizing and applying ${carrierId}...`);
+  try {
+    const res = await api('/api/benchmark/apply', { carrier: carrierId });
+    toastOk('Carrier Applied', res.detail || `Active carrier is now ${carrierId}`);
+    await loadBenchmark();
+  } catch (err) {
+    toastErr('Apply failed', err.message || err);
+  }
+}
+
+async function testPeerLinkClick() {
+  toast('Testing link', 'Sending probe to peer...');
+  try {
+    const res = await api('/api/peer/config', { action: 'test' });
+    if (res.reachable) {
+      toastOk('Peer reachable', `Round-trip latency: ${res.latency_ms.toFixed(1)} ms`);
+    } else {
+      toastWarn('Peer unreachable', 'Could not establish connection to remote peer.');
+    }
+    await loadBenchmark();
+  } catch (err) {
+    toastErr('Peer probe failed', err.message || err);
+  }
+}
+
+async function saveAutoPilotClick() {
+  const enabled = $('autoPilotToggle') ? $('autoPilotToggle').checked : true;
+  const thresh = $('autoPilotThresholdInput') ? parseFloat($('autoPilotThresholdInput').value) || 20 : 20;
+
+  try {
+    await api('/api/benchmark/autopilot', { enabled: enabled, threshold: thresh });
+    toastOk('Auto-Pilot saved', `Dynamic failover threshold set to ${thresh}%`);
+    await loadBenchmark();
+  } catch (err) {
+    toastErr('Failed to save Auto-Pilot', err.message || err);
+  }
+}
+
+function openPeerConfig() {
+  const card = $('peerConfigCard');
+  if (!card) return;
+  card.classList.remove('hidden');
+  if (peerData) {
+    if ($('cfgPeerRole')) $('cfgPeerRole').value = peerData.role || 'master';
+    if ($('cfgPeerUrl')) $('cfgPeerUrl').value = peerData.peer_url || '';
+    if ($('cfgPeerInternal')) $('cfgPeerInternal').value = peerData.internal_ip || '';
+  }
+}
+
+function closePeerConfig() {
+  const card = $('peerConfigCard');
+  if (card) card.classList.add('hidden');
+}
+
+async function savePeerConfigClick() {
+  const role = $('cfgPeerRole') ? $('cfgPeerRole').value : 'master';
+  const url = $('cfgPeerUrl') ? $('cfgPeerUrl').value.trim() : '';
+  const internal = $('cfgPeerInternal') ? $('cfgPeerInternal').value.trim() : '';
+  const secret = $('cfgPeerSecret') ? $('cfgPeerSecret').value.trim() : '';
+
+  try {
+    const payload = { role, peer_url: url, internal_ip: internal };
+    if (secret) payload.peer_secret = secret;
+    await api('/api/peer/config', payload);
+    toastOk('Peer Config Saved', 'Remote link configuration updated.');
+    closePeerConfig();
+    await loadBenchmark();
+  } catch (err) {
+    toastErr('Save failed', err.message || err);
+  }
+}
+
+// Wire up events
+(function initBenchmarkEvents() {
+  function on(id, ev, fn) { const el = $(id); if (el) el.addEventListener(ev, fn); }
+  on('benchRunBtn', 'click', runBenchmarkClick);
+  on('peerTestBtn', 'click', testPeerLinkClick);
+  on('peerConfigBtn', 'click', openPeerConfig);
+  on('peerConfigCloseBtn', 'click', closePeerConfig);
+  on('cfgPeerSaveBtn', 'click', savePeerConfigClick);
+  on('autoPilotSaveBtn', 'click', saveAutoPilotClick);
 })();
 </script>
 </body>

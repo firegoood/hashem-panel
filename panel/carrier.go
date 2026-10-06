@@ -241,23 +241,9 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 		if t == "" && req.Mode != "" {
 			t = strings.TrimSpace(req.Mode)
 		}
-		if t != "direct" && !strings.HasPrefix(t, "fou:") && !strings.HasPrefix(t, "wss") {
-			t = cfg.ActiveCarrier
-		}
-		cfg.ActiveCarrier = t
-		cfg.LastSwitch = time.Now().Format("2006-01-02 15:04:05")
-		cfg.SwitchCount++
-		if strings.HasPrefix(t, "wss") {
-			wssCfg := loadWSSConfig()
-			wssCfg.Enabled = true
-			_ = saveWSSConfig(wssCfg)
-			_ = startWSSCarrier(wssCfg)
-		} else {
-			_ = stopWSSCarrier()
-		}
-		_ = saveCarrierConfig(cfg)
-		_, _ = runHashemCarrierCmd("set", t)
-		writeJSON(w, map[string]any{"status": "ok", "active": cfg.ActiveCarrier, "active_carrier": cfg.ActiveCarrier, "detail": "Applied carrier " + t})
+		_, _ = applyCarrierMode(t)
+		cfg = loadCarrierConfig()
+		writeJSON(w, map[string]any{"status": "ok", "active": cfg.ActiveCarrier, "active_carrier": cfg.ActiveCarrier, "detail": "Applied carrier " + cfg.ActiveCarrier})
 
 	case "cycle_next", "cycle", "next":
 		out, err := runHashemCarrierCmd("cycle")
@@ -349,5 +335,27 @@ func runHashemCarrierCmd(args ...string) ([]byte, error) {
 		return cmd.CombinedOutput()
 	}
 	return nil, fmt.Errorf("hashem script not found")
+}
+
+func applyCarrierMode(t string) (string, error) {
+	cfg := loadCarrierConfig()
+	t = strings.TrimSpace(t)
+	if t != "direct" && !strings.HasPrefix(t, "fou:") && !strings.HasPrefix(t, "wss") {
+		t = cfg.ActiveCarrier
+	}
+	cfg.ActiveCarrier = t
+	cfg.LastSwitch = time.Now().Format("2006-01-02 15:04:05")
+	cfg.SwitchCount++
+	if strings.HasPrefix(t, "wss") {
+		wssCfg := loadWSSConfig()
+		wssCfg.Enabled = true
+		_ = saveWSSConfig(wssCfg)
+		_ = startWSSCarrier(wssCfg)
+	} else {
+		_ = stopWSSCarrier()
+	}
+	_ = saveCarrierConfig(cfg)
+	out, err := runHashemCarrierCmd("set", t)
+	return string(out), err
 }
 

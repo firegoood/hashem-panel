@@ -27,6 +27,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -354,6 +355,45 @@ func handleSetupPost(w http.ResponseWriter, r *http.Request) {
 	if bundle != "" {
 		out["bundle"] = bundle
 	}
+
+	// Auto-configure peer synchronization link
+	if body.Role == "iran" && token != "" {
+		pcfg := loadPeerConfig()
+		pcfg.Role = "master"
+		pcfg.PeerSecret = token
+		if body.PeerGre != "" {
+			pcfg.InternalIP = body.PeerGre
+		}
+		_ = savePeerConfig(pcfg)
+	} else if body.Role == "foreign" {
+		pcfg := loadPeerConfig()
+		pcfg.Role = "worker"
+		if body.Token != "" {
+			pcfg.PeerSecret = body.Token
+		}
+		if body.LocalGre != "" {
+			pcfg.InternalIP = body.PeerGre
+		}
+		if body.RemotePub != "" {
+			port := 8080
+			if cfg.Port > 0 {
+				port = cfg.Port
+			}
+			pcfg.PeerURL = fmt.Sprintf("http://%s:%d", body.RemotePub, port)
+		}
+		_ = savePeerConfig(pcfg)
+
+		go func() {
+			time.Sleep(2 * time.Second)
+			_, _ = sendToPeer("/api/peer/handshake", "POST", PeerHandshakeRequest{
+				Role:       "worker",
+				PublicIP:   detectPublicIP(),
+				PanelPort:  cfg.Port,
+				InternalIP: pcfg.InternalIP,
+			})
+		}()
+	}
+
 	writeJSON(w, out)
 }
 

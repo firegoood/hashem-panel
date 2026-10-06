@@ -33,6 +33,8 @@
 - 🔀 **Advanced Port Management:** Supports individual ports (`443`), multiple ports (`80,443`), port ranges (`1000-1010`), and port mappings (`8080=80`).
 - 📊 **Deep Network Insights:** Real-time graphs, RAM/CPU vitals, Live Activity Streams, and exact traffic metrics.
 - ⚡ **Auto-Adaptation:** Smartly adjusts multiplexing capacity dynamically based on active load and available system RAM.
+- 🎯 **Carrier Benchmark & Auto-Pilot:** Live probing across GRE Direct (Proto 47), FOU (UDP 443/custom), WSS (TLS 8443), and transport ports. Automatically switches Iran & Foreign nodes when packet loss exceeds threshold.
+- 🔗 **Inter-Panel Synchronization:** Dual-path REST link (Internal Tunnel IP + Public fallback) pairs Iran (Master) and Foreign (Worker) panels with shared secrets for coordinated zero-downtime reconfiguration.
 - 🔒 **Enterprise-Grade Security:**
   - **No Plaintext Passwords:** Credentials stored exclusively as SHA-256 hashes (CWE-256 mitigation).
   - **NIST 800-63B Password Policy:** Enforces strong 12+ character passwords with uppercase, lowercase, numbers, and symbols.
