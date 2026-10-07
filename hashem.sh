@@ -973,8 +973,25 @@ os.chmod(p, 0o600)
 
 carrier_apply_active() {
     local IFNAME="${1:-}"
-    local ACT
-    ACT=$(carrier_get_active)
+    local ACT=""
+    if [[ -n "$IFNAME" && -f "$PEERS_FILE" ]]; then
+        ACT=$(python3 -c '
+import json, sys
+ifname = sys.argv[1]
+try:
+    with open("'"$PEERS_FILE"'") as f:
+        d = json.load(f)
+    for p in d.get("peers", []):
+        if p.get("gre_if") == ifname and p.get("carrier"):
+            print(p["carrier"])
+            sys.exit(0)
+except Exception:
+    pass
+' "$IFNAME" 2>/dev/null || true)
+    fi
+    if [[ -z "$ACT" ]]; then
+        ACT=$(carrier_get_active)
+    fi
     carrier_apply "$ACT" "$IFNAME"
 }
 
