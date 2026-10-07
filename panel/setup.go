@@ -141,10 +141,6 @@ func ensureFreshScript(script string) {
 
 func currentIranBundle() (string, string) {
 	st := localStatus()
-	iranPub := detectPublicIP()
-	if iranPub == "" {
-		iranPub = st.LocalPub
-	}
 
 	var setupMeta struct {
 		Role       string `json:"role"`
@@ -161,8 +157,13 @@ func currentIranBundle() (string, string) {
 	if sData, err := os.ReadFile(filepath.Join(configDir, "setup.json")); err == nil {
 		_ = json.Unmarshal(sData, &setupMeta)
 	}
+
+	iranPub := setupMeta.LocalPub
 	if iranPub == "" {
-		iranPub = setupMeta.LocalPub
+		iranPub = detectPublicIP()
+	}
+	if iranPub == "" {
+		iranPub = st.LocalPub
 	}
 	if iranPub == "" {
 		iranPub = "127.0.0.1"
