@@ -7514,7 +7514,7 @@ auto_install_and_show() {
     echo -e "${CYAN}║${NC}  • Run ${GREEN}hashem --help${NC} for CLI commands                      ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${GREEN}${BOLD}enjoy DNC MADE THIS${NC}"
+    echo -e "${GREEN}${BOLD}DNC MADE THIS${NC}"
     echo ""
 }
 
@@ -7530,7 +7530,7 @@ show_credentials_and_exit() {
     echo -e "${CYAN}║${NC}  • Run ${GREEN}hashem --help${NC} for CLI commands                      ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${GREEN}${BOLD}enjoy DNC MADE THIS${NC}"
+    echo -e "${GREEN}${BOLD}DNC MADE THIS${NC}"
     echo ""
 }
 

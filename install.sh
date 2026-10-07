@@ -59,6 +59,6 @@ ln -sf /usr/local/bin/hashem.sh /usr/local/bin/gre.sh 2>/dev/null || true
 
 bash /usr/local/bin/hashem "$@"
 
-echo -e "\033[1;32menjoy DNC MADE THIS\033[0m"
+echo -e "\033[1;32mDNC MADE THIS\033[0m"
 echo ""
 
