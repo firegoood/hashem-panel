@@ -151,6 +151,43 @@ var lastRawUp, lastRawDown uint64
 var lifetimeUp, lifetimeDown uint64
 var trafficStateInit bool
 
+var (
+	peerIfsMu       sync.RWMutex
+	peerIfsCache    map[string]bool
+	peerIfsCacheExp time.Time
+)
+
+func getKnownPeerIfs() map[string]bool {
+	peerIfsMu.RLock()
+	if peerIfsCache != nil && time.Now().Before(peerIfsCacheExp) {
+		res := peerIfsCache
+		peerIfsMu.RUnlock()
+		return res
+	}
+	peerIfsMu.RUnlock()
+
+	peerIfsMu.Lock()
+	defer peerIfsMu.Unlock()
+	if peerIfsCache != nil && time.Now().Before(peerIfsCacheExp) {
+		return peerIfsCache
+	}
+	m := make(map[string]bool)
+	for _, q := range loadPeers() {
+		if q.GreIf != "" {
+			m[q.GreIf] = true
+		}
+	}
+	peerIfsCache = m
+	peerIfsCacheExp = time.Now().Add(10 * time.Second)
+	return m
+}
+
+func invalidatePeerIfsCache() {
+	peerIfsMu.Lock()
+	peerIfsCache = nil
+	peerIfsMu.Unlock()
+}
+
 // isTunnelInterface determines if an interface is a GRE or Backhaul tunnel.
 func isTunnelInterface(ifname string) bool {
 	if ifname == "lo" || ifname == "gre0" || ifname == "gretap0" || ifname == "erspan0" {
@@ -165,10 +202,9 @@ func isTunnelInterface(ifname string) bool {
 	if strings.HasPrefix(ifname, "gre-") || strings.HasPrefix(ifname, "tun") {
 		return true
 	}
-	for _, q := range loadPeers() {
-		if q.GreIf != "" && q.GreIf == ifname {
-			return true
-		}
+	known := getKnownPeerIfs()
+	if known[ifname] {
+		return true
 	}
 	if data, err := os.ReadFile(filepath.Join("/sys/class/net", ifname, "type")); err == nil {
 		t := strings.TrimSpace(string(data))

@@ -16,6 +16,7 @@ package main
 // fields always win). Legacy 32-char tokens (no hsh1_ prefix) keep working.
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -713,8 +714,10 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 		args = append(args, "--force")
 	}
 	// token is used verbatim as an argv element (no shell), safe from injection.
-	cmd := exec.Command("bash", append([]string{script}, args...)...)
-	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", append([]string{script}, args...)...)
+	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb", "GRE_PANEL_DIR="+configDir)
 	out, runErr := cmd.CombinedOutput()
 	steps := []string{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -777,8 +780,10 @@ func handlePeersGet(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, r, "E-INSTALL-01", err.Error())
 			return
 		}
-		cmd := exec.Command("bash", script, "peer-token", "--id", strconv.Itoa(id))
-		cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "bash", script, "peer-token", "--id", strconv.Itoa(id))
+		cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb", "GRE_PANEL_DIR="+configDir)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			writeAPIError(w, r, "E-PEER-04", strings.TrimSpace(string(out)))
@@ -1080,15 +1085,17 @@ func handlePeersPatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 1. Try installer if it supports edit-peer or edit-peer-ports
-	if out, err := editPeerViaInstaller(body); err == nil {
-		bundle := generatePeerBundle(peer, body)
-		resp := map[string]any{"status": "ok", "output": out}
-		if bundle != "" {
-			resp["bundle"] = bundle
+	// 1. Try installer if it supports edit-peer or edit-peer-ports (for standard FRP peers without transport/raw-port changes)
+	if peer.Engine != "backhaul" && body.Transport == "" && body.RawPorts == nil {
+		if out, err := editPeerViaInstaller(body); err == nil {
+			bundle := generatePeerBundle(peer, body)
+			resp := map[string]any{"status": "ok", "output": out}
+			if bundle != "" {
+				resp["bundle"] = bundle
+			}
+			writeJSON(w, resp)
+			return
 		}
-		writeJSON(w, resp)
-		return
 	}
 
 	// 2. Direct edit: update peers.json, reconfigure GRE endpoint, systemd unit, carrier, toml, firewall
@@ -1131,8 +1138,10 @@ func editPeerViaInstaller(body peerPatchRequest) (string, error) {
 		}
 		args = append(args, "--ports", strings.Join(strs, ","))
 	}
-	cmd := exec.Command("bash", args...)
-	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+	ctxPatch, cancelPatch := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelPatch()
+	cmd := exec.CommandContext(ctxPatch, "bash", args...)
+	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb", "GRE_PANEL_DIR="+configDir)
 	out, runErr := cmd.CombinedOutput()
 	o := strings.TrimSpace(stripANSI(string(out)))
 	if runErr != nil {
@@ -1144,8 +1153,8 @@ func editPeerViaInstaller(body peerPatchRequest) (string, error) {
 				for i, p := range *body.Ports {
 					strs[i] = strconv.Itoa(p)
 				}
-				cmdLegacy := exec.Command("bash", script, "edit-peer-ports", "--id", strconv.Itoa(body.ID), "--ports", strings.Join(strs, ","))
-				cmdLegacy.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+				cmdLegacy := exec.CommandContext(ctxPatch, "bash", script, "edit-peer-ports", "--id", strconv.Itoa(body.ID), "--ports", strings.Join(strs, ","))
+				cmdLegacy.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb", "GRE_PANEL_DIR="+configDir)
 				outLegacy, errLegacy := cmdLegacy.CombinedOutput()
 				if errLegacy == nil {
 					return strings.TrimSpace(stripANSI(string(outLegacy))), nil
@@ -1155,6 +1164,7 @@ func editPeerViaInstaller(body peerPatchRequest) (string, error) {
 		}
 		return o, runErr
 	}
+	invalidatePeerIfsCache()
 	return o, nil
 }
 
@@ -1287,6 +1297,7 @@ func editPeerDirect(peer *peerRecord, req peerPatchRequest) (string, error) {
 		}
 	}
 
+	invalidatePeerIfsCache()
 	return warning, nil
 }
 

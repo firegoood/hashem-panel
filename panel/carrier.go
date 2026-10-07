@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -321,17 +322,20 @@ func handleCarrierPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func runHashemCarrierCmd(args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	script, err := greScriptPath()
 	if err == nil {
 		cmdArgs := append([]string{script, "carrier"}, args...)
-		cmd := exec.Command("bash", cmdArgs...)
-		cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+		cmd := exec.CommandContext(ctx, "bash", cmdArgs...)
+		cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb", "GRE_PANEL_DIR="+configDir)
 		return cmd.CombinedOutput()
 	}
 	if fileExists("/usr/local/bin/hashem") {
 		cmdArgs := append([]string{"carrier"}, args...)
-		cmd := exec.Command("/usr/local/bin/hashem", cmdArgs...)
-		cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+		cmd := exec.CommandContext(ctx, "/usr/local/bin/hashem", cmdArgs...)
+		cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb", "GRE_PANEL_DIR="+configDir)
 		return cmd.CombinedOutput()
 	}
 	return nil, fmt.Errorf("hashem script not found")

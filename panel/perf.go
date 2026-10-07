@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type perfConfig struct {
@@ -215,8 +217,10 @@ func runPerfCmd(args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("bash", append([]string{script}, args...)...)
-	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb")
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", append([]string{script}, args...)...)
+	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb", "GRE_PANEL_DIR="+configDir)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf

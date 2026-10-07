@@ -26,9 +26,10 @@ DEFAULT_FRP_VERSION="0.71.0"
 IRAN_GRE_IP="10.10.10.2"
 FOREIGN_GRE_IP="10.10.10.1"
 TUNNEL_NAME="gre-tunnel"
-WATCHDOG_FILE="/etc/gre-panel/watchdog.json"
-PERF_FILE="/etc/gre-panel/perf.json"
-CARRIER_FILE="/etc/gre-panel/carrier.json"
+PANEL_CONFIG_DIR="${GRE_PANEL_DIR:-/etc/gre-panel}"
+WATCHDOG_FILE="${PANEL_CONFIG_DIR}/watchdog.json"
+PERF_FILE="${PANEL_CONFIG_DIR}/perf.json"
+CARRIER_FILE="${PANEL_CONFIG_DIR}/carrier.json"
 BACKUP_DIR="/var/backups/hashem"
 
 ensure_hashem_bin() {
@@ -667,7 +668,7 @@ gen_random_port() { # random port 20000-60000 for FRP
 
 # ---- Carrier & Multi-Protocol Failover (Direct GRE <-> FOU UDP) ----
 init_carrier_json() {
-    mkdir -p /etc/gre-panel
+    mkdir -p "$PANEL_CONFIG_DIR"
     if [[ ! -f "$CARRIER_FILE" ]]; then
         cat << 'EOF' > "$CARRIER_FILE"
 {
@@ -675,8 +676,10 @@ init_carrier_json() {
   "active_carrier": "direct",
   "fou_port1": 443,
   "fou_port2": 55555,
+  "wss_port": 8443,
   "candidates": [
-    "direct"
+    "direct",
+    "wss:8443"
   ],
   "last_switch": "",
   "switch_count": 0
@@ -3405,7 +3408,7 @@ setup_gre_backhaul_foreign_server_noninteractive() {
 # existing installs keep working. Peers 2..5 get gre-tN + frps-N.toml +
 # frps-N.service, each with its own token and control port (one frps
 # understands only one token). Registry: /etc/gre-panel/peers.json.
-PEERS_FILE="/etc/gre-panel/peers.json"
+PEERS_FILE="${PANEL_CONFIG_DIR}/peers.json"
 MAX_PEERS=5
 
 peer_init() {

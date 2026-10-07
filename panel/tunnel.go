@@ -5,6 +5,7 @@ package main
 // installer (single source of truth, same as the CLI/menu path).
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -163,8 +164,10 @@ func tuneViaInstaller(action string) (string, error) {
 	arg := map[string]string{
 		"optimize": "optimize", "restore": "restore", "tune-status": "tune-status",
 	}[action]
-	cmd := exec.Command("bash", script, arg)
-	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", script, arg)
+	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb", "GRE_PANEL_DIR="+configDir)
 	out, runErr := cmd.CombinedOutput()
 	o := strings.TrimSpace(string(out))
 	if o == "" {
@@ -184,8 +187,10 @@ func removeViaInstaller() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("bash", script, "remove-tunnel", "--force")
-	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", script, "remove-tunnel", "--force")
+	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb", "GRE_PANEL_DIR="+configDir)
 	out, runErr := cmd.CombinedOutput()
 	o := strings.TrimSpace(string(out))
 	if o == "" {
@@ -380,8 +385,10 @@ func removePeerViaInstaller(id int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("bash", script, "remove-peer", "--id", fmt.Sprint(id), "--force")
-	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", script, "remove-peer", "--id", fmt.Sprint(id), "--force")
+	cmd.Env = append(os.Environ(), "GRE_SKIP_PANEL=1", "TERM=dumb", "GRE_PANEL_DIR="+configDir)
 	out, runErr := cmd.CombinedOutput()
 	o := strings.TrimSpace(stripANSI(string(out)))
 	if o == "" {
@@ -399,6 +406,7 @@ func removePeerViaInstaller(id int) (string, error) {
 		}
 		return o, fmt.Errorf("remove-peer failed: %w", runErr)
 	}
+	invalidatePeerIfsCache()
 	return o, nil
 }
 
