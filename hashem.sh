@@ -1378,7 +1378,10 @@ install_backhaul_binaries() {
 
     rm -rf "$TMP_DIR"
     if [[ -x "${INSTALL_DIR}/backhaul" ]]; then
-        echo -e "${GREEN}[✔️] Backhaul installed to ${INSTALL_DIR}/backhaul.${NC}"
+        mkdir -p "/root/backhaul-core" 2>/dev/null || true
+        cp -f "${INSTALL_DIR}/backhaul" "/root/backhaul-core/backhaul_premium" 2>/dev/null || ln -sf "${INSTALL_DIR}/backhaul" "/root/backhaul-core/backhaul_premium"
+        chmod +x "/root/backhaul-core/backhaul_premium" 2>/dev/null || true
+        echo -e "${GREEN}[✔️] Backhaul (Modified v2.0.0-hotfix8) installed to ${INSTALL_DIR}/backhaul.${NC}"
         return 0
     else
         echo -e "${RED}[!] Backhaul binary extraction failed.${NC}"
@@ -6838,12 +6841,14 @@ menu_tunnel() {
                 echo "  1) GRE + FRP Server (Recommended standard)"
                 echo "  2) Backhaul Server (No-GRE / TCPMux)"
                 echo "  3) GRE + Backhaul Server"
+                echo "  4) Modified Backhaul (IPX / ICMP / anytls / xtcpmux / TUN)"
                 echo "  0) Cancel"
-                read -p "Select [0-3]: " IR_PROTO
+                read -p "Select [0-4]: " IR_PROTO
                 case "$IR_PROTO" in
                     1) setup_iran_server ;;
                     2) setup_backhaul_iran_interactive ;;
                     3) setup_gre_backhaul_iran_interactive ;;
+                    4) menu_modified_backhaul ;;
                     *) ;;
                 esac
                 pause_prompt
@@ -7135,6 +7140,38 @@ menu_bundle() { menu_tunnel; }
 menu_diagnostics() { menu_diagnostics_backup; }
 menu_update() { menu_maintenance; }
 
+ensure_modified_backhaul_core() {
+    mkdir -p "/root/backhaul-core" 2>/dev/null || true
+    install_backhaul_binaries
+    if [[ -x "${INSTALL_DIR}/backhaul" ]]; then
+        cp -f "${INSTALL_DIR}/backhaul" "/root/backhaul-core/backhaul_premium" 2>/dev/null || ln -sf "${INSTALL_DIR}/backhaul" "/root/backhaul-core/backhaul_premium"
+        chmod +x "/root/backhaul-core/backhaul_premium" 2>/dev/null || true
+    fi
+}
+
+menu_modified_backhaul() {
+    ensure_modified_backhaul_core
+    local SCRIPT_TARGET="/usr/local/bin/hashem-backhaul.sh"
+    if [[ ! -f "$SCRIPT_TARGET" ]]; then
+        local SCRIPT_DIR
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+        if [[ -f "${SCRIPT_DIR}/hashem-backhaul.sh" ]]; then
+            cp -f "${SCRIPT_DIR}/hashem-backhaul.sh" "$SCRIPT_TARGET"
+        else
+            local DL_URL="https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem-backhaul.sh"
+            download_with_fallback "$SCRIPT_TARGET" "$DL_URL" 30 || true
+        fi
+        chmod +x "$SCRIPT_TARGET" 2>/dev/null || true
+    fi
+
+    if [[ -x "$SCRIPT_TARGET" ]]; then
+        bash "$SCRIPT_TARGET" "$@"
+    else
+        echo -e "${RED}[!] Could not locate or download hashem-backhaul.sh.${NC}"
+        pause_prompt
+    fi
+}
+
 menu_loop() {
     trap 'echo -e "\n\n${CYAN}[*] Exiting Hashem Manager. Goodbye!${NC}"; exit 0' INT
     while true; do
@@ -7142,22 +7179,24 @@ menu_loop() {
         show_banner
         echo ""
         echo "MAIN MENU"
-        echo "  1) Tunnel Management"
-        echo "  2) Web Panel & Domain"
-        echo "  3) Performance & Security"
-        echo "  4) Diagnostics & Backup"
-        echo "  5) Maintenance & Update"
-        echo "  6) Uninstallation"
+        echo "  1) Tunnel Management (GRE + FRP / Multi-Peer)"
+        echo "  2) Modified Backhaul (IPX, ICMP, anytls, xtcpmux, TUN)"
+        echo "  3) Web Panel & Domain"
+        echo "  4) Performance & Security"
+        echo "  5) Diagnostics & Backup"
+        echo "  6) Maintenance & Update"
+        echo "  7) Uninstallation"
         echo "  0) Exit"
         echo ""
-        read -p "Select an option [0-6]: " MAIN_OPT
+        read -p "Select an option [0-7]: " MAIN_OPT
         case "$MAIN_OPT" in
             1) menu_tunnel ;;
-            2) menu_panel ;;
-            3) menu_optimization ;;
-            4) menu_diagnostics_backup ;;
-            5) menu_maintenance ;;
-            6) menu_uninstall ;;
+            2) menu_modified_backhaul ;;
+            3) menu_panel ;;
+            4) menu_optimization ;;
+            5) menu_diagnostics_backup ;;
+            6) menu_maintenance ;;
+            7) menu_uninstall ;;
             0|8|exit|q)
                 echo -e "${CYAN}Exiting Hashem Manager. Goodbye!${NC}"
                 exit 0
@@ -7208,6 +7247,7 @@ Usage:
   hashem stress-test [host] [port] [conns]     # high-concurrency connection stress test (verify zero drops)
   hashem update | update-all                   # update script + panel to latest release
   hashem download-cores                        # download & pre-cache FRP and Backhaul core binaries
+  hashem modified-backhaul                     # interactive Modified Backhaul manager (IPX, ICMP, TUN, anytls)
   hashem free-ram                              # cap journald + drop cache + 1GB swap
 
 Setup bundles:
@@ -7623,6 +7663,10 @@ if [[ $# -gt 0 ]]; then
             install_frp_binaries "all" || { echo -e "${RED}[!] Failed to install FRP binaries.${NC}"; exit 1; }
             install_backhaul_binaries || { echo -e "${RED}[!] Failed to install Backhaul binary.${NC}"; exit 1; }
             echo -e "${GREEN}[✔️] All core binaries (frps, frpc, backhaul) are cached in ${INSTALL_DIR}.${NC}"
+            ;;
+        modified-backhaul|backhaul-premium|mbh)
+            shift
+            menu_modified_backhaul "$@"
             ;;
         remove-tunnel)
             if [[ "${2:-}" == "--force" ]]; then remove_tunnel_force; else remove_tunnel; fi ;;
