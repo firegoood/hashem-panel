@@ -5580,8 +5580,16 @@ watchdog_check() {
     local PEER_GRE
     PEER_GRE=$(watchdog_get_peer_gre)
     local GRE_OK=0
-    if [[ -n "$PEER_GRE" ]] && ping -c 1 -W 2 "$PEER_GRE" >/dev/null 2>&1; then
-        GRE_OK=1
+    if [[ -n "$PEER_GRE" ]]; then
+        if ping -c 1 -W 2 "$PEER_GRE" >/dev/null 2>&1; then
+            GRE_OK=1
+        elif nc -z -w 2 "$PEER_GRE" 22 >/dev/null 2>&1 || nc -z -w 2 "$PEER_GRE" 7777 >/dev/null 2>&1 || nc -z -w 2 "$PEER_GRE" 5201 >/dev/null 2>&1; then
+            GRE_OK=1
+        elif timeout 2 bash -c "</dev/tcp/$PEER_GRE/22" >/dev/null 2>&1 || timeout 2 bash -c "</dev/tcp/$PEER_GRE/7777" >/dev/null 2>&1; then
+            GRE_OK=1
+        elif ss -tn state established "( sport = :39594 or dport = :39594 )" 2>/dev/null | grep -q "$PEER_GRE"; then
+            GRE_OK=1
+        fi
     fi
 
     local FRP_NAME=""
@@ -5704,9 +5712,14 @@ watchdog_test() {
 
 restart_all_lite() {
     local u
+    local list=()
     for u in /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-tunnel.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service; do
         [[ -f "$u" ]] || continue
-        systemctl restart "$(basename "$u")" >/dev/null 2>&1
+        list+=("$(basename "$u")")
+    done
+    local unique_units=($(echo "${list[@]}" | tr " " "\n" | sort -u))
+    for u in "${unique_units[@]}"; do
+        systemctl restart "$u" >/dev/null 2>&1
     done
 }
 
