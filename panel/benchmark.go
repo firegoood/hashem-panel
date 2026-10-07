@@ -379,7 +379,7 @@ func runCarrierBenchmark() *BenchmarkReport {
 	}
 
 	// Add Backhaul/FRP control port candidate if present
-	isBackhaulEngine := strings.Contains(localSt.TunnelEngine, "backhaul") || localSt.TunnelType == "backhaul"
+	isBackhaulEngine := strings.Contains(localSt.TunnelEngine, "backhaul") || localSt.TunnelType == "backhaul" || strings.Contains(localSt.Engine, "backhaul") || strings.HasPrefix(localSt.FrpSvc, "backhaul")
 	controlPort := localSt.FrpPort
 	if controlPort <= 0 {
 		controlPort = localSt.BindPort

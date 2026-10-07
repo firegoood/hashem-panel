@@ -570,6 +570,8 @@ func localStatus() tunnelStatus {
 		} else {
 			st.Engine = "backhaul"
 		}
+		st.TunnelEngine = st.Engine
+		st.TunnelType = st.Engine
 		bhPath := "/etc/backhaul/config.toml"
 		if _, err := os.Stat(bhPath); err != nil {
 			if _, err := os.Stat("/etc/backhaul/server.toml"); err == nil {
