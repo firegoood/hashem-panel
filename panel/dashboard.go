@@ -151,9 +151,36 @@ var lastRawUp, lastRawDown uint64
 var lifetimeUp, lifetimeDown uint64
 var trafficStateInit bool
 
-// ---- traffic: rx/tx bytes summed across GRE interfaces ----
-// Multi-peer: sum counters of every registered gre interface (gre-tunnel,
-// gre-t2, ...). Legacy single installs read gre-tunnel as before.
+// isTunnelInterface determines if an interface is a GRE or Backhaul tunnel.
+func isTunnelInterface(ifname string) bool {
+	if ifname == "lo" || ifname == "gre0" || ifname == "gretap0" || ifname == "erspan0" {
+		return false
+	}
+	if strings.HasPrefix(ifname, "docker") || strings.HasPrefix(ifname, "veth") ||
+		strings.HasPrefix(ifname, "br-") || strings.HasPrefix(ifname, "dummy") ||
+		strings.HasPrefix(ifname, "eth") || strings.HasPrefix(ifname, "ens") ||
+		strings.HasPrefix(ifname, "enp") || strings.HasPrefix(ifname, "wl") {
+		return false
+	}
+	if strings.HasPrefix(ifname, "gre-") || strings.HasPrefix(ifname, "tun") {
+		return true
+	}
+	for _, q := range loadPeers() {
+		if q.GreIf != "" && q.GreIf == ifname {
+			return true
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join("/sys/class/net", ifname, "type")); err == nil {
+		t := strings.TrimSpace(string(data))
+		if t == "778" || t == "823" {
+			return true
+		}
+	}
+	return false
+}
+
+// ---- traffic: rx/tx bytes summed across tunnel interfaces ----
+// Multi-peer: sum counters of every registered GRE and Backhaul interface.
 func greTraffic() map[string]any {
 	var rawUp, rawDown uint64
 	var have bool
@@ -165,8 +192,8 @@ func greTraffic() map[string]any {
 			if !strings.Contains(line, ":") {
 				continue
 			}
-			ifname := strings.Split(line, ":")[0]
-			if strings.HasPrefix(ifname, "lo") || strings.HasPrefix(ifname, "gre") || strings.HasPrefix(ifname, "tun") || strings.HasPrefix(ifname, "tap") || strings.HasPrefix(ifname, "veth") || strings.HasPrefix(ifname, "br-") || strings.HasPrefix(ifname, "docker") {
+			ifname := strings.TrimSpace(strings.Split(line, ":")[0])
+			if !isTunnelInterface(ifname) {
 				continue
 			}
 			f := strings.Fields(strings.TrimPrefix(line, ifname+":"))
@@ -408,9 +435,12 @@ type trafficPoint struct {
 }
 
 var (
-	histMu     sync.Mutex
-	histCached []trafficPoint
-	histLoaded bool
+	histMu        sync.Mutex
+	histCached    []trafficPoint
+	histLoaded    bool
+	histDirty     bool
+	lastFlushTime time.Time
+	recorderOnce  sync.Once
 )
 
 func historyFile() string { return filepath.Join(configDir, "traffic.json") }
@@ -427,11 +457,107 @@ func loadHistory() []trafficPoint {
 	return histCached
 }
 
-func saveHistoryLocked() {
-	_ = os.WriteFile(historyFile(), mustJSON(histCached), 0600)
+// compactHistoryLocked applies tiered downsampling to keep traffic.json lightweight:
+// - Samples <= 24 hours: preserved at full 5-second fidelity.
+// - Samples 24h .. 7 days: compact to 1-minute intervals.
+// - Samples 7d .. 90 days: compact to 5-minute intervals.
+// - Samples > 90 days: discarded.
+func compactHistoryLocked(now int64) {
+	if len(histCached) == 0 {
+		return
+	}
+	cutoff90d := now - 90*86400
+	cutoff7d := now - 7*86400
+	cutoff24h := now - 86400
+
+	var compacted []trafficPoint
+	var lastBucket5m int64 = -1
+	var lastBucket1m int64 = -1
+
+	for _, p := range histCached {
+		if p.T < cutoff90d {
+			continue
+		}
+		if p.T < cutoff7d {
+			bucket := p.T / 300 // 5m buckets
+			if bucket == lastBucket5m {
+				continue
+			}
+			lastBucket5m = bucket
+			compacted = append(compacted, p)
+		} else if p.T < cutoff24h {
+			bucket := p.T / 60 // 1m buckets
+			if bucket == lastBucket1m {
+				continue
+			}
+			lastBucket1m = bucket
+			compacted = append(compacted, p)
+		} else {
+			compacted = append(compacted, p)
+		}
+	}
+	histCached = compacted
 }
 
-// recordTrafficSample appends one point per dashboard poll (5s). Points are
+func saveHistoryLocked() {
+	if histCached == nil {
+		return
+	}
+	compactHistoryLocked(time.Now().Unix())
+	_ = os.WriteFile(historyFile(), mustJSON(histCached), 0600)
+	histDirty = false
+	lastFlushTime = time.Now()
+}
+
+func flushHistoryIfDirty() {
+	histMu.Lock()
+	defer histMu.Unlock()
+	if histDirty {
+		saveHistoryLocked()
+	}
+}
+
+// startTrafficRecorder runs 24/7 in the background, sampling every 5s
+// and flushing to disk every 30s.
+func startTrafficRecorder() {
+	recorderOnce.Do(func() {
+		go func() {
+			histMu.Lock()
+			loadHistory()
+			histMu.Unlock()
+
+			// Initial sample
+			recordTrafficSample(greTraffic())
+
+			sampleTicker := time.NewTicker(5 * time.Second)
+			defer sampleTicker.Stop()
+
+			flushTicker := time.NewTicker(30 * time.Second)
+			defer flushTicker.Stop()
+
+			compactTicker := time.NewTicker(10 * time.Minute)
+			defer compactTicker.Stop()
+
+			for {
+				select {
+				case <-sampleTicker.C:
+					traffic := greTraffic()
+					recordTrafficSample(traffic)
+				case <-flushTicker.C:
+					flushHistoryIfDirty()
+				case <-compactTicker.C:
+					histMu.Lock()
+					compactHistoryLocked(time.Now().Unix())
+					histDirty = true
+					saveHistoryLocked()
+					histMu.Unlock()
+				}
+			}
+		}()
+	})
+}
+
+// recordTrafficSample appends one point per sample (5s). Points are
 // cumulative counters, so rate = delta between neighbours. Cap 90 days.
 func recordTrafficSample(traffic map[string]any) {
 	histMu.Lock()
@@ -468,7 +594,12 @@ func recordTrafficSample(traffic map[string]any) {
 		hist = append([]trafficPoint(nil), hist[i:]...)
 	}
 	histCached = hist
-	saveHistoryLocked()
+	histDirty = true
+
+	// If history is small (initial start), save immediately so it's not lost
+	if len(histCached) <= 5 || time.Since(lastFlushTime) >= 30*time.Second {
+		saveHistoryLocked()
+	}
 }
 
 // trafficHistory returns downsampled points for range=1h|24h|7d|30d|90d.
@@ -503,11 +634,16 @@ func trafficHistory(rng string) []trafficPoint {
 		}
 		return in
 	}
-	step := float64(len(in)) / float64(maxPts)
+	step := float64(len(in)-1) / float64(maxPts-1)
 	out := make([]trafficPoint, 0, maxPts)
-	for i := 0; i < maxPts; i++ {
-		out = append(out, in[int(float64(i)*step)])
+	for i := 0; i < maxPts-1; i++ {
+		idx := int(float64(i) * step)
+		if idx >= len(in) {
+			idx = len(in) - 1
+		}
+		out = append(out, in[idx])
 	}
+	out = append(out, in[len(in)-1])
 	return out
 }
 

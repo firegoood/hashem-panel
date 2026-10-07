@@ -828,7 +828,7 @@
           </div>
           <div class="tunnel-card dash-span chart-card" id="chartCard">
             <div class="chart-head">
-              <div><p class="chart-title">Total Traffic &amp; Activity</p><div class="chart-sub" id="chartHint">Throughput volume and packet metrics over time</div></div>
+              <div><p class="chart-title">Tunnel Traffic Throughput</p><div class="chart-sub" id="chartHint">Real-time download and upload speeds over time</div></div>
               <div class="chart-actions">
                 <div class="chart-live-badge" id="chartLiveBadge"><span class="live-dot"></span><span class="live-txt">LIVE</span></div>
                 <div class="chart-filters" role="group" aria-label="Range">
@@ -842,6 +842,16 @@
             <canvas id="trafficChart" height="260"></canvas>
             <div class="chart-legend"><span><i class="sw sw-dl"></i>Download</span><span><i class="sw sw-ul"></i>Upload</span></div>
             <div class="warnbox hidden" id="tunnelWarn"></div>
+          </div>
+          <div class="tunnel-card dash-span chart-card" id="activityCard">
+            <div class="chart-head">
+              <div><p class="chart-title">Tunnel Activity &amp; Connections</p><div class="chart-sub">Active concurrent connections and session stream over time</div></div>
+              <div class="chart-actions">
+                <div class="chart-live-badge" id="actLiveBadge"><span class="live-dot" style="background:#10b981;box-shadow:0 0 8px rgba(16,185,129,0.6)"></span><span class="live-txt">STREAM</span></div>
+              </div>
+            </div>
+            <canvas id="activityChart" height="130" style="width:100%;height:130px;display:block;"></canvas>
+            <div class="chart-legend"><span style="color:#10b981"><i class="sw" style="background:#10b981;box-shadow:0 0 6px rgba(16,185,129,.45)"></i>Active Connections</span></div>
           </div>
           <div class="tunnel-card kpi">
             <div class="kpi-top"><span class="kpi-label">CPU</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span></div>
@@ -2616,7 +2626,7 @@ function drawChart(hist, isDown) {
   };
 
   let rawMax = 0;
-  vals.forEach(p => { rawMax = Math.max(rawMax, p.total || 0, p.down || 0, p.up || 0); });
+  vals.forEach(p => { rawMax = Math.max(rawMax, p.down || 0, p.up || 0); });
   const candidate = niceCeil(rawMax * 1.2);
 
   const isFirstShow = !cv._hasDrawn;
@@ -3093,6 +3103,59 @@ async function refreshDash() {
       });
       cv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
     }
+    const acv = $('activityChart');
+    if (acv && !acv.dataset.tipBound) {
+      acv.dataset.tipBound = '1';
+      const wrap = acv.parentElement;
+      if (wrap && getComputedStyle(wrap).position === 'static') wrap.classList.add('ent-chart-wrap');
+      const tip = document.createElement('div');
+      tip.className = 'ent-chart-tip'; tip.style.display = 'none';
+      (wrap || acv.parentElement).appendChild(tip);
+      acv.addEventListener('mousemove', e => {
+        const pts = acv._pts;
+        if (!pts || !pts.length) { tip.style.display = 'none'; return; }
+        const r = acv.getBoundingClientRect();
+        const mx = e.clientX - r.left;
+        const my = e.clientY - r.top;
+        const padL = acv._padL || 46;
+        const iw = acv._iw || Math.max(1, r.width - padL - 10);
+        const fx = (mx - padL) / iw;
+        if (fx < -0.05 || fx > 1.05) { tip.style.display = 'none'; return; }
+        const t0 = acv._t0, t1 = acv._t1;
+        let p = null;
+        if (t0 != null && t1 != null) {
+          const mt = t0 + fx * (t1 - t0);
+          let minDt = Infinity;
+          for (let i = 0; i < pts.length; i++) {
+            const item = pts[i];
+            if (!item || item.t == null) continue;
+            const dt = Math.abs(item.t - mt);
+            if (dt < minDt) { minDt = dt; p = item; }
+          }
+        } else {
+          const idx = Math.max(0, Math.min(pts.length - 1, Math.round(fx * (pts.length - 1))));
+          p = pts[idx];
+        }
+        if (!p || p.t == null) { tip.style.display = 'none'; return; }
+        const d = new Date(p.t * 1000);
+        const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+        const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        const when = (dashRange === '1h' || dashRange === '24h') ? hhmm : M + ' ' + d.getDate() + ' ' + hhmm;
+        tip.innerHTML = '<span class="tip-time">' + esc(when) + '</span><span class="tip-sep">·</span>' +
+          '<span style="color:#10b981;font-weight:600">● ' + esc(String(p.conns ?? 0)) + ' active connections</span>';
+        tip.style.display = 'inline-flex';
+        const tw = tip.offsetWidth || 160;
+        const th = tip.offsetHeight || 30;
+        let left = mx + 14;
+        if (left + tw > r.width - 8) left = mx - tw - 14;
+        left = Math.max(6, Math.min(left, r.width - tw - 6));
+        let top = my - th - 12;
+        if (top < 6) top = my + 18;
+        tip.style.left = (acv.offsetLeft + left) + 'px';
+        tip.style.top = (acv.offsetTop + top) + 'px';
+      });
+      acv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    }
     if (cv && d.history) cv._hist = d.history;
     const w = $('tunnelWarn');
     if (w) {
@@ -3172,7 +3235,7 @@ function drawActivityChart(hist, isDown) {
   const cv = $('activityChart');
   if (!cv) return;
   const dpr = window.devicePixelRatio || 1;
-  const W = cv.clientWidth || 600, H = 120;
+  const W = cv.clientWidth || (cv.parentElement ? cv.parentElement.clientWidth : 600) || 600, H = 130;
   if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
   const ctx = cv.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -3180,57 +3243,101 @@ function drawActivityChart(hist, isDown) {
   
   const light = (document.body && document.body.dataset.t === 'light') ||
     (document.documentElement && document.documentElement.dataset.t === 'light');
+  const C_GRID = light ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.06)';
+  const C_AXIS = light ? 'rgba(24,24,27,0.6)' : 'rgba(255,255,255,0.45)';
   const C_IDLE = light ? 'rgba(24,24,27,0.55)' : 'rgba(255,255,255,0.45)';
   
   const pts = (hist || []).filter(p => p && p.t != null && p.conns != null);
+  cv._pts = pts;
   if (pts.length < 2) {
     ctx.fillStyle = C_IDLE; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('Waiting for data...', W/2, H/2);
+    ctx.fillText('Waiting for connection stream…', W/2, H/2);
     return;
   }
   
-  const padL = 46, padR = 10, padT = 10, padB = 24;
+  const padL = 46, padR = 10, padT = 14, padB = 22;
   const iw = Math.max(10, W - padL - padR), ih = Math.max(10, H - padT - padB);
+  cv._padL = padL; cv._iw = iw;
   
-  let max = 10;
+  let max = 5;
   pts.forEach(p => { if (p.conns > max) max = p.conns; });
-  max = Math.ceil(max * 1.2);
+  max = Math.ceil(max * 1.25);
   
   const t0 = pts[0].t, t1 = pts[pts.length - 1].t, dt = (t1 - t0) || 1;
+  cv._t0 = t0; cv._t1 = t1;
   const X = t => padL + ((t - t0) / dt) * iw;
   const Y = v => padT + ih - (v / max) * ih;
   
-  // Draw axes
-  ctx.strokeStyle = light ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.06)';
-  ctx.lineWidth = 1; ctx.beginPath();
-  ctx.moveTo(padL, padT + ih); ctx.lineTo(W - padR, padT + ih); ctx.stroke();
+  // Gridlines & Axis labels
+  ctx.strokeStyle = C_GRID;
+  ctx.lineWidth = 1;
+  for (let g = 0; g <= 2; g++) {
+    const y = Math.round(padT + ih * g / 2) + 0.5;
+    const val = Math.round(max * (1 - g / 2));
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    ctx.fillStyle = C_AXIS; ctx.font = '10px tabular-nums'; ctx.textAlign = 'right';
+    ctx.fillText(String(val), padL - 8, y + 3);
+  }
   
-  ctx.fillStyle = C_IDLE; ctx.font = '10px tabular-nums'; ctx.textAlign = 'right';
-  ctx.fillText(max.toString(), padL - 8, padT + 4);
-  ctx.fillText("0", padL - 8, padT + ih + 4);
-  
-  // Draw line
+  // Time ticks on bottom
+  const fmtTick = t => {
+    const d = new Date(t * 1000);
+    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+    return (dashRange === '1h' || dashRange === '24h')
+      ? String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0')
+      : M + ' ' + d.getDate();
+  };
+  const nTicks = Math.max(2, Math.min(5, Math.floor(iw / 80)));
+  ctx.fillStyle = C_AXIS; ctx.font = '10px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
+  for (let k = 0; k < nTicks; k++) {
+    const tickTime = t0 + (dt * k) / (nTicks - 1);
+    const x = X(tickTime);
+    ctx.fillText(fmtTick(tickTime), Math.min(Math.max(x, padL + 20), W - padR - 20), H - 5);
+  }
+
+  // Draw smooth Catmull-Rom curve
+  const seq = pts.map(p => ({ x: X(p.t), y: Y(p.conns), val: p.conns, t: p.t }));
   ctx.beginPath();
-  ctx.moveTo(X(pts[0].t), Y(pts[0].conns));
-  for (let i = 1; i < pts.length; i++) {
-    ctx.lineTo(X(pts[i].t), Y(pts[i].conns));
+  if (seq.length === 1) {
+    ctx.moveTo(seq[0].x, seq[0].y);
+    ctx.lineTo(seq[0].x + 0.01, seq[0].y);
+  } else if (seq.length > 1) {
+    ctx.moveTo(seq[0].x, seq[0].y);
+    for (let i = 0; i < seq.length - 1; i++) {
+      const p0 = seq[Math.max(0, i - 1)], p1 = seq[i], p2 = seq[i + 1], p3 = seq[Math.min(seq.length - 1, i + 2)];
+      const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+      const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+      ctx.bezierCurveTo(c1x, c1y, c2x, c2y, p2.x, p2.y);
+    }
   }
   
   const grad = ctx.createLinearGradient(0, padT, 0, padT + ih);
   if (light) {
-    grad.addColorStop(0, 'rgba(16, 185, 129, 0.4)'); grad.addColorStop(1, 'rgba(16, 185, 129, 0)');
-    ctx.strokeStyle = '#10b981';
+    grad.addColorStop(0, 'rgba(16, 185, 129, 0.35)'); grad.addColorStop(1, 'rgba(16, 185, 129, 0)');
+    ctx.strokeStyle = '#059669';
   } else {
-    grad.addColorStop(0, 'rgba(52, 211, 153, 0.4)'); grad.addColorStop(1, 'rgba(52, 211, 153, 0)');
-    ctx.strokeStyle = '#34d399';
+    grad.addColorStop(0, 'rgba(52, 211, 153, 0.35)'); grad.addColorStop(1, 'rgba(52, 211, 153, 0)');
+    ctx.strokeStyle = '#10b981';
   }
   
   ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.shadowColor = light ? 'rgba(5,150,105,0.3)' : 'rgba(16,185,129,0.5)';
+  ctx.shadowBlur = 6;
   ctx.stroke();
+  ctx.shadowBlur = 0;
   
-  ctx.lineTo(X(pts[pts.length-1].t), padT + ih);
-  ctx.lineTo(X(pts[0].t), padT + ih);
+  ctx.lineTo(seq[seq.length-1].x, padT + ih);
+  ctx.lineTo(seq[0].x, padT + ih);
+  ctx.closePath();
   ctx.fillStyle = grad; ctx.fill();
+
+  // End live point
+  const last = seq[seq.length - 1];
+  ctx.beginPath(); ctx.arc(last.x, last.y, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = light ? '#059669' : '#34d399';
+  ctx.fill();
+  ctx.beginPath(); ctx.arc(last.x, last.y, 1.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff'; ctx.fill();
 }
 
 function dashPeersCard(peers) {

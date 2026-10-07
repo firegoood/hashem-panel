@@ -268,6 +268,7 @@ func main() {
 	go startHTTPSListener()
 	go startAutoPilotMonitor()
 	go startPeerSyncWorker()
+	go startTrafficRecorder()
 	go func() {
 		cc := loadCarrierConfig()
 		if strings.HasPrefix(cc.ActiveCarrier, "wss") {
