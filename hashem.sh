@@ -211,6 +211,13 @@ get_component_status() {
 }
 
 ensure_dependencies_smart() {
+    local DEPS_MARKER="/etc/gre-panel/.deps_installed"
+    if [[ -f "$DEPS_MARKER" ]] && command -v ip >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 && \
+       command -v tar >/dev/null 2>&1 && command -v iptables >/dev/null 2>&1 && \
+       command -v systemctl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+        return 0
+    fi
+
     local missing_pkgs=()
     command -v ip >/dev/null 2>&1 || missing_pkgs+=("iproute2")
     command -v curl >/dev/null 2>&1 || missing_pkgs+=("curl")
@@ -222,6 +229,8 @@ ensure_dependencies_smart() {
     command -v ss >/dev/null 2>&1 || missing_pkgs+=("iproute2")
     
     if [[ ${#missing_pkgs[@]} -eq 0 ]]; then
+        mkdir -p /etc/gre-panel
+        touch "$DEPS_MARKER" 2>/dev/null || true
         echo -e "${GREEN}[✔️] All system dependencies are satisfied.${NC}"
         return 0
     fi
@@ -240,7 +249,9 @@ ensure_dependencies_smart() {
     elif command -v yum >/dev/null 2>&1; then
         yum install -y -q $uniq_pkgs || true
     fi
-    echo -e "${GREEN}[✔️] System dependencies checked.${NC}"
+    mkdir -p /etc/gre-panel
+    touch "$DEPS_MARKER" 2>/dev/null || true
+    echo -e "${GREEN}[✔️] System dependencies installed and cached.${NC}"
 }
 
 is_port_in_use() {
@@ -1223,7 +1234,10 @@ detect_arch() {
 }
 
 get_latest_frp_version() {
-    LATEST_VER=$(curl -sSL --max-time 5 "https://api.github.com/repos/fatedier/frp/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+    if [[ -n "${FRP_VERSION:-}" && "$FRP_VERSION" != "$DEFAULT_FRP_VERSION" ]]; then
+        return 0
+    fi
+    LATEST_VER=$(curl -sSL --connect-timeout 3 --max-time 6 "https://api.github.com/repos/fatedier/frp/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
     if [[ -z "$LATEST_VER" ]]; then
         FRP_VERSION="$DEFAULT_FRP_VERSION"
     else
@@ -1272,9 +1286,13 @@ download_with_fallback() {
 }
 
 install_frp_binaries() {
-    # already installed → reuse (add-peer must not re-download FRP per peer,
-    # and must never exit the caller if the network is slow — peers 2..5
-    # would otherwise fail with E-INSTALL-02 on a healthy machine).
+    local ROLE="${1:-all}"
+    if [[ "$ROLE" == "server" && -x "${INSTALL_DIR}/frps" ]]; then
+        return 0
+    fi
+    if [[ "$ROLE" == "client" && -x "${INSTALL_DIR}/frpc" ]]; then
+        return 0
+    fi
     if [[ -x "${INSTALL_DIR}/frps" && -x "${INSTALL_DIR}/frpc" ]]; then
         return 0
     fi
@@ -1285,12 +1303,15 @@ install_frp_binaries() {
     mkdir -p "$CONFIG_DIR"
     TMP_DIR=$(mktemp -d)
     TAR_FILE="frp_${FRP_VERSION}_linux_${FRP_ARCH}.tar.gz"
-    DOWNLOAD_URL="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/${TAR_FILE}"
 
-    if ! download_with_fallback "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL" 60; then
-        echo -e "${RED}[!] Failed to download FRP from GitHub or mirrors.${NC}"
-        rm -rf "$TMP_DIR"
-        return 1
+    local DOWNLOAD_URL="https://github.com/pdnczone/hashem-panel/releases/download/v${FRP_VERSION}/${TAR_FILE}"
+    if ! download_with_fallback "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL" 30; then
+        DOWNLOAD_URL="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/${TAR_FILE}"
+        if ! download_with_fallback "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL" 60; then
+            echo -e "${RED}[!] Failed to download FRP from GitHub or mirrors.${NC}"
+            rm -rf "$TMP_DIR"
+            return 1
+        fi
     fi
 
     tar -xzf "${TMP_DIR}/${TAR_FILE}" -C "$TMP_DIR"
@@ -1302,8 +1323,14 @@ install_frp_binaries() {
     chmod +x "${INSTALL_DIR}/frps" "${INSTALL_DIR}/frpc" 2>/dev/null || true
 
     rm -rf "$TMP_DIR"
-    if [[ ! -x "${INSTALL_DIR}/frps" ]]; then
+    if [[ "$ROLE" == "server" && ! -x "${INSTALL_DIR}/frps" ]]; then
         echo -e "${RED}[!] frps binary not found or not executable after installation.${NC}"
+        return 1
+    elif [[ "$ROLE" == "client" && ! -x "${INSTALL_DIR}/frpc" ]]; then
+        echo -e "${RED}[!] frpc binary not found or not executable after installation.${NC}"
+        return 1
+    elif [[ "$ROLE" == "all" && ! -x "${INSTALL_DIR}/frps" && ! -x "${INSTALL_DIR}/frpc" ]]; then
+        echo -e "${RED}[!] FRP binaries not found or not executable after installation.${NC}"
         return 1
     fi
     echo -e "${GREEN}[✔️] FRP installed to ${INSTALL_DIR}.${NC}"
@@ -1325,12 +1352,15 @@ install_backhaul_binaries() {
     local TMP_DIR
     TMP_DIR=$(mktemp -d)
     local TAR_FILE="backhaul_linux_${BH_ARCH}.tar.gz"
-    local DOWNLOAD_URL="https://github.com/Musixal/Backhaul/releases/download/${BH_VER}/${TAR_FILE}"
 
-    if ! download_with_fallback "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL" 60; then
-        echo -e "${RED}[!] Failed to download Backhaul from GitHub or mirrors.${NC}"
-        rm -rf "$TMP_DIR"
-        return 1
+    local DOWNLOAD_URL="https://github.com/pdnczone/hashem-panel/releases/download/${BH_VER}/${TAR_FILE}"
+    if ! download_with_fallback "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL" 30; then
+        DOWNLOAD_URL="https://github.com/Musixal/Backhaul/releases/download/${BH_VER}/${TAR_FILE}"
+        if ! download_with_fallback "${TMP_DIR}/${TAR_FILE}" "$DOWNLOAD_URL" 60; then
+            echo -e "${RED}[!] Failed to download Backhaul from GitHub or mirrors.${NC}"
+            rm -rf "$TMP_DIR"
+            return 1
+        fi
     fi
 
     tar -xzf "${TMP_DIR}/${TAR_FILE}" -C "$TMP_DIR"
@@ -4699,41 +4729,74 @@ uninstall_all() {
 # (/usr/local/bin/hashem + /usr/local/bin/hashem.sh + legacy gre.sh) so
 # `hashem` stops working.
 uninstall_all_force() {
-        # Stop & disable services (legacy + all peers + panel + chaff + watchdog)
-        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-watchdog.timer hashem-watchdog.service >/dev/null 2>&1
-        systemctl stop 'frps@*' 'frpc@*' 'gre-t*.service' 'gre-chaff*.service' >/dev/null 2>&1 || true
-        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-watchdog.timer 'gre-chaff*.service' >/dev/null 2>&1 || true
+        echo -e "${CYAN}[*] Performing complete uninstallation of Hashem...${NC}"
+        # 1. Stop & disable all services & timers
+        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-chaff hashem-watchdog.timer hashem-watchdog.service backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
+        systemctl stop 'frps*' 'frpc*' 'backhaul*' 'gre-t*' 'gre-chaff*' 'hashem-chaff*' >/dev/null 2>&1 || true
+        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-chaff hashem-watchdog.timer hashem-watchdog.service backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
+        systemctl disable 'frps*' 'frpc*' 'backhaul*' 'gre-t*' 'gre-chaff*' 'hashem-chaff*' >/dev/null 2>&1 || true
 
-        # Remove systemd files
-        cli_dpi_shield off >/dev/null 2>&1 || true
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-panel.service /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-watchdog.* /etc/systemd/system/hashem-dpi.service
+        # 2. Terminate any leftover processes
+        pkill -9 -f "${INSTALL_DIR}/frps" >/dev/null 2>&1 || true
+        pkill -9 -f "${INSTALL_DIR}/frpc" >/dev/null 2>&1 || true
+        pkill -9 -f "${INSTALL_DIR}/backhaul" >/dev/null 2>&1 || true
+        pkill -9 -f "${INSTALL_DIR}/gre-panel" >/dev/null 2>&1 || true
+        pkill -9 -f "hashem-chaff.sh" >/dev/null 2>&1 || true
+
+        # 3. Remove all systemd files
+        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc*.service \
+              /etc/systemd/system/backhaul*.service /etc/systemd/system/${TUNNEL_NAME}.service \
+              /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-panel.service \
+              /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-chaff*.service \
+              /etc/systemd/system/hashem-watchdog.* /etc/systemd/system/hashem-dpi.service
         rm -f /var/lock/hashem-watchdog.lock
         systemctl daemon-reload
         systemctl reset-failed >/dev/null 2>&1 || true
 
-        # Remove GRE interfaces (legacy + all peers)
+        # 4. Remove all GRE and FOU interfaces
         local gif
-        for gif in "$TUNNEL_NAME" $(ip tunnel show 2>/dev/null | grep -o 'gre-t[0-9]*'); do
-            ip tunnel del "$gif" >/dev/null 2>&1 || true
+        for gif in "$TUNNEL_NAME" $(ip tunnel show 2>/dev/null | awk -F: '{print $1}') $(ip -d link show type gre 2>/dev/null | awk -F: '/^[0-9]+: / {print $2}' | tr -d ' '); do
+            [[ -n "$gif" ]] && { ip link del "$gif" >/dev/null 2>&1 || ip tunnel del "$gif" >/dev/null 2>&1 || true; }
         done
+        if command -v ip >/dev/null 2>&1; then
+            ip fou show 2>/dev/null | awk '{print $3}' | while read -r fp; do
+                [[ -n "$fp" ]] && ip fou del port "$fp" 2>/dev/null || true
+            done
+            ip fou del port 19998 >/dev/null 2>&1 || true
+        fi
 
-        # Remove tunnel binaries & configs (including peers registry)
-        rm -f "${INSTALL_DIR}/frps" "${INSTALL_DIR}/frpc"
-        rm -rf "$CONFIG_DIR"
-        rm -f "$PEERS_FILE"
+        # 5. Clean iptables / firewall rules
+        if command -v iptables >/dev/null 2>&1; then
+            iptables -D INPUT -j HASHEM-DPI 2>/dev/null || true
+            iptables -F HASHEM-DPI 2>/dev/null || true
+            iptables -X HASHEM-DPI 2>/dev/null || true
+            iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+            iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340 2>/dev/null || true
+            iptables -t nat -D OUTPUT -p udp --dport 19999 -j DNAT --to-destination 127.0.0.1:19999 2>/dev/null || true
+            iptables -D INPUT -p tcp --dport 8443 -j ACCEPT 2>/dev/null || true
+        fi
 
-        # Remove chaff script
+        # 6. Revert network tuning
+        tune_restore >/dev/null 2>&1 || true
+        rm -f /etc/sysctl.d/99-hashem.conf /etc/sysctl.d/99-gre-panel.conf
+        command -v sysctl >/dev/null 2>&1 && sysctl --system >/dev/null 2>&1 || true
+
+        # 7. Remove all binaries
+        rm -f "${INSTALL_DIR}/frps" "${INSTALL_DIR}/frpc" "${INSTALL_DIR}/backhaul"
+        rm -f /usr/local/bin/gre-panel /usr/local/bin/grepanel
         rm -f /usr/local/bin/hashem-chaff.sh /usr/local/bin/gre-chaff.sh
 
-        # Remove web panel (service + binary + config + helper CLIs)
-        rm -f /usr/local/bin/gre-panel /usr/local/bin/grepanel
+        # 8. Remove configs, data, registries, logs, cron
+        rm -rf "$CONFIG_DIR" "$BACKHAUL_CONFIG_DIR"
         rm -rf /etc/gre-panel /usr/local/gre-panel
+        rm -rf /var/log/hashem* /var/log/gre-panel* /var/lock/hashem* /tmp/hashem*
+        rm -f /etc/cron.d/hashem* /etc/cron.daily/hashem*
+        crontab -l 2>/dev/null | grep -v 'hashem' | crontab - 2>/dev/null || true
 
-        # Remove the menu entrypoints LAST so `hashem` stops opening a menu.
-        # (Deleting a running script's own file is safe on Linux — the open fd stays valid.)
+        # 9. Remove entrypoints last
         rm -f /usr/local/bin/hashem /usr/local/bin/hashem.sh /usr/local/bin/gre.sh
 
-        echo -e "${GREEN}[✔️] Everything uninstalled: tunnel + panel + 'hashem' command removed.${NC}"
+        echo -e "${GREEN}[✔️] Complete uninstallation finished: all tunnels, services, panel, and files removed.${NC}"
 }
 
 remove_tunnel() {
@@ -4749,27 +4812,54 @@ remove_tunnel() {
 # Non-interactive core: stop/disable units, drop interface, remove FRP files.
 # Panel files/services are never touched here.
 remove_tunnel_force() {
+        echo -e "${CYAN}[*] Removing all tunnel components...${NC}"
         # Stop & disable services
-        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-chaff backhaul-server backhaul-client >/dev/null 2>&1
-        systemctl stop 'gre-chaff*.service' 'backhaul-server*.service' >/dev/null 2>&1 || true
-        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-chaff 'gre-chaff*.service' backhaul-server backhaul-client 'backhaul-server*.service' >/dev/null 2>&1 || true
+        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-chaff hashem-chaff backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
+        systemctl stop 'frps*' 'frpc*' 'backhaul*' 'gre-t*' 'gre-chaff*' 'hashem-chaff*' >/dev/null 2>&1 || true
+        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-chaff hashem-chaff backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
+        systemctl disable 'frps*' 'frpc*' 'backhaul*' 'gre-t*' 'gre-chaff*' 'hashem-chaff*' >/dev/null 2>&1 || true
 
-        # Remove systemd files (legacy + all peer tunnels + chaff + dpi shield + backhaul)
-        cli_dpi_shield off >/dev/null 2>&1 || true
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/backhaul*.service /etc/systemd/system/${TUNNEL_NAME}.service /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-dpi.service
+        # Kill stray tunnel processes
+        pkill -9 -f "${INSTALL_DIR}/frps" >/dev/null 2>&1 || true
+        pkill -9 -f "${INSTALL_DIR}/frpc" >/dev/null 2>&1 || true
+        pkill -9 -f "${INSTALL_DIR}/backhaul" >/dev/null 2>&1 || true
+        pkill -9 -f "hashem-chaff.sh" >/dev/null 2>&1 || true
+
+        # Remove systemd files
+        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service \
+              /etc/systemd/system/backhaul*.service /etc/systemd/system/${TUNNEL_NAME}.service \
+              /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-chaff*.service \
+              /etc/systemd/system/hashem-chaff*.service /etc/systemd/system/hashem-dpi.service
         systemctl daemon-reload
         systemctl reset-failed >/dev/null 2>&1 || true
 
-        # Remove GRE interfaces (legacy + all peers)
+        # Remove GRE interfaces
         local gif
-        for gif in "$TUNNEL_NAME" $(ip tunnel show 2>/dev/null | grep -o 'gre-t[0-9]*'); do
-            ip tunnel del "$gif" >/dev/null 2>&1 || true
+        for gif in "$TUNNEL_NAME" $(ip tunnel show 2>/dev/null | awk -F: '{print $1}') $(ip -d link show type gre 2>/dev/null | awk -F: '/^[0-9]+: / {print $2}' | tr -d ' '); do
+            [[ -n "$gif" ]] && { ip link del "$gif" >/dev/null 2>&1 || ip tunnel del "$gif" >/dev/null 2>&1 || true; }
         done
+        if command -v ip >/dev/null 2>&1; then
+            ip fou show 2>/dev/null | awk '{print $3}' | while read -r fp; do
+                [[ -n "$fp" ]] && ip fou del port "$fp" 2>/dev/null || true
+            done
+            ip fou del port 19998 >/dev/null 2>&1 || true
+        fi
 
-        # Remove binaries & configs (panel untouched, peers registry cleared)
-        rm -f "${INSTALL_DIR}/frps" "${INSTALL_DIR}/frpc"
+        # Clean firewall rules
+        if command -v iptables >/dev/null 2>&1; then
+            iptables -D INPUT -j HASHEM-DPI 2>/dev/null || true
+            iptables -F HASHEM-DPI 2>/dev/null || true
+            iptables -X HASHEM-DPI 2>/dev/null || true
+            iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+            iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340 2>/dev/null || true
+            iptables -t nat -D OUTPUT -p udp --dport 19999 -j DNAT --to-destination 127.0.0.1:19999 2>/dev/null || true
+            iptables -D INPUT -p tcp --dport 8443 -j ACCEPT 2>/dev/null || true
+        fi
+
+        # Remove configs
         rm -rf "$CONFIG_DIR" "$BACKHAUL_CONFIG_DIR"
         rm -f "$PEERS_FILE"
+        rm -f /usr/local/bin/hashem-chaff.sh /usr/local/bin/gre-chaff.sh
 
         echo -e "${GREEN}[✔️] Tunnel removed — GRE interface, FRP/Backhaul services, binaries and configs gone. Panel still running.${NC}"
 }
@@ -5134,7 +5224,10 @@ install_panel() {
     TMP_PANEL="$(mktemp -d)"
     DL_OK=0
     # try latest release first (prebuilt, no Go needed)
-    LATEST_JSON=$(curl -fsSL --max-time 15 "https://api.github.com/repos/pdnczone/hashem-panel/releases/latest" 2>/dev/null) || true
+    LATEST_JSON=$(curl -fsSL --connect-timeout 4 --max-time 10 "https://api.github.com/repos/pdnczone/hashem-panel/releases/latest" 2>/dev/null) || true
+    if [[ -z "$LATEST_JSON" ]]; then
+        LATEST_JSON=$(curl -fsSL --connect-timeout 4 --max-time 10 "https://mirror.ghproxy.com/https://api.github.com/repos/pdnczone/hashem-panel/releases/latest" 2>/dev/null) || true
+    fi
     DL_URL=""
     GREPANEL_URL=""
     HASHEMSH_URL=""
@@ -5177,13 +5270,25 @@ install_panel() {
     if [[ "$DL_OK" -ne 1 ]]; then
         # fallback: build from source (needs Go)
         echo -e "${YELLOW}[*] No prebuilt panel found — building from source...${NC}"
+        local FREE_RAM
+        FREE_RAM=$(free -m 2>/dev/null | awk '/Mem:/ {print $7}')
+        local TMP_SWAP=""
+        if [[ -n "$FREE_RAM" && "$FREE_RAM" -lt 800 ]]; then
+            echo -e "${YELLOW}[*] Low RAM (${FREE_RAM}MB) detected — enabling temporary build swapfile...${NC}"
+            TMP_SWAP="/tmp/.hashem_build_swap"
+            fallocate -l 1G "$TMP_SWAP" 2>/dev/null || dd if=/dev/zero of="$TMP_SWAP" bs=1M count=1024 2>/dev/null || true
+            chmod 600 "$TMP_SWAP" 2>/dev/null || true
+            mkswap "$TMP_SWAP" 2>/dev/null && swapon "$TMP_SWAP" 2>/dev/null || true
+        fi
+
         if ! command -v go >/dev/null 2>&1; then
             echo -e "${CYAN}[*] Installing Go to build the panel...${NC}"
-            apt-get update -qq
-            apt-get install -y -qq golang-go
+            apt-get update -qq || true
+            apt-get install -y -qq golang-go || true
         fi
         if ! download_with_fallback "$TMP_PANEL/panel.tgz" "https://github.com/pdnczone/hashem-panel/archive/refs/heads/main.tar.gz" 60; then
             echo -e "${RED}[!] Failed to download panel sources.${NC}"
+            [[ -n "$TMP_SWAP" && -f "$TMP_SWAP" ]] && { swapoff "$TMP_SWAP" 2>/dev/null || true; rm -f "$TMP_SWAP" 2>/dev/null || true; }
             rm -rf "$TMP_PANEL"
             return 1
         fi
@@ -5191,6 +5296,7 @@ install_panel() {
         SRC="$(dirname "$(find "$TMP_PANEL" -name main.go -path '*panel*' | head -1)")"
         if [[ -z "$SRC" || ! -f "$SRC/main.go" ]]; then
             echo -e "${RED}[!] Panel sources not found in archive.${NC}"
+            [[ -n "$TMP_SWAP" && -f "$TMP_SWAP" ]] && { swapoff "$TMP_SWAP" 2>/dev/null || true; rm -f "$TMP_SWAP" 2>/dev/null || true; }
             rm -rf "$TMP_PANEL"
             return 1
         fi
@@ -5199,6 +5305,7 @@ install_panel() {
             cp "$SRC/grepanel" /usr/local/bin/grepanel
             chmod +x /usr/local/bin/grepanel
         fi
+        [[ -n "$TMP_SWAP" && -f "$TMP_SWAP" ]] && { swapoff "$TMP_SWAP" 2>/dev/null || true; rm -f "$TMP_SWAP" 2>/dev/null || true; }
     fi
 
     # stop the running panel BEFORE overwriting its binary: cp over a live
@@ -6464,8 +6571,8 @@ update_all() {
     echo -e "${CYAN}[*] Updating Hashem (script + panel binary)...${NC}"
     TMP_U="$(mktemp -d)"
     trap 'rm -rf "$TMP_U"' RETURN
-    # 1. fresh script from main
-    if ! curl -fsSL --max-time 30 "${HASHEM_URL_BASE}/hashem.sh" -o "$TMP_U/hashem.sh"; then
+    # 1. fresh script from main with mirror fallbacks
+    if ! download_with_fallback "$TMP_U/hashem.sh" "${HASHEM_URL_BASE}/hashem.sh" 30; then
         echo -e "${RED}[!] Failed to download latest hashem.sh — nothing changed.${NC}"
         return 1
     fi
@@ -6656,164 +6763,95 @@ pause_prompt() {
     read -p "Press Enter to return to menu..." _dummy
 }
 
-menu_installation() {
-    while true; do
-        clear
-        echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}                   INSTALLATION MENU                          ${NC}"
-        echo -e "${CYAN}==============================================================${NC}"
-        echo "  1) Full Installation (Interactive Guide: GRE + FRP + Web Panel)"
-        echo "  2) Install Web Panel (Smart: skips if healthy, repair if broken)"
-        echo "  3) Install Tunnel Components (GRE + FRP without Web Panel)"
-        echo "  4) Install FRP Binaries (frps & frpc)"
-        echo "  5) Install GRE Kernel Modules & Configure Interface"
-        echo "  6) Install Missing System Dependencies Only"
-        echo "  0) Back to Main Menu"
-        echo ""
-        read -p "Select an option [0-6]: " IN_OPT
-        case "$IN_OPT" in
-            1)
-                echo "Select server role for Full Installation:"
-                echo "  1) IRAN Server (GRE + FRP Server + Web Panel)"
-                echo "  2) FOREIGN Server (GRE + FRP Reverse Client + Web Panel)"
-                echo "  0) Back"
-                read -p "Select role [0-2]: " R_OPT
-                case "$R_OPT" in
-                    1) setup_iran_server ;;
-                    2) setup_foreign_server ;;
-                    *) ;;
-                esac
-                pause_prompt
-                ;;
-            2)
-                install_panel_smart
-                pause_prompt
-                ;;
-            3)
-                echo "Select server role for Tunnel Components:"
-                echo "  1) IRAN Server"
-                echo "  2) FOREIGN Server"
-                echo "  0) Back"
-                read -p "Select role [0-2]: " TR_OPT
-                case "$TR_OPT" in
-                    1) GRE_SKIP_PANEL=1 setup_iran_server ;;
-                    2) GRE_SKIP_PANEL=1 setup_foreign_server ;;
-                    *) ;;
-                esac
-                pause_prompt
-                ;;
-            4)
-                install_frp_binaries
-                pause_prompt
-                ;;
-            5)
-                echo -e "${CYAN}[*] Ensuring GRE kernel modules are loaded...${NC}"
-                modprobe ip_gre 2>/dev/null && modprobe fou 2>/dev/null && echo -e "${GREEN}[✔️] GRE & FOU modules loaded.${NC}" || echo -e "${RED}[!] Failed to load modules.${NC}"
-                pause_prompt
-                ;;
-            6)
-                ensure_dependencies_smart
-                pause_prompt
-                ;;
-            0)
-                return 0
-                ;;
-            *)
-                echo -e "${RED}[!] Invalid option.${NC}"
-                sleep 1
-                ;;
-        esac
-    done
+setup_backhaul_iran_interactive() {
+    echo -e "\n${YELLOW}=== Setup Backhaul Iran Server (No-GRE) ===${NC}"
+    local MYIP REMOTE_PUB PORT TOKEN TRANSPORT PORTS
+    MYIP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
+    [[ -z "$MYIP" ]] && MYIP=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
+    prompt_ip LOCAL_PUB "Enter IRAN Server Public IP" "$MYIP"
+    prompt_ip REMOTE_PUB "Enter FOREIGN Server Public IP" ""
+    prompt_port PORT "Enter Backhaul Server Port" "$(gen_random_port)"
+    PORT=$(ensure_port_available "$PORT" "Backhaul Server Port" 0) || return 1
+    AUTO_TOKEN=$(gen_token32)
+    prompt_token TOKEN "Enter Secret Auth Token" "$AUTO_TOKEN"
+    read -p "Transport [tcpmux/ws/wss] (default tcpmux): " TRANSPORT
+    TRANSPORT=${TRANSPORT:-tcpmux}
+    prompt_ports PORTS "Enter Ports to Reverse-Tunnel (e.g. 443, 2083)"
+    setup_backhaul_iran_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$PORT" "$TOKEN" "$TRANSPORT" "$PORTS"
+}
+
+setup_gre_backhaul_iran_interactive() {
+    echo -e "\n${YELLOW}=== Setup GRE + Backhaul Iran Server ===${NC}"
+    local MYIP REMOTE_PUB PORT TOKEN TRANSPORT PORTS
+    MYIP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
+    [[ -z "$MYIP" ]] && MYIP=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
+    prompt_ip LOCAL_PUB "Enter IRAN Server Public IP" "$MYIP"
+    prompt_ip REMOTE_PUB "Enter FOREIGN Server Public IP" ""
+    prompt_port PORT "Enter Backhaul Server Port" "$(gen_random_port)"
+    PORT=$(ensure_port_available "$PORT" "Backhaul Server Port" 0) || return 1
+    AUTO_TOKEN=$(gen_token32)
+    prompt_token TOKEN "Enter Secret Auth Token" "$AUTO_TOKEN"
+    read -p "Transport [tcpmux/ws/wss] (default tcpmux): " TRANSPORT
+    TRANSPORT=${TRANSPORT:-tcpmux}
+    prompt_ports PORTS "Enter Ports to Reverse-Tunnel (e.g. 443, 2083)"
+    setup_gre_backhaul_iran_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$PORT" "$TOKEN" "$IRAN_GRE_IP" "$FOREIGN_GRE_IP" "$TRANSPORT" "$PORTS"
 }
 
 menu_tunnel() {
     while true; do
         clear
         echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}                   TUNNEL MANAGEMENT                          ${NC}"
+        echo -e "${CYAN}             1. TUNNEL MANAGEMENT (مدیریت تونل)               ${NC}"
         echo -e "${CYAN}==============================================================${NC}"
-        echo "  1) Create / Setup IRAN Tunnel (GRE + FRPS)"
-        echo "  2) Create / Setup FOREIGN Tunnel (GRE + FRPC / via Bundle or Manual)"
-        echo "  3) Add Peer Tunnel (Multi-peer Foreign servers on Iran)"
-        echo "  4) List Peer Tunnels"
-        echo "  5) Remove Peer Tunnel"
-        echo "  6) Edit Peer Tunnel Configuration (Ports, IP, Carrier, Name)"
-        echo "  7) Restart Tunnel Services (systemctl restart gre + frp)"
-        echo "  8) Delete / Teardown Tunnel (GRE + FRP, Web Panel stays)"
-        echo "  9) Tunnel Status & GRE Ping Test"
+        echo "  1) Setup IRAN Tunnel (GRE + FRPS / Backhaul Server)"
+        echo "  2) Setup FOREIGN Tunnel (via Bundle string or Manual)"
+        echo "  3) Add Peer Tunnel (Multi-foreign servers on Iran)"
+        echo "  4) List Peers & Show Setup Bundle"
+        echo "  5) Edit Peer Tunnel Configuration (Ports, IP, Carrier, Name)"
+        echo "  6) Remove a Specific Peer Tunnel"
+        echo "  7) Tunnel Health Status & GRE Ping Test"
+        echo "  8) Restart All Tunnel Services"
+        echo "  9) Teardown All Tunnels (Panel remains active)"
         echo "  0) Back to Main Menu"
         echo ""
         read -p "Select an option [0-9]: " T_OPT
         case "$T_OPT" in
-            1) setup_iran_server; pause_prompt ;;
-            2) setup_foreign_server; pause_prompt ;;
-            3) menu_add_peer; pause_prompt ;;
-            4) peer_list_pretty; pause_prompt ;;
-            5) menu_remove_peer; pause_prompt ;;
-            6) menu_edit_peer; pause_prompt ;;
-            7) restart_all; pause_prompt ;;
-            8) remove_tunnel; pause_prompt ;;
-            9) check_status; pause_prompt ;;
-            0) return 0 ;;
-            *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
-        esac
-    done
-}
-
-menu_server() {
-    while true; do
-        clear
-        echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}                   SERVER & SYSTEM MANAGEMENT                 ${NC}"
-        echo -e "${CYAN}==============================================================${NC}"
-        echo "  1) Show Web Panel URL & Credentials"
-        echo "  2) Reset / Change Web Panel Password"
-        echo "  3) Panel HTTPS (Free Let's Encrypt TLS Certificate)"
-        echo "  4) Network Optimization (BBR + sysctl buffers + MTU clamp)"
-        echo "  5) Restore Network Tuning (pre-optimize sysctl backup)"
-        echo "  6) Tuning Status"
-        echo "  7) Free RAM (cap journald 16MB + drop cache + 1GB swapfile)"
-        echo "  8) Tunnel Carrier (Direct GRE ↔ FOU UDP ↔ WSS)"
-        echo "  9) Traffic Chaff / Obfuscation (idle-gap filler: on/off/status)"
-        echo " 10) DPI Shield (rate-limit reverse ports against flood: on/off/status)"
-        echo " 11) Watchdog & Alerting (Telegram alerts, route failover)"
-        echo " 12) Performance & Obfuscation Toggles (proxy crypto/comp, forced TLS)"
-        echo "  0) Back to Main Menu"
-        echo ""
-        read -p "Select an option [0-12]: " S_OPT
-        case "$S_OPT" in
-            1) show_panel_url; pause_prompt ;;
-            2) reset_panel_password; pause_prompt ;;
-            3) panel_tls_issue; pause_prompt ;;
-            4) tune_apply; pause_prompt ;;
-            5) tune_restore; pause_prompt ;;
-            6) tune_status; pause_prompt ;;
-            7) free_ram; pause_prompt ;;
-            8) menu_carrier ;;
-            9) menu_chaff ;;
-            10) menu_dpi_shield ;;
-            11) menu_watchdog ;;
-            12) menu_perf ;;
-            0) return 0 ;;
-            *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
-        esac
-    done
-}
-
-menu_bundle() {
-    while true; do
-        clear
-        echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}                   BUNDLE MANAGEMENT                          ${NC}"
-        echo -e "${CYAN}==============================================================${NC}"
-        echo "  1) Generate / Show Setup Bundle for This Iran Server"
-        echo "  2) Inspect Setup Bundle (hashem bundle inspect <bundle>)"
-        echo "  3) Import & Apply Bundle on This Server (Foreign Role)"
-        echo "  0) Back to Main Menu"
-        echo ""
-        read -p "Select an option [0-3]: " B_OPT
-        case "$B_OPT" in
             1)
+                echo "Select tunnel protocol for Iran:"
+                echo "  1) GRE + FRP Server (Recommended standard)"
+                echo "  2) Backhaul Server (No-GRE / TCPMux)"
+                echo "  3) GRE + Backhaul Server"
+                echo "  0) Cancel"
+                read -p "Select [0-3]: " IR_PROTO
+                case "$IR_PROTO" in
+                    1) setup_iran_server ;;
+                    2) setup_backhaul_iran_interactive ;;
+                    3) setup_gre_backhaul_iran_interactive ;;
+                    *) ;;
+                esac
+                pause_prompt
+                ;;
+            2)
+                echo "Select setup method for Foreign:"
+                echo "  1) Fast Setup via Bundle String (Recommended)"
+                echo "  2) Guided Setup (Bundle or Manual GRE/FRP/Backhaul)"
+                echo "  0) Cancel"
+                read -p "Select [0-2]: " FO_PROTO
+                case "$FO_PROTO" in
+                    1)
+                        read -p "Paste Bundle string (hsh1_... / bh1_... / gh1_...): " BUNDLE_IN
+                        if [[ -n "$BUNDLE_IN" ]]; then
+                            cli_setup_foreign --bundle "$BUNDLE_IN"
+                        fi
+                        ;;
+                    2) setup_foreign_server ;;
+                    *) ;;
+                esac
+                pause_prompt
+                ;;
+            3) menu_add_peer; pause_prompt ;;
+            4)
+                peer_list_pretty
                 local IP_IRAN BIND_PORT TOKEN
                 IP_IRAN=$(grep -o '"local_public": *"[^"]*"' /etc/gre-panel/panel.json 2>/dev/null | cut -d'"' -f4)
                 [[ -z "$IP_IRAN" ]] && IP_IRAN=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
@@ -6822,92 +6860,204 @@ menu_bundle() {
                 if [[ -n "$IP_IRAN" && -n "$BIND_PORT" && -n "$TOKEN" ]]; then
                     echo -e "\n${GREEN}=== Iran Server Setup Bundle ===${NC}"
                     echo -e "BUNDLE: ${CYAN}$(bundle_make "$IP_IRAN" "$BIND_PORT" "$IRAN_GRE_IP" "$FOREIGN_GRE_IP" "$TOKEN")${NC}\n"
-                else
-                    echo -e "${YELLOW}[!] IRAN tunnel is not configured yet on this host.${NC}"
                 fi
                 pause_prompt
                 ;;
-            2)
-                cli_bundle_inspect
-                pause_prompt
-                ;;
-            3)
-                setup_foreign_server
-                pause_prompt
-                ;;
+            5) menu_edit_peer; pause_prompt ;;
+            6) menu_remove_peer; pause_prompt ;;
+            7) check_status; pause_prompt ;;
+            8) restart_all; pause_prompt ;;
+            9) remove_tunnel; pause_prompt ;;
             0) return 0 ;;
             *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
         esac
     done
 }
 
-menu_diagnostics() {
+menu_panel() {
     while true; do
         clear
         echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}                   DIAGNOSTICS & HEALTH CHECK                 ${NC}"
+        echo -e "${CYAN}          2. WEB PANEL & DOMAIN (پنل وب و دامنه)               ${NC}"
         echo -e "${CYAN}==============================================================${NC}"
-        echo "  1) Full Health Check (Doctor: PASS / WARN / FAIL table)"
-        echo "  2) Check GRE Interface & Internal Link"
-        echo "  3) Check FRP Services (frps / frpc)"
-        echo "  4) Check Listening Ports & Port Conflicts"
-        echo "  5) Check Routes & IP Forwarding"
-        echo "  6) View Live FRP & Panel Logs (journalctl)"
-        echo "  7) Advanced Latency & Speed Benchmark"
+        echo "  1) Show Web Panel URL & Credentials"
+        echo "  2) Reset / Change Web Panel Password"
+        echo "  3) Setup Domain & Free SSL Certificate (Let's Encrypt)"
+        echo "  4) Remove Domain & Reset to Direct IP Access"
+        echo "  5) Restart Web Panel Service"
+        echo "  6) Reinstall / Repair Web Panel"
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select an option [0-6]: " P_OPT
+        case "$P_OPT" in
+            1) show_panel_url; pause_prompt ;;
+            2) reset_panel_password; pause_prompt ;;
+            3) panel_tls_issue; pause_prompt ;;
+            4) panel_tls_remove; pause_prompt ;;
+            5)
+                echo -e "${CYAN}[*] Restarting Web Panel...${NC}"
+                systemctl restart gre-panel 2>/dev/null || true
+                show_panel_url
+                pause_prompt
+                ;;
+            6) install_panel_smart; pause_prompt ;;
+            0) return 0 ;;
+            *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+menu_optimization() {
+    while true; do
+        clear
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -e "${CYAN}       3. PERFORMANCE & SECURITY (بهینه‌سازی و امنیت)          ${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
+        echo "  1) Network Optimization (BBR + sysctl TCP buffers + MTU clamp)"
+        echo "  2) Tunnel Carrier Switch (Direct GRE ↔ FOU UDP ↔ WSS Obfuscated)"
+        echo "  3) DPI Shield (Anti-scan rate limit on reverse ports)"
+        echo "  4) Traffic Chaff / Obfuscation (Idle traffic generator)"
+        echo "  5) Tunnel Watchdog & Auto Failover / Telegram Alerts"
+        echo "  6) Performance & Encryption Toggles (Proxy crypto/comp, forced TLS)"
+        echo "  7) Free RAM & Cache (Cap journald 16MB + drop cache + 1GB swapfile)"
+        echo "  8) Restore Network Tuning (Revert to default sysctl)"
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select an option [0-8]: " O_OPT
+        case "$O_OPT" in
+            1) tune_apply; pause_prompt ;;
+            2) menu_carrier ;;
+            3) menu_dpi_shield ;;
+            4) menu_chaff ;;
+            5) menu_watchdog ;;
+            6) menu_perf ;;
+            7) free_ram; pause_prompt ;;
+            8) tune_restore; pause_prompt ;;
+            0) return 0 ;;
+            *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+menu_diagnostics_backup() {
+    while true; do
+        clear
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -e "${CYAN}       4. DIAGNOSTICS & BACKUP (عیب‌یابی و پشتیبان‌گیری)       ${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
+        echo "  1) Full System & Tunnel Health Check (Doctor audit)"
+        echo "  2) Check Listening Ports & Routing Table"
+        echo "  3) View Live Logs (journalctl for FRP, Panel & Watchdog)"
+        echo "  4) High-Concurrency Connection Stress Test"
+        echo "  5) Backup Configurations Now (Encrypted/Dated snapshot)"
+        echo "  6) Restore Backup from File"
+        echo "  7) Schedule Automated Backup (Interval or Daily)"
         echo "  0) Back to Main Menu"
         echo ""
         read -p "Select an option [0-7]: " D_OPT
         case "$D_OPT" in
             1) doctor_health_check; pause_prompt ;;
             2)
-                echo -e "\n${CYAN}=== GRE Interface Details ===${NC}"
-                ip -d link show "$TUNNEL_NAME" 2>/dev/null || ip link show "$TUNNEL_NAME" 2>/dev/null || echo "No interface $TUNNEL_NAME"
-                ip -4 addr show dev "$TUNNEL_NAME" 2>/dev/null || true
-                pause_prompt
-                ;;
-            3)
-                echo -e "\n${CYAN}=== FRP Service Status ===${NC}"
-                systemctl status frps --no-pager 2>/dev/null || systemctl status frpc --no-pager 2>/dev/null || echo "No FRP service active"
-                pause_prompt
-                ;;
-            4)
-                echo -e "\n${CYAN}=== Listening Ports (FRP & Panel) ===${NC}"
+                echo -e "\n${CYAN}=== Listening Ports (FRP, Backhaul & Panel) ===${NC}"
                 if command -v ss >/dev/null 2>&1; then
-                    ss -tulpn | grep -E "frps|frpc|gre-panel|7777" || ss -tulpn | head -15
+                    ss -tulpn | grep -E "frps|frpc|backhaul|gre-panel|7777" || ss -tulpn | head -15
                 else
-                    netstat -tulpn 2>/dev/null | grep -E "frps|frpc|gre-panel|7777" || true
+                    netstat -tulpn 2>/dev/null | grep -E "frps|frpc|backhaul|gre-panel|7777" || true
+                fi
+                echo -e "\n${CYAN}=== Routing Table & IP Forwarding ===${NC}"
+                ip route show
+                echo -e "${CYAN}IP Forwarding:${NC} $(sysctl -n net.ipv4.ip_forward 2>/dev/null || cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)"
+                pause_prompt
+                ;;
+            3) show_logs ;;
+            4)
+                read -p "Target IP/Host [127.0.0.1]: " S_HOST
+                S_HOST=${S_HOST:-127.0.0.1}
+                read -p "Target Port [7777]: " S_PORT
+                S_PORT=${S_PORT:-7777}
+                read -p "Concurrent Connections [50]: " S_CONNS
+                S_CONNS=${S_CONNS:-50}
+                cli_stress_test "$S_HOST" "$S_PORT" "$S_CONNS"
+                pause_prompt
+                ;;
+            5) backup_now; pause_prompt ;;
+            6)
+                echo -e "\n${CYAN}=== Available Backups ===${NC}"
+                cli_backup status
+                echo ""
+                read -p "Enter full path to backup file to restore: " R_FILE
+                if [[ -n "$R_FILE" && -f "$R_FILE" ]]; then
+                    backup_restore "$R_FILE"
+                else
+                    echo -e "${RED}[!] File not found: '$R_FILE'${NC}"
                 fi
                 pause_prompt
                 ;;
-            5)
-                echo -e "\n${CYAN}=== Routing Table ===${NC}"
-                ip route show
-                echo -e "\n${CYAN}IP Forwarding:${NC} $(sysctl -n net.ipv4.ip_forward 2>/dev/null || cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)"
+            7)
+                echo "Schedule backup:"
+                echo "  1) Every N hours (e.g. 6)"
+                echo "  2) Daily at specific time (e.g. 03:00)"
+                echo "  3) Disable automated backup"
+                echo "  0) Cancel"
+                read -p "Select [0-3]: " B_SCHED
+                case "$B_SCHED" in
+                    1) read -p "Interval hours [1-168]: " B_H; cli_backup schedule --every "$B_H" ;;
+                    2) read -p "Daily time HH:MM (e.g. 03:00): " B_D; cli_backup schedule --daily "$B_D" ;;
+                    3) cli_backup schedule --off ;;
+                    *) ;;
+                esac
                 pause_prompt
                 ;;
-            6) show_logs ;;
-            7) doctor_diagnostics; pause_prompt ;;
             0) return 0 ;;
             *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
         esac
     done
 }
 
-menu_update() {
+menu_maintenance() {
     while true; do
         clear
         echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}                   UPDATE SYSTEM                              ${NC}"
+        echo -e "${CYAN}       5. MAINTENANCE & UPDATE (بروزرسانی و نگهداری)          ${NC}"
         echo -e "${CYAN}==============================================================${NC}"
-        echo "  1) Update All (Latest hashem.sh script + latest Web Panel binary)"
+        echo "  1) Update All (Latest hashem.sh + latest Web Panel binary)"
+        echo "  2) Pre-cache / Verify Core Binaries (FRP, Backhaul, Go Panel)"
+        echo "  3) Install / Refresh System Dependencies"
+        echo "  4) Check & Load Kernel Modules (GRE & FOU)"
+        echo "  5) Show System Version & Tuning Status"
         echo "  0) Back to Main Menu"
         echo ""
-        read -p "Select an option [0-1]: " U_OPT
-        case "$U_OPT" in
+        read -p "Select an option [0-5]: " M_OPT
+        case "$M_OPT" in
             1)
                 backup_configs "pre_update"
                 update_all
                 doctor_health_check
+                pause_prompt
+                ;;
+            2)
+                echo -e "${CYAN}[*] Downloading and pre-caching core binaries...${NC}"
+                install_frp_binaries "both" || true
+                install_backhaul_binaries "both" || true
+                echo -e "${GREEN}[✔️] Core binaries verified and ready in cache.${NC}"
+                pause_prompt
+                ;;
+            3)
+                rm -f "$DEPS_MARKER" 2>/dev/null
+                ensure_dependencies_smart
+                echo -e "${GREEN}[✔️] System dependencies refreshed.${NC}"
+                pause_prompt
+                ;;
+            4)
+                echo -e "${CYAN}[*] Ensuring GRE and FOU kernel modules are active...${NC}"
+                modprobe ip_gre 2>/dev/null && modprobe fou 2>/dev/null && echo -e "${GREEN}[✔️] Modules ip_gre and fou loaded successfully.${NC}" || echo -e "${YELLOW}[!] Note: Could not load via modprobe (may be built-in).${NC}"
+                pause_prompt
+                ;;
+            5)
+                echo -e "\n${CYAN}=== System & Version Info ===${NC}"
+                echo "Hashem Script Version: $HASHEM_VERSION"
+                echo "Panel Version: $($PANEL_BIN --version 2>/dev/null || echo 'Not installed')"
+                tune_status
                 pause_prompt
                 ;;
             0) return 0 ;;
@@ -6920,65 +7070,42 @@ menu_uninstall() {
     while true; do
         clear
         echo -e "${RED}==============================================================${NC}"
-        echo -e "${RED}                   UNINSTALLATION MENU                        ${NC}"
+        echo -e "${RED}            6. UNINSTALLATION (حذف و پاکسازی سیستم)           ${NC}"
         echo -e "${RED}==============================================================${NC}"
-        echo "  1) Uninstall Web Panel Only (leaves tunnel intact)"
-        echo "  2) Uninstall Tunnel Components Only (GRE + FRP, leaves Web Panel)"
-        echo "  3) Uninstall FRP Only (removes frps/frpc services and configs)"
-        echo "  4) Uninstall GRE Only (teardown GRE tunnel interfaces and systemd units)"
-        echo "  5) Full Uninstall (Wipe everything: tunnel + panel + 'hashem' CLI)"
+        echo "  1) Uninstall Web Panel Only (Leaves all tunnels active)"
+        echo "  2) Remove Tunnel Components Only (Leaves Web Panel active)"
+        echo "  3) Full Clean System Wipe (Erases all tunnels, panel, firewall & CLI)"
         echo "  0) Back to Main Menu"
         echo ""
-        read -p "Select an option [0-5]: " UN_OPT
+        read -p "Select an option [0-3]: " UN_OPT
         case "$UN_OPT" in
             1)
                 read -p "Are you sure you want to uninstall Web Panel? [y/N]: " C_P
                 if [[ "$C_P" =~ ^[Yy]$ ]]; then
                     systemctl stop gre-panel 2>/dev/null || true
                     systemctl disable gre-panel 2>/dev/null || true
+                    pkill -9 -f "${INSTALL_DIR}/gre-panel" >/dev/null 2>&1 || true
                     rm -f /etc/systemd/system/gre-panel.service /usr/local/bin/gre-panel /usr/local/bin/grepanel
+                    rm -rf /etc/gre-panel/tls /var/log/gre-panel*
                     systemctl daemon-reload
-                    echo -e "${GREEN}[✔️] Web Panel uninstalled.${NC}"
+                    systemctl reset-failed >/dev/null 2>&1 || true
+                    echo -e "${GREEN}[✔️] Web Panel uninstalled successfully.${NC}"
                 fi
                 pause_prompt
                 ;;
             2)
-                read -p "Are you sure you want to remove Tunnel components? [y/N]: " C_T
+                read -p "Are you sure you want to remove all tunnel components? [y/N]: " C_T
                 if [[ "$C_T" =~ ^[Yy]$ ]]; then
                     remove_tunnel_force
-                    echo -e "${GREEN}[✔️] Tunnel components removed.${NC}"
+                    echo -e "${GREEN}[✔️] All tunnel components removed.${NC}"
                 fi
                 pause_prompt
                 ;;
             3)
-                read -p "Are you sure you want to remove FRP services? [y/N]: " C_F
-                if [[ "$C_F" =~ ^[Yy]$ ]]; then
-                    systemctl stop frps frpc 2>/dev/null || true
-                    systemctl disable frps frpc 2>/dev/null || true
-                    rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc*.service
-                    rm -rf /etc/frp
-                    systemctl daemon-reload
-                    echo -e "${GREEN}[✔️] FRP uninstalled.${NC}"
-                fi
-                pause_prompt
-                ;;
-            4)
-                read -p "Are you sure you want to teardown GRE interface? [y/N]: " C_G
-                if [[ "$C_G" =~ ^[Yy]$ ]]; then
-                    systemctl stop gre-tunnel 2>/dev/null || true
-                    systemctl disable gre-tunnel 2>/dev/null || true
-                    rm -f /etc/systemd/system/gre-*.service
-                    ip link del "$TUNNEL_NAME" 2>/dev/null || ip tunnel del "$TUNNEL_NAME" 2>/dev/null || true
-                    systemctl daemon-reload
-                    echo -e "${GREEN}[✔️] GRE uninstalled.${NC}"
-                fi
-                pause_prompt
-                ;;
-            5)
-                read -p "ARE YOU SURE you want to WIPE EVERYTHING? [y/N]: " C_ALL
+                read -p "ARE YOU SURE you want to WIPE EVERYTHING? All configs and services will be deleted! [y/N]: " C_ALL
                 if [[ "$C_ALL" =~ ^[Yy]$ ]]; then
                     uninstall_all_force
-                    echo -e "${GREEN}[✔️] Complete uninstall finished.${NC}"
+                    echo -e "${GREEN}[✔️] Complete uninstallation finished.${NC}"
                     exit 0
                 fi
                 pause_prompt
@@ -6989,36 +7116,41 @@ menu_uninstall() {
     done
 }
 
+# Legacy menu stubs for backwards compatibility
+menu_installation() { menu_tunnel; }
+menu_server() { menu_optimization; }
+menu_bundle() { menu_tunnel; }
+menu_diagnostics() { menu_diagnostics_backup; }
+menu_update() { menu_maintenance; }
+
 menu_loop() {
     trap 'echo -e "\n\n${CYAN}[*] Exiting Hashem Manager. Goodbye!${NC}"; exit 0' INT
     while true; do
         clear
         echo -e "${CYAN}"
         echo "=========================================================="
-        echo "       GRE + FRP Reverse Tunnel Manager (Iran <-> Kharej)"
-        echo "     Layer 3 GRE Tunnel + Encrypted TLS FRP Reverse Relay"
+        echo "       HASHEM TUNNEL & WEB PANEL MANAGER (Iran <-> Kharej)"
+        echo "     Layer 3 GRE / FRP / Backhaul Reverse Tunnel Manager  "
         echo "=========================================================="
         echo -e "${NC}"
-        echo "MAIN MENU"
-        echo "  1) Installation"
-        echo "  2) Tunnel Management"
-        echo "  3) Server Management"
-        echo "  4) Bundle Management"
-        echo "  5) Diagnostics"
-        echo "  6) Update"
-        echo "  7) Uninstall"
-        echo "  8) Exit (or 0)"
+        echo "MAIN MENU (منوی اصلی)"
+        echo "  1) مدیریت تونل‌ها        (Tunnel Management)"
+        echo "  2) پنل وب و دامنه       (Web Panel & Domain)"
+        echo "  3) بهینه‌سازی و امنیت    (Performance & Security)"
+        echo "  4) عیب‌یابی و پشتیبان‌گیری (Diagnostics & Backup)"
+        echo "  5) بروزرسانی و نگهداری   (Maintenance & Update)"
+        echo "  6) حذف و پاکسازی سیستم   (Uninstallation)"
+        echo "  0) خروج                 (Exit)"
         echo ""
-        read -p "Select an option [1-8]: " MAIN_OPT
+        read -p "Select an option [0-6]: " MAIN_OPT
         case "$MAIN_OPT" in
-            1) menu_installation ;;
-            2) menu_tunnel ;;
-            3) menu_server ;;
-            4) menu_bundle ;;
-            5) menu_diagnostics ;;
-            6) menu_update ;;
-            7) menu_uninstall ;;
-            8|0|exit|q)
+            1) menu_tunnel ;;
+            2) menu_panel ;;
+            3) menu_optimization ;;
+            4) menu_diagnostics_backup ;;
+            5) menu_maintenance ;;
+            6) menu_uninstall ;;
+            0|8|exit|q)
                 echo -e "${CYAN}Exiting Hashem Manager. Goodbye!${NC}"
                 exit 0
                 ;;

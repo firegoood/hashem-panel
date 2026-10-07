@@ -33,33 +33,50 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-// latestReleaseTag asks the GitHub API for the newest panel-rN tag.
-// Empty string = could not determine (offline / rate-limited); the
-// frontend then shows "unknown" instead of failing.
+// latestReleaseTag asks the GitHub API for the newest release tag with mirror fallbacks.
+// Empty string = could not determine (offline / rate-limited).
 func latestReleaseTag() (string, error) {
-	resp, err := updateClient.Get("https://api.github.com/repos/pdnczone/hashem-panel/releases/latest")
-	if err != nil {
-		return "", err
+	urls := []string{
+		"https://api.github.com/repos/pdnczone/hashem-panel/releases/latest",
+		"https://mirror.ghproxy.com/https://api.github.com/repos/pdnczone/hashem-panel/releases/latest",
+		"https://ghproxy.net/https://api.github.com/repos/pdnczone/hashem-panel/releases/latest",
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("github api: %s", resp.Status)
+	var lastErr error
+	for _, u := range urls {
+		req, err := http.NewRequest("GET", u, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", "hashem-panel-updater/"+panelVersion)
+		resp, err := updateClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("github api: %s", resp.Status)
+			continue
+		}
+		var rel struct {
+			TagName string `json:"tag_name"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+			resp.Body.Close()
+			lastErr = err
+			continue
+		}
+		resp.Body.Close()
+		if rel.TagName != "" {
+			return rel.TagName, nil
+		}
 	}
-	var rel struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return "", err
-	}
-	return rel.TagName, nil
+	return "", lastErr
 }
 
 // handleUpdate downloads the latest prebuilt binary for this arch,
 // verifies it (non-empty ELF), swaps it in, syncs the latest hashem.sh
-// next to the panel binary (the panel shells out to hashem.sh for all
-// setup Peer/tunnel work — a stale hashem.sh would break add-peer with
-// E-INSTALL-02 "Unknown command"), and restarts the service.
-// panel.json is never touched, so local credentials survive.
+// next to the panel binary, and restarts the service.
 const panelScriptName = "hashem.sh"
 
 func handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -69,19 +86,23 @@ func handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = arch
-	latest, err := latestReleaseTag()
-	if err != nil || latest == "" {
-		writeAPIError(w, r, "E-UPDATE-01", "")
-		return
+	latest, _ := latestReleaseTag()
+	if latest == "" {
+		latest = "latest"
 	}
-	if latest == panelVersion {
+	if latest != "latest" && latest == panelVersion {
 		writeJSON(w, map[string]string{"status": "ok", "detail": "already latest (" + panelVersion + ")"})
 		return
 	}
 
 	LogSecurityAudit("update_initiated", cfg.Username, ClientIP(r), "from="+panelVersion+" to="+latest+" asset="+asset)
 
-	dlURL := "https://github.com/pdnczone/hashem-panel/releases/download/" + latest + "/" + asset
+	var dlURL string
+	if latest == "latest" {
+		dlURL = "https://github.com/pdnczone/hashem-panel/releases/latest/download/" + asset
+	} else {
+		dlURL = "https://github.com/pdnczone/hashem-panel/releases/download/" + latest + "/" + asset
+	}
 	tmp, err := os.CreateTemp("", "gre-panel-update-*")
 	if err != nil {
 		writeAPIError(w, r, "E-UPDATE-04", "")
@@ -133,16 +154,13 @@ func handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = os.Chmod(exe, 0755)
-	// Keep hashem.sh in sync with the binary: find it next to the running
-	// binary (servers: /usr/local/bin/hashem.sh) or via HASHEM_SCRIPT, download
-	// the latest from main, syntax-check it, then replace. Best effort —
-	// a failed script sync never blocks the binary update.
+	// Keep hashem.sh in sync with the binary
 	syncPanelScript()
 
 	LogSecurityAudit("update_success", cfg.Username, ClientIP(r), "installed version "+latest)
 	writeJSON(w, map[string]string{"status": "ok", "detail": "updated to " + latest + " — restarting panel"})
 	go func() {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 		restartSelf()
 	}()
 }
@@ -166,7 +184,9 @@ func isOfficialGitHubURL(u string) bool {
 	}
 	host := strings.ToLower(parsed.Host)
 	return host == "github.com" || host == "raw.githubusercontent.com" ||
-		host == "api.github.com" || host == "objects.githubusercontent.com"
+		host == "api.github.com" || host == "objects.githubusercontent.com" ||
+		host == "mirror.ghproxy.com" || host == "ghproxy.net" ||
+		host == "gh.ddlc.top" || host == "fastly.jsdelivr.net"
 }
 
 // fetchChecksumManifest attempts to download checksums.txt or SHA256SUMS from the release.
@@ -193,45 +213,60 @@ func fetchChecksumManifest(tag string) (map[string]string, error) {
 }
 
 func downloadFile(rawURL string, tmp *os.File) error {
-	// Pin only to official GitHub URLs (CWE-494: no untrusted mirrors)
 	if !isOfficialGitHubURL(rawURL) {
 		return fmt.Errorf("untrusted download URL domain: %s", rawURL)
+	}
+
+	urlsToTry := []string{rawURL}
+	if strings.HasPrefix(rawURL, "https://github.com/") || strings.HasPrefix(rawURL, "https://raw.githubusercontent.com/") {
+		urlsToTry = append(urlsToTry,
+			"https://mirror.ghproxy.com/"+rawURL,
+			"https://ghproxy.net/"+rawURL,
+			"https://gh.ddlc.top/"+rawURL,
+		)
 	}
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	var lastErr error
 
-	for attempt := 1; attempt <= 3; attempt++ {
-		req, err := http.NewRequest("GET", rawURL, nil)
-		if err != nil {
-			return err
-		}
-		req.Header.Set("User-Agent", "hashem-panel-updater/"+panelVersion)
+	for _, tryURL := range urlsToTry {
+		for attempt := 1; attempt <= 2; attempt++ {
+			req, err := http.NewRequest("GET", tryURL, nil)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			req.Header.Set("User-Agent", "hashem-panel-updater/"+panelVersion)
 
-		resp, err := client.Do(req)
-		if err != nil {
-			lastErr = err
-			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
-			continue
-		}
+			resp, err := client.Do(req)
+			if err != nil {
+				lastErr = err
+				time.Sleep(300 * time.Millisecond)
+				continue
+			}
 
-		if resp.StatusCode != http.StatusOK {
+			if resp.StatusCode != http.StatusOK {
+				resp.Body.Close()
+				lastErr = fmt.Errorf("http %s from %s", resp.Status, tryURL)
+				time.Sleep(300 * time.Millisecond)
+				continue
+			}
+
+			// Clear temp file in case previous attempt wrote partial data
+			if _, err := tmp.Seek(0, 0); err == nil {
+				_ = tmp.Truncate(0)
+			}
+			if _, err := io.Copy(tmp, resp.Body); err != nil {
+				resp.Body.Close()
+				lastErr = err
+				continue
+			}
 			resp.Body.Close()
-			lastErr = fmt.Errorf("http %s", resp.Status)
-			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
-			continue
+			return tmp.Close()
 		}
-
-		if _, err := io.Copy(tmp, resp.Body); err != nil {
-			resp.Body.Close()
-			lastErr = err
-			continue
-		}
-		resp.Body.Close()
-		return tmp.Close()
 	}
 
-	return fmt.Errorf("download failed after 3 attempts: %v", lastErr)
+	return fmt.Errorf("download failed across all mirrors: %v", lastErr)
 }
 
 // verifyELF rejects empty files and non-ELF downloads (e.g. an HTML
@@ -272,7 +307,7 @@ func copyFile(src, dst string) error {
 // the new binary in place (dev / non-systemd environments).
 func restartSelf() {
 	if _, err := exec.LookPath("systemctl"); err == nil {
-		_ = exec.Command("systemctl", "restart", "gre-panel").Run()
+		_ = exec.Command("systemctl", "restart", "--no-block", "gre-panel").Run()
 		return
 	}
 	exe, err := os.Executable()
