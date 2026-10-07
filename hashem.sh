@@ -4273,7 +4273,7 @@ doctor_diagnostics() {
         TARGET_IP="$IRAN_GRE_IP"
     else
         local IFACE
-        IFACE=$(ip -o link show type gre 2>/dev/null | awk -F': ' '{print $2}' | head -n1)
+        IFACE=$(ip -o link show type gre 2>/dev/null | awk -F': ' '{print $2}' | cut -d'@' -f1 | head -n1)
         if [[ -n "$IFACE" ]]; then
             LOCAL_IP=$(ip -o -4 addr show dev "$IFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
             if [[ "$LOCAL_IP" =~ \.1$ ]]; then
@@ -4973,7 +4973,7 @@ EOF
 
     # 5. GRE MTU 1380 for tunnel interface and any peer interfaces
     local iface
-    for iface in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep -E '^gre-t'); do
+    for iface in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | cut -d'@' -f1 | grep -E '^gre-t'); do
         ip link set dev "$iface" mtu 1380 >/dev/null 2>&1 || true
     done
     if ip link show "$TUNNEL_NAME" >/dev/null 2>&1; then
@@ -4989,7 +4989,7 @@ EOF
         iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340
     # Per-interface MSS clamp on all GRE ifaces (covers FORWARD path too)
     local gre_iface
-    for gre_iface in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep -E '^(gre-t|gre-tunnel)'); do
+    for gre_iface in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | cut -d'@' -f1 | grep -E '^(gre-t|gre-tunnel)'); do
         iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -o "$gre_iface" -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || \
             iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o "$gre_iface" -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || true
     done
@@ -5054,7 +5054,7 @@ tune_restore() {
                     iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || true
                     # Also remove per-GRE-iface FORWARD clamp rules added by tune_apply
                     local gri
-                    for gri in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep -E '^(gre-t|gre-tunnel)'); do
+                    for gri in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | cut -d'@' -f1 | grep -E '^(gre-t|gre-tunnel)'); do
                         iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -o "$gri" -j TCPMSS --set-mss 1340 >/dev/null 2>&1 || true
                     done
                     echo -e "${GREEN}[✔️] MSS clamp removed (POSTROUTING + FORWARD)${NC}"
@@ -5583,11 +5583,11 @@ watchdog_check() {
     if [[ -n "$PEER_GRE" ]]; then
         if ping -c 1 -W 2 "$PEER_GRE" >/dev/null 2>&1; then
             GRE_OK=1
+        elif ss -tn state established 2>/dev/null | grep -q "$PEER_GRE"; then
+            GRE_OK=1
         elif nc -z -w 2 "$PEER_GRE" 22 >/dev/null 2>&1 || nc -z -w 2 "$PEER_GRE" 7777 >/dev/null 2>&1 || nc -z -w 2 "$PEER_GRE" 5201 >/dev/null 2>&1; then
             GRE_OK=1
         elif timeout 2 bash -c "</dev/tcp/$PEER_GRE/22" >/dev/null 2>&1 || timeout 2 bash -c "</dev/tcp/$PEER_GRE/7777" >/dev/null 2>&1; then
-            GRE_OK=1
-        elif ss -tn state established "( sport = :39594 or dport = :39594 )" 2>/dev/null | grep -q "$PEER_GRE"; then
             GRE_OK=1
         fi
     fi
