@@ -264,12 +264,16 @@ func TestBackhaulPeersPatchWithRangesAndMappings(t *testing.T) {
 	}
 
 	// Test PATCH /api/peers with raw_ports range and mapping
+	trueVal := true
 	patchReq := peerPatchRequest{
-		ID:            2,
-		Name:          "De-Frankfurt-Renamed",
-		Transport:     "wssmux",
-		RawPorts:      &[]string{"443", "10000-10050", "2083=8443"},
-		ProxyProtocol: "v2",
+		ID:             2,
+		Name:           "De-Frankfurt-Renamed",
+		Transport:      "wssmux",
+		RawPorts:       &[]string{"443", "10000-10050", "2083=8443"},
+		ProxyProtocol:  "v2",
+		FRPTransport:   "quic",
+		UseEncryption:  &trueVal,
+		UseCompression: &trueVal,
 	}
 	bodyBytes, _ := json.Marshal(patchReq)
 	req := httptest.NewRequest("PATCH", "/api/peers", bytes.NewReader(bodyBytes))
@@ -302,6 +306,15 @@ func TestBackhaulPeersPatchWithRangesAndMappings(t *testing.T) {
 	}
 	if p.ProxyProtocol != "v2" {
 		t.Errorf("expected updated proxy_protocol v2, got %s", p.ProxyProtocol)
+	}
+	if p.FRPTransport != "quic" {
+		t.Errorf("expected updated frp_transport quic, got %s", p.FRPTransport)
+	}
+	if !p.UseEncryption {
+		t.Errorf("expected updated use_encryption true")
+	}
+	if !p.UseCompression {
+		t.Errorf("expected updated use_compression true")
 	}
 	if len(p.RawPorts) != 3 || p.RawPorts[1] != "10000-10050" || p.RawPorts[2] != "2083=8443" {
 		t.Errorf("unexpected raw ports in registry: %+v", p.RawPorts)

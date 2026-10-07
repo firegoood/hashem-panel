@@ -356,20 +356,6 @@ func runCarrierBenchmark() *BenchmarkReport {
 			IsActive: activeCarrier == "direct",
 		},
 		{
-			ID:       fmt.Sprintf("fou:%d", fouPort1),
-			Name:     fmt.Sprintf("GRE over FOU (UDP %d)", fouPort1),
-			Type:     "fou",
-			Port:     fouPort1,
-			IsActive: activeCarrier == fmt.Sprintf("fou:%d", fouPort1),
-		},
-		{
-			ID:       fmt.Sprintf("fou:%d", fouPort2),
-			Name:     fmt.Sprintf("GRE over FOU (UDP %d)", fouPort2),
-			Type:     "fou",
-			Port:     fouPort2,
-			IsActive: activeCarrier == fmt.Sprintf("fou:%d", fouPort2),
-		},
-		{
 			ID:       fmt.Sprintf("wss:%d", wssPort),
 			Name:     fmt.Sprintf("Obfuscated WSS (TLS %d)", wssPort),
 			Type:     "wss",

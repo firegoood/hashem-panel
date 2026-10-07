@@ -223,9 +223,12 @@ type peerRecord struct {
 	Carrier   string   `json:"carrier,omitempty"`
 	Engine    string   `json:"engine,omitempty"`    // "frp" | "backhaul" | "gre-backhaul"
 	Transport string   `json:"transport,omitempty"` // "tcpmux" | "wssmux" | "tcp" | etc.
-	NoGre         bool     `json:"no_gre,omitempty"`
-	Legacy        bool     `json:"legacy,omitempty"`
-	ProxyProtocol string   `json:"proxy_protocol,omitempty"` // "off" | "v2" | "v1"
+	NoGre          bool     `json:"no_gre,omitempty"`
+	Legacy         bool     `json:"legacy,omitempty"`
+	ProxyProtocol  string   `json:"proxy_protocol,omitempty"`  // "off" | "v2" | "v1"
+	FRPTransport   string   `json:"frp_transport,omitempty"`   // "tcp" | "kcp" | "quic" | "websocket" | "wss"
+	UseEncryption  bool     `json:"use_encryption,omitempty"`  // transport.useEncryption
+	UseCompression bool     `json:"use_compression,omitempty"` // transport.useCompression
 }
 
 type peerLive struct {
@@ -919,24 +922,22 @@ transport.maxPoolCount = 100
 		} else {
 			// Foreign FRP client
 			var frpcBuf strings.Builder
-			frpcBuf.WriteString(fmt.Sprintf(`serverAddr = %q
-serverPort = %d
-auth.method = "token"
-auth.token = %q
-loginFailExit = false
-transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 30
-transport.heartbeatInterval = 30
-transport.heartbeatTimeout = 90
-transport.dialServerTimeout = 10
-transport.dialServerKeepalive = 30
-transport.poolCount = 20
-`, peerGre, port, token))
+			frpProto := "tcp"
+			useEnc := false
+			useComp := false
 			ppVersion := ""
 			for _, p := range loadPeers() {
 				if p.ProxyProtocol == "v2" || p.ProxyProtocol == "v1" {
 					ppVersion = p.ProxyProtocol
-					break
+				}
+				if p.FRPTransport != "" {
+					frpProto = p.FRPTransport
+				}
+				if p.UseEncryption {
+					useEnc = true
+				}
+				if p.UseCompression {
+					useComp = true
 				}
 			}
 			if ppVersion == "" {
@@ -948,6 +949,30 @@ transport.poolCount = 20
 			if ppVersion != "" {
 				ppLine = fmt.Sprintf("transport.proxyProtocolVersion = %q\n", ppVersion)
 			}
+			encLine := ""
+			if useEnc {
+				encLine = "transport.useEncryption = true\n"
+			}
+			compLine := ""
+			if useComp {
+				compLine = "transport.useCompression = true\n"
+			}
+
+			frpcBuf.WriteString(fmt.Sprintf(`serverAddr = %q
+serverPort = %d
+auth.method = "token"
+auth.token = %q
+loginFailExit = false
+transport.protocol = %q
+transport.tcpMux = true
+transport.tcpMuxKeepaliveInterval = 30
+transport.heartbeatInterval = 30
+transport.heartbeatTimeout = 90
+transport.dialServerTimeout = 15
+transport.dialServerKeepalive = 30
+transport.poolCount = 20
+`, peerGre, port, token, frpProto))
+
 			for _, p := range proxyPorts {
 				frpcBuf.WriteString(fmt.Sprintf(`
 [[proxies]]
@@ -956,14 +981,14 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = %d
 remotePort = %d
-%s
+%s%s%s
 [[proxies]]
 name = "udp-%d"
 type = "udp"
 localIP = "127.0.0.1"
 localPort = %d
 remotePort = %d
-`, p, p, p, ppLine, p, p, p))
+`, p, p, p, ppLine, encLine, compLine, p, p, p))
 			}
 			_ = os.MkdirAll("/etc/frp", 0755)
 			_ = os.WriteFile("/etc/frp/frpc.toml", []byte(frpcBuf.String()), 0644)

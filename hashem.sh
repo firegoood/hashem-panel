@@ -2672,6 +2672,8 @@ setup_iran_server_noninteractive() {
     cat <<EOF > "${CONFIG_DIR}/frps.toml"
 bindAddr = "0.0.0.0"
 bindPort = ${BIND_PORT}
+kcpBindPort = ${BIND_PORT}
+quicBindPort = ${BIND_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
 ${TLS_LINE:+$TLS_LINE
@@ -2801,7 +2803,10 @@ setup_foreign_server_noninteractive() {
     local PORTS_CLEANED=${7:-}
     local RELAY_IP=${8:-}
     local PROXY_PROTOCOL=${9:-off}
-    _setup_foreign_full "$IP_FOREIGN" "$IP_IRAN" "$SERVER_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS_CLEANED" "$RELAY_IP" "$PROXY_PROTOCOL"
+    local FRP_TRANSPORT=${10:-tcp}
+    local FRP_ENCRYPTION=${11:-off}
+    local FRP_COMPRESSION=${12:-off}
+    _setup_foreign_full "$IP_FOREIGN" "$IP_IRAN" "$SERVER_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS_CLEANED" "$RELAY_IP" "$PROXY_PROTOCOL" "$FRP_TRANSPORT" "$FRP_ENCRYPTION" "$FRP_COMPRESSION"
 }
 
 # shared full foreign path: GRE + ping feedback + frpc binaries/config/service + panel.
@@ -2811,6 +2816,9 @@ _setup_foreign_full() {
     local LOCAL_GRE=$5 PEER_GRE=$6 PORTS_CLEANED=$7
     local RELAY_IP=${8:-}
     local PROXY_PROTOCOL=${9:-off}
+    local FRP_TRANSPORT=${10:-tcp}
+    local FRP_ENCRYPTION=${11:-off}
+    local FRP_COMPRESSION=${12:-off}
     
     log_msg "tunnel" "INFO" "Starting FOREIGN server setup: GRE ${IP_FOREIGN} <-> ${IP_IRAN}, serverPort: ${SERVER_PORT}, reverse ports: ${PORTS_CLEANED}"
     backup_configs "pre_setup_foreign"
@@ -2858,22 +2866,28 @@ auth.token = "${TOKEN}"
 ${TLS_ENABLE:+$TLS_ENABLE
 }${TLS_CUSTOM:+$TLS_CUSTOM
 }loginFailExit = false
+transport.protocol = "${FRP_TRANSPORT}"
 transport.tcpMux = true
 transport.tcpMuxKeepaliveInterval = 30
 transport.heartbeatInterval = 30
 transport.heartbeatTimeout = 90
-transport.dialServerTimeout = 10
+transport.dialServerTimeout = 15
 transport.dialServerKeepalive = 30
 transport.poolCount = 20
 
 EOF
-    # Per-proxy encryption/compression are NOT injected at setup time.
-    # They are only applied via `perf_apply` to avoid unnecessary overhead
-    # on the GRE inner network (point-to-point, no eavesdropping risk).
     local PROXY_TARGET_IP="${RELAY_IP:-127.0.0.1}"
     local PP_LINE=""
     if [[ "$PROXY_PROTOCOL" == "v2" || "$PROXY_PROTOCOL" == "v1" ]]; then
         PP_LINE="transport.proxyProtocolVersion = \"${PROXY_PROTOCOL}\""
+    fi
+    local ENC_LINE=""
+    if [[ "$FRP_ENCRYPTION" == "on" || "$FRP_ENCRYPTION" == "1" || "$FRP_ENCRYPTION" == "true" ]]; then
+        ENC_LINE="transport.useEncryption = true"
+    fi
+    local COMP_LINE=""
+    if [[ "$FRP_COMPRESSION" == "on" || "$FRP_COMPRESSION" == "1" || "$FRP_COMPRESSION" == "true" ]]; then
+        COMP_LINE="transport.useCompression = true"
     fi
     local PORT
     for PORT in $PORTS_CLEANED; do
@@ -2885,6 +2899,8 @@ localIP = "${PROXY_TARGET_IP}"
 localPort = ${PORT}
 remotePort = ${PORT}
 ${PP_LINE:+$PP_LINE
+}${ENC_LINE:+$ENC_LINE
+}${COMP_LINE:+$COMP_LINE
 }
 [[proxies]]
 name = "udp_${PORT}"
@@ -3818,6 +3834,7 @@ PYEOF
 # edit full configuration of one peer ($1=id, [--name], [--remote-pub], [--carrier], [--ports])
 cli_edit_peer() {
     local ID="" NAME="" REMOTE_PUB="" CARRIER="" PORTS="" PROXY_PROTOCOL=""
+    local FRP_TRANSPORT="" FRP_ENCRYPTION="" FRP_COMPRESSION=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --id) ID="$2"; shift 2 ;;
@@ -3826,13 +3843,18 @@ cli_edit_peer() {
             --carrier) CARRIER="$2"; shift 2 ;;
             --ports) PORTS="$2"; shift 2 ;;
             --proxy-protocol) PROXY_PROTOCOL="$2"; shift 2 ;;
-            -h|--help) echo 'Usage: hashem.sh edit-peer --id N [--name LABEL] [--remote-pub IP] [--carrier direct|fou:P|wss:P] [--ports "443, 2083"] [--proxy-protocol off|v1|v2]'; return 0 ;;
+            --frp-transport) FRP_TRANSPORT="$2"; shift 2 ;;
+            --encrypt) FRP_ENCRYPTION="on"; shift ;;
+            --compress) FRP_COMPRESSION="on"; shift ;;
+            --frp-encryption) FRP_ENCRYPTION="$2"; shift 2 ;;
+            --frp-compression) FRP_COMPRESSION="$2"; shift 2 ;;
+            -h|--help) echo 'Usage: hashem.sh edit-peer --id N [--name LABEL] [--remote-pub IP] [--carrier direct|wss:P] [--ports "443, 2083"] [--proxy-protocol off|v1|v2] [--frp-transport tcp|kcp|quic|websocket|wss] [--encrypt] [--compress]'; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
         esac
     done
     [[ "$ID" =~ ^[0-9]+$ ]] || { echo -e "${RED}[!] --id N is required.${NC}"; return 1; }
-    if [[ -z "$NAME" && -z "$REMOTE_PUB" && -z "$CARRIER" && -z "$PORTS" && -z "$PROXY_PROTOCOL" ]]; then
-        echo -e "${RED}[!] Nothing to edit — specify at least one of --name, --remote-pub, --carrier, --ports, --proxy-protocol.${NC}"
+    if [[ -z "$NAME" && -z "$REMOTE_PUB" && -z "$CARRIER" && -z "$PORTS" && -z "$PROXY_PROTOCOL" && -z "$FRP_TRANSPORT" && -z "$FRP_ENCRYPTION" && -z "$FRP_COMPRESSION" ]]; then
+        echo -e "${RED}[!] Nothing to edit — specify at least one parameter.${NC}"
         return 1
     fi
 
@@ -3967,7 +3989,7 @@ PYEOF
     fi
 
     # 4. Update peers.json
-    PEERS_F="$PEERS_FILE" PEER_ID="$ID" NEW_NAME="$NAME" NEW_REMOTE="$REMOTE_PUB" NEW_CARRIER="$CARRIER" NEW_PORTS="$CLEANED" NEW_PP="$PROXY_PROTOCOL" python3 <<'PYEOF'
+    PEERS_F="$PEERS_FILE" PEER_ID="$ID" NEW_NAME="$NAME" NEW_REMOTE="$REMOTE_PUB" NEW_CARRIER="$CARRIER" NEW_PORTS="$CLEANED" NEW_PP="$PROXY_PROTOCOL" NEW_TRANS="$FRP_TRANSPORT" NEW_ENC="$FRP_ENCRYPTION" NEW_COMP="$FRP_COMPRESSION" python3 <<'PYEOF'
 import json, os
 f = os.environ["PEERS_F"]
 pid = int(os.environ["PEER_ID"])
@@ -3976,6 +3998,9 @@ rip = os.environ.get("NEW_REMOTE")
 car = os.environ.get("NEW_CARRIER")
 pstr = os.environ.get("NEW_PORTS")
 pp = os.environ.get("NEW_PP")
+ft = os.environ.get("NEW_TRANS")
+enc = os.environ.get("NEW_ENC")
+comp = os.environ.get("NEW_COMP")
 d = json.load(open(f))
 for p in d.get("peers", []):
     if p.get("id") == pid:
@@ -3989,6 +4014,16 @@ for p in d.get("peers", []):
             p["ports"] = [int(x) for x in pstr.split()]
         if pp:
             p["proxy_protocol"] = pp
+        if ft:
+            p["frp_transport"] = ft
+        if enc in ("on", "true", "1"):
+            p["use_encryption"] = True
+        elif enc in ("off", "false", "0"):
+            p["use_encryption"] = False
+        if comp in ("on", "true", "1"):
+            p["use_compression"] = True
+        elif comp in ("off", "false", "0"):
+            p["use_compression"] = False
 json.dump(d, open(f, "w"), indent=2)
 PYEOF
 
@@ -6822,19 +6857,15 @@ menu_carrier() {
     cli_carrier status
     echo -e "${YELLOW}Select an action:${NC}"
     echo "  1) Force Direct GRE (Raw Protocol 47)"
-    echo "  2) Force FOU UDP (Port 443)"
-    echo "  3) Force FOU UDP (Port 55555)"
-    echo "  4) Force WSS Obfuscated Carrier (WebSocket over TLS / Port 8443)"
-    echo "  5) Cycle to Next Candidate Now"
+    echo "  2) Force WSS Obfuscated Carrier (WebSocket over TLS / Port 8443)"
+    echo "  3) Cycle to Next Candidate Now"
     echo "  0) Back to Main Menu"
     echo ""
-    read -p "Select an option [0-5]: " C_OPT
+    read -p "Select an option [0-3]: " C_OPT
     case "$C_OPT" in
         1) cli_carrier set direct ;;
-        2) cli_carrier set fou:443 ;;
-        3) cli_carrier set fou:55555 ;;
-        4) cli_carrier set wss:8443 ;;
-        5) cli_carrier next ;;
+        2) cli_carrier set wss:8443 ;;
+        3) cli_carrier next ;;
         0) return 0 ;;
         *) echo -e "${RED}[!] Invalid option.${NC}" ;;
     esac
@@ -7380,6 +7411,7 @@ cli_setup_foreign() {
     local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" LOCAL_GRE="" PEER_GRE="" TOKEN="" PORTS="" FORCE=0 BUNDLE=""
     local FOREIGN_GRE_DEF="$FOREIGN_GRE_IP" IRAN_GRE_DEF="$IRAN_GRE_IP"
     local RELAY_IP="" PROXY_PROTOCOL="off"
+    local FRP_TRANSPORT="tcp" FRP_ENCRYPTION="off" FRP_COMPRESSION="off"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --local-pub) LOCAL_PUB="$2"; shift 2 ;;
@@ -7392,6 +7424,11 @@ cli_setup_foreign() {
             --bundle) BUNDLE="$2"; shift 2 ;;
             --relay-ip) RELAY_IP="$2"; shift 2 ;;
             --proxy-protocol) PROXY_PROTOCOL="$2"; shift 2 ;;
+            --frp-transport) FRP_TRANSPORT="$2"; shift 2 ;;
+            --encrypt) FRP_ENCRYPTION="on"; shift ;;
+            --compress) FRP_COMPRESSION="on"; shift ;;
+            --frp-encryption) FRP_ENCRYPTION="$2"; shift 2 ;;
+            --frp-compression) FRP_COMPRESSION="$2"; shift 2 ;;
             --chaff) CHAFF_PROFILE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) usage_cli; return 0 ;;
@@ -7450,11 +7487,16 @@ cli_setup_foreign() {
     # Port availability check.
     FRP_PORT=$(ensure_port_available "$FRP_PORT" "FRP Control Port" ${BUNDLE:+1}) || return 1
 
+    case "$FRP_TRANSPORT" in
+        tcp|kcp|quic|websocket|wss) ;;
+        *) echo -e "${YELLOW}[!] Unknown FRP transport '${FRP_TRANSPORT}', defaulting to tcp.${NC}"; FRP_TRANSPORT="tcp" ;;
+    esac
+
     if tunnel_present && [[ "$FORCE" -ne 1 ]]; then
         echo -e "${RED}[!] Tunnel already exists — pass --force to overwrite.${NC}"
         return 1
     fi
-    setup_foreign_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$CLEANED" "$RELAY_IP" "$PROXY_PROTOCOL"
+    setup_foreign_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$CLEANED" "$RELAY_IP" "$PROXY_PROTOCOL" "$FRP_TRANSPORT" "$FRP_ENCRYPTION" "$FRP_COMPRESSION"
 }
 
 cli_setup_backhaul_iran() {

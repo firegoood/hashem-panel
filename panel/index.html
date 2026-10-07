@@ -1026,9 +1026,27 @@
                 <div class="fg"><label for="jToken">Setup bundle or token (from Iran side)</label><input class="hashem-input" id="jToken" autocomplete="off" placeholder="paste hsh1_..., bh1_..., or gh1_... bundle"></div>
                 <div class="fg"><label for="jPorts">Reverse ports (ranges &amp; mappings allowed)</label><input class="hashem-input" id="jPorts" placeholder="auto-filled from bundle, or 443, 10000-10050"></div>
                 <div class="fg" style="margin-top:2px;">
-                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;">
+                  <label for="jFRPTransport" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">FRP Transport Protocol</label>
+                  <select class="hashem-input" id="jFRPTransport" style="margin-top:4px">
+                    <option value="tcp" selected>TCP (Standard multiplexed stream)</option>
+                    <option value="kcp">KCP (UDP with ARQ — Anti-packet-loss for unstable ISPs)</option>
+                    <option value="quic">QUIC (UDP QUIC — 0-RTT fast multiplexing)</option>
+                    <option value="websocket">WebSocket (HTTP Upgrade protocol)</option>
+                    <option value="wss">WSS (TLS-encrypted WebSocket obfuscation)</option>
+                  </select>
+                </div>
+                <div class="fg" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:12px;">
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+                    <input type="checkbox" id="jEncryption">
+                    <span><b>Encryption</b> (AES/TLS)</span>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+                    <input type="checkbox" id="jCompression">
+                    <span><b>Compression</b> (Snappy)</span>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
                     <input type="checkbox" id="jProxyProtocol" value="v2">
-                    <span><b>PROXY Protocol v2</b> (Real client IP tracking in Xray / Pasarguard / Marzban)</span>
+                    <span><b>PROXY Protocol v2</b> (Real client IP for Xray)</span>
                   </label>
                 </div>
                 <div class="qs-hint" id="joinBundleHint">Paste any bundle (hsh1_, bh1_, gh1_) → all fields auto-fill. A legacy token works too.</div>
@@ -1312,26 +1330,13 @@
             <div class="u-flex-center-wrap10">
               <select class="hashem-input u-max-w-260" id="carrierModeSelect" >
                 <option value="direct" selected>🟢 Direct GRE (Protocol 47)</option>
-                <option value="fou:443">⚡ GRE over FOU (UDP 443)</option>
-                <option value="fou:55555">⚡ GRE over FOU (UDP 55555)</option>
                 <option value="wss:8443">🛡️ Obfuscated WSS (TLS 8443)</option>
               </select>
               <button class="hashem-btn hashem-btn-secondary" id="carrierSaveModeBtn">Save Mode</button>
               <span class="status-indicator" id="carrierStatusInd"><span class="dot"></span><span id="carrierStatusTxt">—</span></span>
             </div>
             <div class="ent-help">
-              <strong>Direct GRE mode:</strong> Uses raw GRE (Protocol 47) for the lowest latency. Switch to WSS if your provider throttles protocol-47.
-            </div>
-          </div>
-
-          <div class="fg u-mt-16" >
-            <label for="carrierPortsInput">FOU UDP Ports (comma-separated)</label>
-            <div class="u-flex-center-wrap10">
-              <input type="text" class="hashem-input u-max-w-260" id="carrierPortsInput" value="443, 55555"  placeholder="443, 55555">
-              <button class="hashem-btn hashem-btn-secondary" id="carrierSavePortsBtn">Update FOU Ports</button>
-            </div>
-            <div class="ent-help">
-              Symmetric UDP ports opened on both Iran and Foreign VPS via kernel <code>ip fou add port &lt;P&gt; ipproto 47</code>.
+              <strong>Direct GRE mode:</strong> Uses raw GRE (Protocol 47) for lowest latency. Switch to WSS if your network blocks raw GRE.
             </div>
           </div>
 
@@ -1945,16 +1950,33 @@
         <label for="editPeerCarrier" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">Carrier Mode</label>
         <select class="hashem-input" id="editPeerCarrier" style="margin-top:6px">
           <option value="direct">Direct GRE (Raw Protocol 47 — lowest latency)</option>
-          <option value="fou:443">FOU UDP :443 (Kernel Foo-over-UDP)</option>
-          <option value="fou:55555">FOU UDP :55555 (Kernel Foo-over-UDP)</option>
           <option value="wss:8443">WSS :8443 (WebSocket over TLS Obfuscation)</option>
         </select>
       </div>
 
-      <div class="fg" style="margin-top:2px;">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;">
+      <div class="fg" id="wrapEditFRPTransport">
+        <label for="editPeerFRPTransport" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">FRP Transport Protocol</label>
+        <select class="hashem-input" id="editPeerFRPTransport" style="margin-top:6px">
+          <option value="tcp">TCP (Standard multiplexed stream)</option>
+          <option value="kcp">KCP (UDP with ARQ — Anti-packet-loss)</option>
+          <option value="quic">QUIC (UDP QUIC — 0-RTT fast stream)</option>
+          <option value="websocket">WebSocket (HTTP Upgrade protocol)</option>
+          <option value="wss">WSS (TLS-encrypted WebSocket obfuscation)</option>
+        </select>
+      </div>
+
+      <div class="fg" style="margin-top:2px;display:flex;flex-wrap:wrap;gap:12px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+          <input type="checkbox" id="editPeerEncryption">
+          <span><b>Encryption</b> (AES/TLS)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+          <input type="checkbox" id="editPeerCompression">
+          <span><b>Compression</b> (Snappy)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
           <input type="checkbox" id="editPeerProxyProtocol" value="v2">
-          <span><b>PROXY Protocol v2</b> (Real client IP preservation for Xray, Marzban, Pasarguard)</span>
+          <span><b>PROXY Protocol v2</b> (Real client IP)</span>
         </label>
       </div>
 
@@ -3747,10 +3769,16 @@ $('joinBtn').onclick = async () => {
     const m = (st.gre || {});
     const adv = id => { const el = $(id); return el ? el.value.trim() : ''; };
     const ppVal = $('jProxyProtocol') && $('jProxyProtocol').checked ? 'v2' : 'off';
+    const frpTransVal = $('jFRPTransport') ? $('jFRPTransport').value : 'tcp';
+    const encVal = $('jEncryption') && $('jEncryption').checked;
+    const compVal = $('jCompression') && $('jCompression').checked;
     const body = bundle ? {
       role: 'foreign',
       engine: bundle.engine || 'frp',
       transport: bundle.transport || 'tcpmux',
+      frp_transport: frpTransVal,
+      use_encryption: encVal,
+      use_compression: compVal,
       proxy_protocol: ppVal,
       local_public: adv('fLocalPub') || m.local || d.local_public || '',
       remote_public: bundle.iranPub || m.peer_ip || '',
@@ -3761,6 +3789,9 @@ $('joinBtn').onclick = async () => {
       ports, force: true,
     } : {
       role: 'foreign',
+      frp_transport: frpTransVal,
+      use_encryption: encVal,
+      use_compression: compVal,
       proxy_protocol: ppVal,
       local_public: m.local || adv('fLocalPub') || d.local_public || '',
       remote_public: m.peer_ip || adv('fRemotePub') || $('sRemotePub').value.trim(),
@@ -4541,13 +4572,9 @@ async function loadCarrier() {
 
     const cms = $('carrierModeSelect');
     if (cms && document.activeElement !== cms) {
-      const p1 = s.fou_port1 || (curPorts[0] || 443);
-      const p2 = s.fou_port2 || (curPorts[1] || 55555);
       const wp = s.wss_port || 8443;
       const opts = [
         { v: 'direct', t: '🟢 Direct GRE (Protocol 47)' },
-        { v: `fou:${p1}`, t: `⚡ GRE over FOU (UDP ${p1})` },
-        { v: `fou:${p2}`, t: `⚡ GRE over FOU (UDP ${p2})` },
         { v: `wss:${wp}`, t: `🛡️ Obfuscated WSS (TLS ${wp})` }
       ];
       cms.innerHTML = opts.map(o => `<option value="${o.v}" ${o.v === curActive ? 'selected' : ''}>${o.t}</option>`).join('');
@@ -5408,8 +5435,9 @@ function openEditPeer(peerId) {
   if (!modal) return;
 
   let name = '', remoteIp = '', carrier = 'direct', ports = [], engine = 'frp', transport = 'tcpmux';
+  const p = (peerId === 0) ? (window._lastLocal || {}) : ((tunPeerCache || []).find(x => x.id === peerId) || {});
   if (peerId === 0) {
-    const st = window._lastLocal || {};
+    const st = p;
     name = 'Main tunnel';
     remoteIp = (st.gre && (st.gre.peer_ip || st.gre_peer)) || '';
     carrier = (st.carrier && (st.carrier.active || st.carrier.mode)) || 'direct';
@@ -5423,7 +5451,6 @@ function openEditPeer(peerId) {
       }).filter(Boolean);
     }
   } else {
-    const p = (tunPeerCache || []).find(x => x.id === peerId) || {};
     name = p.name || ('peer-' + peerId);
     remoteIp = p.remote_pub || '';
     carrier = p.carrier || 'direct';
@@ -5446,14 +5473,25 @@ function openEditPeer(peerId) {
   if ($('editPeerProxyProtocol')) {
     $('editPeerProxyProtocol').checked = (p.proxy_protocol === 'v2');
   }
+  if ($('editPeerFRPTransport')) {
+    $('editPeerFRPTransport').value = p.frp_transport || 'tcp';
+  }
+  if ($('editPeerEncryption')) {
+    $('editPeerEncryption').checked = !!p.use_encryption;
+  }
+  if ($('editPeerCompression')) {
+    $('editPeerCompression').checked = !!p.use_compression;
+  }
   if ($('editPeerEngine')) {
     $('editPeerEngine').value = engine;
     const isBh = engine === 'backhaul';
     if ($('wrapEditTransport')) $('wrapEditTransport').classList.toggle('hidden', engine === 'frp');
+    if ($('wrapEditFRPTransport')) $('wrapEditFRPTransport').classList.toggle('hidden', engine !== 'frp');
     if ($('wrapEditCarrier')) $('wrapEditCarrier').classList.toggle('hidden', isBh);
     $('editPeerEngine').onchange = () => {
       const eng = $('editPeerEngine').value;
       if ($('wrapEditTransport')) $('wrapEditTransport').classList.toggle('hidden', eng === 'frp');
+      if ($('wrapEditFRPTransport')) $('wrapEditFRPTransport').classList.toggle('hidden', eng !== 'frp');
       if ($('wrapEditCarrier')) $('wrapEditCarrier').classList.toggle('hidden', eng === 'backhaul');
     };
   }
@@ -5465,9 +5503,7 @@ function openEditPeer(peerId) {
       if (opt.value === carrier) { opt.selected = true; matched = true; break; }
     }
     if (!matched) {
-      if (/443/.test(carrier)) sel.value = 'fou:443';
-      else if (/55555/.test(carrier)) sel.value = 'fou:55555';
-      else if (/wss/i.test(carrier)) sel.value = 'wss:8443';
+      if (/wss/i.test(carrier)) sel.value = 'wss:8443';
       else sel.value = 'direct';
     }
   }
@@ -5572,6 +5608,9 @@ async function saveEditPorts() {
   const engineVal    = $('editPeerEngine') ? $('editPeerEngine').value : '';
   const transportVal = $('editPeerTransport') ? $('editPeerTransport').value : '';
   const ppVal        = $('editPeerProxyProtocol') && $('editPeerProxyProtocol').checked ? 'v2' : 'off';
+  const frpTransVal  = $('editPeerFRPTransport') ? $('editPeerFRPTransport').value : 'tcp';
+  const encVal       = $('editPeerEncryption') && $('editPeerEncryption').checked;
+  const compVal      = $('editPeerCompression') && $('editPeerCompression').checked;
 
   if (remoteVal) {
     const parts = remoteVal.split('.');
@@ -5601,6 +5640,9 @@ async function saveEditPorts() {
     if (engineVal) payload.engine = engineVal;
     if (transportVal) payload.transport = transportVal;
     if (ppVal) payload.proxy_protocol = ppVal;
+    if (frpTransVal) payload.frp_transport = frpTransVal;
+    payload.use_encryption = encVal;
+    payload.use_compression = compVal;
 
     const res = await api('/api/peers', payload, 'PATCH');
     if (res && res.bundle) {

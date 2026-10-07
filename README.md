@@ -33,7 +33,8 @@
 - 🔀 **Advanced Port Management:** Supports individual ports (`443`), multiple ports (`80,443`), port ranges (`1000-1010`), and port mappings (`8080=80`).
 - 📊 **Deep Network Insights:** Real-time graphs, RAM/CPU vitals, Live Activity Streams, and exact traffic metrics.
 - ⚡ **Auto-Adaptation:** Smartly adjusts multiplexing capacity dynamically based on active load and available system RAM.
-- 🎯 **Carrier Benchmark & Auto-Pilot:** Live probing across GRE Direct (Proto 47), FOU (UDP 443/custom), WSS (TLS 8443), and transport ports with intelligent carrier scoring and optional auto-pilot failover.
+- 🚀 **Advanced FRP Stack & Transports:** Full support for TCP, KCP (anti-packet-loss), QUIC (0-RTT), WebSocket, WSS, payload encryption, Snappy compression, and PROXY Protocol v2. **[📖 Full FRP Transports & Anti-Censorship Guide](docs/FRP_TUNNELS_GUIDE.md)**
+- 🎯 **Carrier Benchmark:** Live probing across GRE Direct (Proto 47) and Obfuscated WSS (TLS 8443) with intelligent carrier health scoring.
 - 🔗 **Inter-Panel Synchronization:** Dual-path REST link (Internal Tunnel IP + Public fallback) pairs Iran (Master) and Foreign (Worker) panels with shared secrets for coordinated zero-downtime reconfiguration.
 - 🔑 **Instant Password Management:** Safe one-time display upon installation, interactive reset menu, and non-interactive `hashem reset-password` command.
 - 🔒 **Enterprise-Grade Security:**

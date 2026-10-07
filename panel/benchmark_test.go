@@ -69,21 +69,18 @@ func TestBenchmarkExecutionAndEndpoints(t *testing.T) {
 		t.Fatalf("expected a best carrier to be recommended")
 	}
 
-	// Verify metrics include direct, fou, and wss
-	hasDirect, hasFOU, hasWSS := false, false, false
+	// Verify metrics include direct and wss
+	hasDirect, hasWSS := false, false
 	for _, m := range rep.Metrics {
 		if m.ID == "direct" {
 			hasDirect = true
-		}
-		if m.Type == "fou" {
-			hasFOU = true
 		}
 		if m.Type == "wss" {
 			hasWSS = true
 		}
 	}
-	if !hasDirect || !hasFOU || !hasWSS {
-		t.Errorf("missing standard candidate types: direct=%v, fou=%v, wss=%v", hasDirect, hasFOU, hasWSS)
+	if !hasDirect || !hasWSS {
+		t.Errorf("missing standard candidate types: direct=%v, wss=%v", hasDirect, hasWSS)
 	}
 
 	// 2. GET /api/benchmark
