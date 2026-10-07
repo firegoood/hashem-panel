@@ -958,6 +958,14 @@ transport.maxPoolCount = 100
 				compLine = "transport.useCompression = true\n"
 			}
 
+			effPort := port
+			if frpProto == "quic" {
+				effPort = port + 1
+				if effPort > 65535 {
+					effPort = port - 1
+				}
+			}
+
 			frpcBuf.WriteString(fmt.Sprintf(`serverAddr = %q
 serverPort = %d
 auth.method = "token"
@@ -971,7 +979,7 @@ transport.heartbeatTimeout = 90
 transport.dialServerTimeout = 15
 transport.dialServerKeepalive = 30
 transport.poolCount = 20
-`, peerGre, port, token, frpProto))
+`, peerGre, effPort, token, frpProto))
 
 			for _, p := range proxyPorts {
 				frpcBuf.WriteString(fmt.Sprintf(`

@@ -2668,12 +2668,14 @@ setup_iran_server_noninteractive() {
     fi
     local TLS_LINE=""
     [[ "$EFF_TLS" == "1" ]] && TLS_LINE="transport.tls.force = true"
+    local QUIC_PORT=$((BIND_PORT + 1))
+    if [[ "$QUIC_PORT" -gt 65535 ]]; then QUIC_PORT=$((BIND_PORT - 1)); fi
     mkdir -p "${CONFIG_DIR}"
     cat <<EOF > "${CONFIG_DIR}/frps.toml"
 bindAddr = "0.0.0.0"
 bindPort = ${BIND_PORT}
 kcpBindPort = ${BIND_PORT}
-quicBindPort = ${BIND_PORT}
+quicBindPort = ${QUIC_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
 ${TLS_LINE:+$TLS_LINE
@@ -2857,10 +2859,15 @@ _setup_foreign_full() {
         TLS_ENABLE="transport.tls.enable = true"
         TLS_CUSTOM="transport.tls.disableCustomTLSFirstByte = true"
     fi
+    local EFF_SERVER_PORT="${SERVER_PORT}"
+    if [[ "$FRP_TRANSPORT" == "quic" ]]; then
+        EFF_SERVER_PORT=$((SERVER_PORT + 1))
+        if [[ "$EFF_SERVER_PORT" -gt 65535 ]]; then EFF_SERVER_PORT=$((SERVER_PORT - 1)); fi
+    fi
     mkdir -p "${CONFIG_DIR}"
     cat <<EOF > "${CONFIG_DIR}/frpc.toml"
 serverAddr = "${PEER_GRE}"
-serverPort = ${SERVER_PORT}
+serverPort = ${EFF_SERVER_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
 ${TLS_ENABLE:+$TLS_ENABLE
