@@ -1272,8 +1272,9 @@ download_with_fallback() {
         echo -e "${YELLOW}[*] Direct download timed out / blocked — trying Iran proxy mirror...${NC}"
         local MIRRORS=(
             "https://ghproxy.net/${URL}"
-            "https://mirror.ghproxy.com/${URL}"
+            "https://gh-proxy.com/${URL}"
             "https://gh.ddlc.top/${URL}"
+            "https://ghproxy.cn/${URL}"
         )
         for M in "${MIRRORS[@]}"; do
             if curl -fsSL --connect-timeout 6 --max-time 20 -o "$DEST" "$M" 2>/dev/null && [[ -s "$DEST" ]]; then
@@ -5545,7 +5546,7 @@ watchdog_get_peer_gre() {
             elif [[ "$INNER" == "$FOREIGN_GRE_IP" ]]; then
                 PEER="$IRAN_GRE_IP"
             else
-                local IFS=. read -r a b c d <<< "$INNER"
+                IFS=. read -r a b c d <<< "$INNER"
                 if (( d % 2 == 0 )); then
                     PEER="$a.$b.$c.$((d - 1))"
                 else
@@ -7206,6 +7207,7 @@ Usage:
   hashem doctor [server|stop-server|fix]       # full latency, jitter, MTU & speed diagnostics
   hashem stress-test [host] [port] [conns]     # high-concurrency connection stress test (verify zero drops)
   hashem update | update-all                   # update script + panel to latest release
+  hashem download-cores                        # download & pre-cache FRP and Backhaul core binaries
   hashem free-ram                              # cap journald + drop cache + 1GB swap
 
 Setup bundles:
@@ -7616,6 +7618,12 @@ if [[ $# -gt 0 ]]; then
         restore) tune_restore ;;
         tune-status) tune_status ;;
         free-ram|optimize-ram) free_ram ;;
+        download-cores|cores)
+            echo -e "${CYAN}[*] Downloading and verifying core binaries from pdnczone repository...${NC}"
+            install_frp_binaries "all" || { echo -e "${RED}[!] Failed to install FRP binaries.${NC}"; exit 1; }
+            install_backhaul_binaries || { echo -e "${RED}[!] Failed to install Backhaul binary.${NC}"; exit 1; }
+            echo -e "${GREEN}[✔️] All core binaries (frps, frpc, backhaul) are cached in ${INSTALL_DIR}.${NC}"
+            ;;
         remove-tunnel)
             if [[ "${2:-}" == "--force" ]]; then remove_tunnel_force; else remove_tunnel; fi ;;
         uninstall)
