@@ -265,10 +265,11 @@ func TestBackhaulPeersPatchWithRangesAndMappings(t *testing.T) {
 
 	// Test PATCH /api/peers with raw_ports range and mapping
 	patchReq := peerPatchRequest{
-		ID:        2,
-		Name:      "De-Frankfurt-Renamed",
-		Transport: "wssmux",
-		RawPorts:  &[]string{"443", "10000-10050", "2083=8443"},
+		ID:            2,
+		Name:          "De-Frankfurt-Renamed",
+		Transport:     "wssmux",
+		RawPorts:      &[]string{"443", "10000-10050", "2083=8443"},
+		ProxyProtocol: "v2",
 	}
 	bodyBytes, _ := json.Marshal(patchReq)
 	req := httptest.NewRequest("PATCH", "/api/peers", bytes.NewReader(bodyBytes))
@@ -298,6 +299,9 @@ func TestBackhaulPeersPatchWithRangesAndMappings(t *testing.T) {
 	}
 	if p.Transport != "wssmux" {
 		t.Errorf("expected updated transport wssmux, got %s", p.Transport)
+	}
+	if p.ProxyProtocol != "v2" {
+		t.Errorf("expected updated proxy_protocol v2, got %s", p.ProxyProtocol)
 	}
 	if len(p.RawPorts) != 3 || p.RawPorts[1] != "10000-10050" || p.RawPorts[2] != "2083=8443" {
 		t.Errorf("unexpected raw ports in registry: %+v", p.RawPorts)

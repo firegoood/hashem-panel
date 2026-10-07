@@ -2800,7 +2800,8 @@ setup_foreign_server_noninteractive() {
     local LOCAL_GRE=${5:-$FOREIGN_GRE_IP} PEER_GRE=${6:-$IRAN_GRE_IP}
     local PORTS_CLEANED=${7:-}
     local RELAY_IP=${8:-}
-    _setup_foreign_full "$IP_FOREIGN" "$IP_IRAN" "$SERVER_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS_CLEANED" "$RELAY_IP"
+    local PROXY_PROTOCOL=${9:-off}
+    _setup_foreign_full "$IP_FOREIGN" "$IP_IRAN" "$SERVER_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS_CLEANED" "$RELAY_IP" "$PROXY_PROTOCOL"
 }
 
 # shared full foreign path: GRE + ping feedback + frpc binaries/config/service + panel.
@@ -2809,6 +2810,7 @@ _setup_foreign_full() {
     local IP_FOREIGN=$1 IP_IRAN=$2 SERVER_PORT=$3 TOKEN=$4
     local LOCAL_GRE=$5 PEER_GRE=$6 PORTS_CLEANED=$7
     local RELAY_IP=${8:-}
+    local PROXY_PROTOCOL=${9:-off}
     
     log_msg "tunnel" "INFO" "Starting FOREIGN server setup: GRE ${IP_FOREIGN} <-> ${IP_IRAN}, serverPort: ${SERVER_PORT}, reverse ports: ${PORTS_CLEANED}"
     backup_configs "pre_setup_foreign"
@@ -2862,13 +2864,17 @@ transport.heartbeatInterval = 30
 transport.heartbeatTimeout = 90
 transport.dialServerTimeout = 10
 transport.dialServerKeepalive = 30
-transport.poolCount = 100
+transport.poolCount = 20
 
 EOF
     # Per-proxy encryption/compression are NOT injected at setup time.
     # They are only applied via `perf_apply` to avoid unnecessary overhead
     # on the GRE inner network (point-to-point, no eavesdropping risk).
     local PROXY_TARGET_IP="${RELAY_IP:-127.0.0.1}"
+    local PP_LINE=""
+    if [[ "$PROXY_PROTOCOL" == "v2" || "$PROXY_PROTOCOL" == "v1" ]]; then
+        PP_LINE="transport.proxyProtocolVersion = \"${PROXY_PROTOCOL}\""
+    fi
     local PORT
     for PORT in $PORTS_CLEANED; do
         cat <<EOF >> "${CONFIG_DIR}/frpc.toml"
@@ -2878,7 +2884,8 @@ type = "tcp"
 localIP = "${PROXY_TARGET_IP}"
 localPort = ${PORT}
 remotePort = ${PORT}
-
+${PP_LINE:+$PP_LINE
+}
 [[proxies]]
 name = "udp_${PORT}"
 type = "udp"
@@ -3544,7 +3551,7 @@ cli_add_peer() {
     CHAFF_PROFILE="${CHAFF_PROFILE:-$(perf_get_chaff)}"
     case "$CHAFF_PROFILE" in
         low|mid|off) ;;
-        *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to low.${NC}"; CHAFF_PROFILE="low" ;;
+        *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to off.${NC}"; CHAFF_PROFILE="off" ;;
     esac
     if [[ -n "$BUNDLE" ]]; then
         bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad --bundle (want hsh1_<IRAN_PUB>_<PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]).${NC}"; return 1; }
@@ -3621,7 +3628,7 @@ cli_add_peer() {
     # registry record (ports as JSON array)
     local PORTS_JSON
     PORTS_JSON=$(echo "$CLEANED" | python3 -c 'import json,sys; print(json.dumps([int(x) for x in sys.stdin.read().split()]))')
-    PEERS_F="$PEERS_FILE" python3 - "$ID" "$NAME" "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS_JSON" "$GRE_IF" "$FRPS_SVC" "$LEGACY" "${CHAFF_PROFILE:-low}" <<'PYEOF'
+    PEERS_F="$PEERS_FILE" python3 - "$ID" "$NAME" "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS_JSON" "$GRE_IF" "$FRPS_SVC" "$LEGACY" "${CHAFF_PROFILE:-off}" <<'PYEOF'
 import json, os, sys
 f = os.environ["PEERS_F"]
 iid, name, lip, rip, fport, tok, lgre, pgre, pjson, gif, svc, leg, prof = sys.argv[1:]
@@ -3810,7 +3817,7 @@ PYEOF
 
 # edit full configuration of one peer ($1=id, [--name], [--remote-pub], [--carrier], [--ports])
 cli_edit_peer() {
-    local ID="" NAME="" REMOTE_PUB="" CARRIER="" PORTS=""
+    local ID="" NAME="" REMOTE_PUB="" CARRIER="" PORTS="" PROXY_PROTOCOL=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --id) ID="$2"; shift 2 ;;
@@ -3818,13 +3825,14 @@ cli_edit_peer() {
             --remote-pub) REMOTE_PUB="$2"; shift 2 ;;
             --carrier) CARRIER="$2"; shift 2 ;;
             --ports) PORTS="$2"; shift 2 ;;
-            -h|--help) echo 'Usage: hashem.sh edit-peer --id N [--name LABEL] [--remote-pub IP] [--carrier direct|fou:P|wss:P] [--ports "443, 2083"]'; return 0 ;;
+            --proxy-protocol) PROXY_PROTOCOL="$2"; shift 2 ;;
+            -h|--help) echo 'Usage: hashem.sh edit-peer --id N [--name LABEL] [--remote-pub IP] [--carrier direct|fou:P|wss:P] [--ports "443, 2083"] [--proxy-protocol off|v1|v2]'; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
         esac
     done
     [[ "$ID" =~ ^[0-9]+$ ]] || { echo -e "${RED}[!] --id N is required.${NC}"; return 1; }
-    if [[ -z "$NAME" && -z "$REMOTE_PUB" && -z "$CARRIER" && -z "$PORTS" ]]; then
-        echo -e "${RED}[!] Nothing to edit — specify at least one of --name, --remote-pub, --carrier, --ports.${NC}"
+    if [[ -z "$NAME" && -z "$REMOTE_PUB" && -z "$CARRIER" && -z "$PORTS" && -z "$PROXY_PROTOCOL" ]]; then
+        echo -e "${RED}[!] Nothing to edit — specify at least one of --name, --remote-pub, --carrier, --ports, --proxy-protocol.${NC}"
         return 1
     fi
 
@@ -3959,7 +3967,7 @@ PYEOF
     fi
 
     # 4. Update peers.json
-    PEERS_F="$PEERS_FILE" PEER_ID="$ID" NEW_NAME="$NAME" NEW_REMOTE="$REMOTE_PUB" NEW_CARRIER="$CARRIER" NEW_PORTS="$CLEANED" python3 <<'PYEOF'
+    PEERS_F="$PEERS_FILE" PEER_ID="$ID" NEW_NAME="$NAME" NEW_REMOTE="$REMOTE_PUB" NEW_CARRIER="$CARRIER" NEW_PORTS="$CLEANED" NEW_PP="$PROXY_PROTOCOL" python3 <<'PYEOF'
 import json, os
 f = os.environ["PEERS_F"]
 pid = int(os.environ["PEER_ID"])
@@ -3967,6 +3975,7 @@ name = os.environ.get("NEW_NAME")
 rip = os.environ.get("NEW_REMOTE")
 car = os.environ.get("NEW_CARRIER")
 pstr = os.environ.get("NEW_PORTS")
+pp = os.environ.get("NEW_PP")
 d = json.load(open(f))
 for p in d.get("peers", []):
     if p.get("id") == pid:
@@ -3978,6 +3987,8 @@ for p in d.get("peers", []):
             p["carrier"] = car
         if pstr:
             p["ports"] = [int(x) for x in pstr.split()]
+        if pp:
+            p["proxy_protocol"] = pp
 json.dump(d, open(f, "w"), indent=2)
 PYEOF
 
@@ -5539,13 +5550,14 @@ save_panel_pass() {
 
 # ---- Watchdog & Scheduled Encrypted Backup ----
 init_watchdog_json() {
-    mkdir -p /etc/gre-panel
+    mkdir -p "$PANEL_CONFIG_DIR"
     if [[ ! -f "$WATCHDOG_FILE" ]]; then
         cat << 'EOF' > "$WATCHDOG_FILE"
 {
   "enabled": true,
   "interval_sec": 60,
   "fail_threshold": 2,
+  "auto_restart": false,
   "tg_bot_token": "",
   "tg_chat_id": "",
   "tg_route": "direct",
@@ -5887,11 +5899,19 @@ os.chmod(path, 0o600)
 print(action)
 ' 2>/dev/null)
 
+        local DO_RESTART
+        DO_RESTART=$(python3 -c "import json; print(json.load(open('$WATCHDOG_FILE')).get('auto_restart', False))" 2>/dev/null || echo "False")
         if [[ "$DECISION" == DOWN* ]]; then
             if [[ "$DECISION" == "DOWN" ]]; then
-                watchdog_send "🔴 Tunnel DOWN: ${DETAIL} (attempting tunnel restart)" || true
+                if [[ "$DO_RESTART" == "True" || "$DO_RESTART" == "true" ]]; then
+                    watchdog_send "🔴 Tunnel DOWN: ${DETAIL} (attempting tunnel restart)" || true
+                else
+                    watchdog_send "🔴 Tunnel DOWN: ${DETAIL} (alert only, auto-restart disabled)" || true
+                fi
             fi
-            restart_all_lite
+            if [[ "$DO_RESTART" == "True" || "$DO_RESTART" == "true" ]]; then
+                restart_all_lite
+            fi
         elif [[ "$DECISION" == RECOVERED* ]]; then
             local DMIN
             DMIN=$(echo "$DECISION" | awk '{print $2}')
@@ -7338,7 +7358,7 @@ cli_setup_iran() {
     CHAFF_PROFILE="${CHAFF_PROFILE:-$(perf_get_chaff)}"
     case "$CHAFF_PROFILE" in
         low|mid|off) ;;
-        *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to low.${NC}"; CHAFF_PROFILE="low" ;;
+        *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to off.${NC}"; CHAFF_PROFILE="off" ;;
     esac
     LOCAL_PUB=${LOCAL_PUB:-$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')}
     [[ -z "$LOCAL_PUB" ]] && LOCAL_PUB=$(curl -sSL --max-time 5 https://api.ipify.org 2>/dev/null)
@@ -7359,7 +7379,7 @@ cli_setup_iran() {
 cli_setup_foreign() {
     local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" LOCAL_GRE="" PEER_GRE="" TOKEN="" PORTS="" FORCE=0 BUNDLE=""
     local FOREIGN_GRE_DEF="$FOREIGN_GRE_IP" IRAN_GRE_DEF="$IRAN_GRE_IP"
-    local RELAY_IP=""
+    local RELAY_IP="" PROXY_PROTOCOL="off"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --local-pub) LOCAL_PUB="$2"; shift 2 ;;
@@ -7371,6 +7391,7 @@ cli_setup_foreign() {
             --ports) PORTS="$2"; shift 2 ;;
             --bundle) BUNDLE="$2"; shift 2 ;;
             --relay-ip) RELAY_IP="$2"; shift 2 ;;
+            --proxy-protocol) PROXY_PROTOCOL="$2"; shift 2 ;;
             --chaff) CHAFF_PROFILE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) usage_cli; return 0 ;;
@@ -7380,7 +7401,7 @@ cli_setup_foreign() {
     CHAFF_PROFILE="${CHAFF_PROFILE:-$(perf_get_chaff)}"
     case "$CHAFF_PROFILE" in
         low|mid|off) ;;
-        *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to low.${NC}"; CHAFF_PROFILE="low" ;;
+        *) echo -e "${YELLOW}[!] Unknown chaff profile '${CHAFF_PROFILE}', defaulting to off.${NC}"; CHAFF_PROFILE="off" ;;
     esac
     if [[ -n "$BUNDLE" ]]; then
         bundle_parse "$BUNDLE" || { echo -e "${RED}[!] Bad --bundle (want hsh1_<IRAN_PUB>_<PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]).${NC}"; return 1; }
@@ -7433,7 +7454,7 @@ cli_setup_foreign() {
         echo -e "${RED}[!] Tunnel already exists — pass --force to overwrite.${NC}"
         return 1
     fi
-    setup_foreign_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$CLEANED" "$RELAY_IP"
+    setup_foreign_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$CLEANED" "$RELAY_IP" "$PROXY_PROTOCOL"
 }
 
 cli_setup_backhaul_iran() {

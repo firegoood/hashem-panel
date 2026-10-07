@@ -108,6 +108,24 @@ func TestWatchdogAPIEndpoints(t *testing.T) {
 		t.Fatalf("daily schedule not saved: daily_at=%s every=%d", updated.BackupDailyAt, updated.BackupEveryHours)
 	}
 
+	// 2b. POST /api/watchdog - set-autorestart
+	autoTrue := true
+	arBody := watchdogPostRequest{
+		Action:      "set-autorestart",
+		AutoRestart: &autoTrue,
+	}
+	bARData, _ := json.Marshal(arBody)
+	req = httptest.NewRequest("POST", "/api/watchdog", bytes.NewReader(bARData))
+	rr = httptest.NewRecorder()
+	handleWatchdogPost(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("set-autorestart returned %d: %s", rr.Code, rr.Body.String())
+	}
+	updatedAR := loadWatchdogConfig()
+	if !updatedAR.AutoRestart {
+		t.Fatalf("expected auto_restart=true")
+	}
+
 	// 3. POST /api/watchdog - bad action
 	req = httptest.NewRequest("POST", "/api/watchdog", bytes.NewReader([]byte(`{"action":"bogus"}`)))
 	rr = httptest.NewRecorder()

@@ -1025,6 +1025,12 @@
               <div class="u-grid-gap-10">
                 <div class="fg"><label for="jToken">Setup bundle or token (from Iran side)</label><input class="hashem-input" id="jToken" autocomplete="off" placeholder="paste hsh1_..., bh1_..., or gh1_... bundle"></div>
                 <div class="fg"><label for="jPorts">Reverse ports (ranges &amp; mappings allowed)</label><input class="hashem-input" id="jPorts" placeholder="auto-filled from bundle, or 443, 10000-10050"></div>
+                <div class="fg" style="margin-top:2px;">
+                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;">
+                    <input type="checkbox" id="jProxyProtocol" value="v2">
+                    <span><b>PROXY Protocol v2</b> (Real client IP tracking in Xray / Pasarguard / Marzban)</span>
+                  </label>
+                </div>
                 <div class="qs-hint" id="joinBundleHint">Paste any bundle (hsh1_, bh1_, gh1_) → all fields auto-fill. A legacy token works too.</div>
                 <div id="joinWarn" class="warnbox hidden"></div>
                 <div class="qs-actions">
@@ -1353,7 +1359,13 @@
               <button class="hashem-btn hashem-btn-secondary" id="wdToggleBtn">Enable</button>
             </div>
           </div>
-          <div class="qs-hint">Monitors GRE ping and FRP service every 1 minute. Triggers auto-restart and alerts after 2 consecutive failures.</div>
+          <div class="qs-hint">Monitors GRE ping and FRP service every 1 minute. Sends Telegram alerts and optional auto-restart after consecutive failures.</div>
+          <div style="margin: 10px 0 14px 0;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+              <input type="checkbox" id="wdAutoRestart">
+              <span><b>Auto-Restart on Failure</b> (Disabled by default to prevent CPU spike storms; alerts only)</span>
+            </label>
+          </div>
           <div class="wd-hero-grid">
             <div class="wd-stat-box">
               <span class="wd-stat-label">Tunnel Health</span>
@@ -1937,6 +1949,13 @@
           <option value="fou:55555">FOU UDP :55555 (Kernel Foo-over-UDP)</option>
           <option value="wss:8443">WSS :8443 (WebSocket over TLS Obfuscation)</option>
         </select>
+      </div>
+
+      <div class="fg" style="margin-top:2px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;">
+          <input type="checkbox" id="editPeerProxyProtocol" value="v2">
+          <span><b>PROXY Protocol v2</b> (Real client IP preservation for Xray, Marzban, Pasarguard)</span>
+        </label>
       </div>
 
       <div>
@@ -3727,10 +3746,12 @@ $('joinBtn').onclick = async () => {
     }
     const m = (st.gre || {});
     const adv = id => { const el = $(id); return el ? el.value.trim() : ''; };
+    const ppVal = $('jProxyProtocol') && $('jProxyProtocol').checked ? 'v2' : 'off';
     const body = bundle ? {
       role: 'foreign',
       engine: bundle.engine || 'frp',
       transport: bundle.transport || 'tcpmux',
+      proxy_protocol: ppVal,
       local_public: adv('fLocalPub') || m.local || d.local_public || '',
       remote_public: bundle.iranPub || m.peer_ip || '',
       local_gre: bundle.foreignGre || (m.inner || '').split('/')[0] || '',
@@ -3740,6 +3761,7 @@ $('joinBtn').onclick = async () => {
       ports, force: true,
     } : {
       role: 'foreign',
+      proxy_protocol: ppVal,
       local_public: m.local || adv('fLocalPub') || d.local_public || '',
       remote_public: m.peer_ip || adv('fRemotePub') || $('sRemotePub').value.trim(),
       local_gre: (m.inner || '').split('/')[0] || adv('fLocalGre') || $('sLocalGre').value.trim(),
@@ -4739,6 +4761,18 @@ async function loadWatchdog() {
     const lVal = $('wdLastCheckVal');
     if (lVal) lVal.textContent = s.last_check || 'Never';
 
+    if ($('wdAutoRestart')) {
+      $('wdAutoRestart').checked = !!s.auto_restart;
+      $('wdAutoRestart').onchange = async () => {
+        try {
+          await api('/api/watchdog', { action: 'set-autorestart', auto_restart: $('wdAutoRestart').checked });
+          toastOk('Watchdog auto-restart ' + ($('wdAutoRestart').checked ? 'enabled' : 'disabled'));
+        } catch(e) {
+          toastErr('Failed to update auto-restart', e.message);
+        }
+      };
+    }
+
     // Telegram card
     if ($('wdBotToken')) $('wdBotToken').value = s.tg_bot_token_masked || '';
     if ($('wdChatId')) $('wdChatId').value = s.tg_chat_id || '';
@@ -5409,6 +5443,9 @@ function openEditPeer(peerId) {
   
   if ($('editPeerName'))   $('editPeerName').value = name;
   if ($('editPeerRemote')) $('editPeerRemote').value = remoteIp;
+  if ($('editPeerProxyProtocol')) {
+    $('editPeerProxyProtocol').checked = (p.proxy_protocol === 'v2');
+  }
   if ($('editPeerEngine')) {
     $('editPeerEngine').value = engine;
     const isBh = engine === 'backhaul';
@@ -5534,6 +5571,7 @@ async function saveEditPorts() {
   const carrierVal   = $('editPeerCarrier') ? $('editPeerCarrier').value : '';
   const engineVal    = $('editPeerEngine') ? $('editPeerEngine').value : '';
   const transportVal = $('editPeerTransport') ? $('editPeerTransport').value : '';
+  const ppVal        = $('editPeerProxyProtocol') && $('editPeerProxyProtocol').checked ? 'v2' : 'off';
 
   if (remoteVal) {
     const parts = remoteVal.split('.');
@@ -5562,6 +5600,7 @@ async function saveEditPorts() {
     if (carrierVal) payload.carrier = carrierVal;
     if (engineVal) payload.engine = engineVal;
     if (transportVal) payload.transport = transportVal;
+    if (ppVal) payload.proxy_protocol = ppVal;
 
     const res = await api('/api/peers', payload, 'PATCH');
     if (res && res.bundle) {

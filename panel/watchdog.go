@@ -20,6 +20,7 @@ type watchdogConfig struct {
 	Enabled          bool   `json:"enabled"`
 	IntervalSec      int    `json:"interval_sec"`
 	FailThreshold    int    `json:"fail_threshold"`
+	AutoRestart      bool   `json:"auto_restart"`
 	TGBotToken       string `json:"tg_bot_token"`
 	TGChatID         string `json:"tg_chat_id"`
 	TGRoute          string `json:"tg_route"`
@@ -47,6 +48,7 @@ type watchdogStatusResponse struct {
 	LastCheck        string       `json:"last_check"`
 	ConsecFails      int          `json:"consec_fails"`
 	FailThreshold    int          `json:"fail_threshold"`
+	AutoRestart      bool         `json:"auto_restart"`
 	TGBotTokenMasked string       `json:"tg_bot_token_masked"`
 	TGChatID         string       `json:"tg_chat_id"`
 	TGRoute          string       `json:"tg_route"`
@@ -61,15 +63,16 @@ type watchdogStatusResponse struct {
 }
 
 type watchdogPostRequest struct {
-	Action     string `json:"action"`
-	BotToken   string `json:"bot_token,omitempty"`
-	ChatID     string `json:"chat_id,omitempty"`
-	Route      string `json:"route,omitempty"`
-	TunnelPort int    `json:"tunnel_port,omitempty"`
-	Mode       string `json:"mode,omitempty"`
-	Hours      int    `json:"hours,omitempty"`
-	At         string `json:"at,omitempty"`
-	File       string `json:"file,omitempty"`
+	Action      string `json:"action"`
+	BotToken    string `json:"bot_token,omitempty"`
+	ChatID      string `json:"chat_id,omitempty"`
+	Route       string `json:"route,omitempty"`
+	TunnelPort  int    `json:"tunnel_port,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+	Hours       int    `json:"hours,omitempty"`
+	At          string `json:"at,omitempty"`
+	File        string `json:"file,omitempty"`
+	AutoRestart *bool  `json:"auto_restart,omitempty"`
 }
 
 func watchdogConfigPath() string {
@@ -257,6 +260,7 @@ func handleWatchdogGet(w http.ResponseWriter, r *http.Request) {
 		LastCheck:        c.LastCheck,
 		ConsecFails:      c.ConsecFails,
 		FailThreshold:    c.FailThreshold,
+		AutoRestart:      c.AutoRestart,
 		TGBotTokenMasked: maskBotToken(c.TGBotToken),
 		TGChatID:         c.TGChatID,
 		TGRoute:          c.TGRoute,
@@ -406,6 +410,18 @@ func handleWatchdogPost(w http.ResponseWriter, r *http.Request) {
 		}
 		recordError("E-WD-00", "watchdog", "Backup schedule updated: "+formatSchedule(c))
 		writeJSON(w, map[string]string{"status": "ok", "detail": "Backup schedule saved"})
+
+	case "set-autorestart":
+		c := loadWatchdogConfig()
+		if body.AutoRestart != nil {
+			c.AutoRestart = *body.AutoRestart
+		}
+		if err := saveWatchdogConfig(c); err != nil {
+			writeAPIError(w, r, "E-WD-01", "failed to save config: "+err.Error())
+			return
+		}
+		recordError("E-WD-00", "watchdog", fmt.Sprintf("Watchdog auto-restart set to %v", c.AutoRestart))
+		writeJSON(w, map[string]any{"status": "ok", "auto_restart": c.AutoRestart, "detail": "Watchdog auto-restart updated"})
 
 	default:
 		writeAPIError(w, r, "E-WD-01", "unknown action: "+body.Action)

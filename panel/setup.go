@@ -338,9 +338,10 @@ type setupRequest struct {
 	PeerGre   string `json:"peer_gre"`
 	FrpPort   int    `json:"frp_port"`
 	Token     string `json:"token"` // foreign/add-peer (manual or auto)
-	Ports     string `json:"ports"` // foreign/add-peer, e.g. "443, 2083, 8080"
-	Force     bool   `json:"force"`
-	Autogen   bool   `json:"autogen"` // add-peer: generate token server-side
+	Ports         string `json:"ports"` // foreign/add-peer, e.g. "443, 2083, 8080"
+	Force         bool   `json:"force"`
+	Autogen       bool   `json:"autogen"` // add-peer: generate token server-side
+	ProxyProtocol string `json:"proxy_protocol,omitempty"` // "off" | "v2" | "v1"
 	// OrigBundle holds the raw hsh1_... string when setup-foreign is invoked
 	// via a bundle paste. applyBundle() fills every explicit field AND stores
 	// the bundle here so runInstaller can pass --bundle to hashem.sh (which
@@ -700,6 +701,9 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 				"--token", b.Token,
 				"--ports", strings.Join(strs, ","),
 			}
+			if b.ProxyProtocol != "" && b.ProxyProtocol != "off" {
+				args = append(args, "--proxy-protocol", b.ProxyProtocol)
+			}
 			// Pass --bundle when available so hashem.sh can configure carrier/FOU
 			// ports (carrier_set_fou_ports) that are not covered by explicit flags.
 			if b.OrigBundle != "" {
@@ -828,31 +832,34 @@ func handlePeersPost(w http.ResponseWriter, r *http.Request) {
 //   2. Fallback to direct edit: update peers.json, adjust kernel GRE remote endpoint,
 //      persist systemd unit, apply carrier mode, rewrite TOML proxy blocks, reload service, and allow UFW.
 type peerPatchRequest struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name,omitempty"`
-	RemotePub string    `json:"remote_pub,omitempty"`
-	Carrier   string    `json:"carrier,omitempty"`
-	Engine    string    `json:"engine,omitempty"`
-	Transport string    `json:"transport,omitempty"`
-	Ports     *[]int    `json:"ports,omitempty"`
-	RawPorts  *[]string `json:"raw_ports,omitempty"`
+	ID            int       `json:"id"`
+	Name          string    `json:"name,omitempty"`
+	RemotePub     string    `json:"remote_pub,omitempty"`
+	Carrier       string    `json:"carrier,omitempty"`
+	Engine        string    `json:"engine,omitempty"`
+	Transport     string    `json:"transport,omitempty"`
+	Ports         *[]int    `json:"ports,omitempty"`
+	RawPorts      *[]string `json:"raw_ports,omitempty"`
+	ProxyProtocol string    `json:"proxy_protocol,omitempty"`
 }
 
 func (p *peerPatchRequest) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		ID        any             `json:"id"`
-		Name      string          `json:"name,omitempty"`
-		RemotePub string          `json:"remote_pub,omitempty"`
-		Carrier   string          `json:"carrier,omitempty"`
-		Engine    string          `json:"engine,omitempty"`
-		Transport string          `json:"transport,omitempty"`
-		Ports     json.RawMessage `json:"ports,omitempty"`
-		RawPorts  json.RawMessage `json:"raw_ports,omitempty"`
+		ID            any             `json:"id"`
+		Name          string          `json:"name,omitempty"`
+		RemotePub     string          `json:"remote_pub,omitempty"`
+		Carrier       string          `json:"carrier,omitempty"`
+		Engine        string          `json:"engine,omitempty"`
+		Transport     string          `json:"transport,omitempty"`
+		Ports         json.RawMessage `json:"ports,omitempty"`
+		RawPorts      json.RawMessage `json:"raw_ports,omitempty"`
+		ProxyProtocol string          `json:"proxy_protocol,omitempty"`
 	}
 
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	p.ProxyProtocol = raw.ProxyProtocol
 
 	if raw.ID != nil {
 		switch v := raw.ID.(type) {
@@ -1131,6 +1138,9 @@ func editPeerViaInstaller(body peerPatchRequest) (string, error) {
 	if body.Carrier != "" {
 		args = append(args, "--carrier", body.Carrier)
 	}
+	if body.ProxyProtocol != "" {
+		args = append(args, "--proxy-protocol", body.ProxyProtocol)
+	}
 	if body.Ports != nil {
 		strs := make([]string, len(*body.Ports))
 		for i, p := range *body.Ports {
@@ -1190,6 +1200,9 @@ func editPeerDirect(peer *peerRecord, req peerPatchRequest) (string, error) {
 			}
 			if req.Transport != "" {
 				peers[i].Transport = req.Transport
+			}
+			if req.ProxyProtocol != "" {
+				peers[i].ProxyProtocol = req.ProxyProtocol
 			}
 			if req.RawPorts != nil {
 				peers[i].RawPorts = *req.RawPorts

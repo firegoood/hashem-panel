@@ -223,8 +223,9 @@ type peerRecord struct {
 	Carrier   string   `json:"carrier,omitempty"`
 	Engine    string   `json:"engine,omitempty"`    // "frp" | "backhaul" | "gre-backhaul"
 	Transport string   `json:"transport,omitempty"` // "tcpmux" | "wssmux" | "tcp" | etc.
-	NoGre     bool     `json:"no_gre,omitempty"`
-	Legacy    bool     `json:"legacy,omitempty"`
+	NoGre         bool     `json:"no_gre,omitempty"`
+	Legacy        bool     `json:"legacy,omitempty"`
+	ProxyProtocol string   `json:"proxy_protocol,omitempty"` // "off" | "v2" | "v1"
 }
 
 type peerLive struct {
@@ -931,6 +932,22 @@ transport.dialServerTimeout = 10
 transport.dialServerKeepalive = 30
 transport.poolCount = 20
 `, peerGre, port, token))
+			ppVersion := ""
+			for _, p := range loadPeers() {
+				if p.ProxyProtocol == "v2" || p.ProxyProtocol == "v1" {
+					ppVersion = p.ProxyProtocol
+					break
+				}
+			}
+			if ppVersion == "" {
+				if data, err := os.ReadFile("/etc/frp/frpc.toml"); err == nil && strings.Contains(string(data), `proxyProtocolVersion = "v2"`) {
+					ppVersion = "v2"
+				}
+			}
+			ppLine := ""
+			if ppVersion != "" {
+				ppLine = fmt.Sprintf("transport.proxyProtocolVersion = %q\n", ppVersion)
+			}
 			for _, p := range proxyPorts {
 				frpcBuf.WriteString(fmt.Sprintf(`
 [[proxies]]
@@ -939,14 +956,14 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = %d
 remotePort = %d
-
+%s
 [[proxies]]
 name = "udp-%d"
 type = "udp"
 localIP = "127.0.0.1"
 localPort = %d
 remotePort = %d
-`, p, p, p, p, p, p))
+`, p, p, p, ppLine, p, p, p))
 			}
 			_ = os.MkdirAll("/etc/frp", 0755)
 			_ = os.WriteFile("/etc/frp/frpc.toml", []byte(frpcBuf.String()), 0644)
