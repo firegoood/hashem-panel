@@ -6797,12 +6797,28 @@ setup_gre_backhaul_iran_interactive() {
     setup_gre_backhaul_iran_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$PORT" "$TOKEN" "$IRAN_GRE_IP" "$FOREIGN_GRE_IP" "$TRANSPORT" "$PORTS"
 }
 
+show_banner() {
+    echo -e "${CYAN}"
+    cat << 'EOF'
+  _    _           _____ _    _ ______ __  __ 
+ | |  | |   /\    / ____| |  | |  ____|  \/  |
+ | |__| |  /  \  | (___ | |__| | |__  | \  / |
+ |  __  | / /\ \  \___ \|  __  |  __| | |\/| |
+ | |  | |/ ____ \ ____) | |  | | |____| |  | |
+ |_|  |_/_/    \_|_____/|_|  |_|______|_|  |_|
+EOF
+    echo -e "${NC}"
+    echo -e "${CYAN}==============================================================${NC}"
+    echo -e "${GREEN}${BOLD}     HASHEM REVERSE TUNNEL & WEB PANEL MANAGER (Iran <-> Int)${NC}"
+    echo -e "${CYAN}     Layer 3 GRE / FRP / Backhaul Reverse Relay & Web Panel${NC}"
+    echo -e "${CYAN}==============================================================${NC}"
+}
+
 menu_tunnel() {
     while true; do
         clear
-        echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}             1. TUNNEL MANAGEMENT (مدیریت تونل)               ${NC}"
-        echo -e "${CYAN}==============================================================${NC}"
+        show_banner
+        echo -e "${CYAN}--- [1] TUNNEL MANAGEMENT ---${NC}"
         echo "  1) Setup IRAN Tunnel (GRE + FRPS / Backhaul Server)"
         echo "  2) Setup FOREIGN Tunnel (via Bundle string or Manual)"
         echo "  3) Add Peer Tunnel (Multi-foreign servers on Iran)"
@@ -6877,9 +6893,8 @@ menu_tunnel() {
 menu_panel() {
     while true; do
         clear
-        echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}          2. WEB PANEL & DOMAIN (پنل وب و دامنه)               ${NC}"
-        echo -e "${CYAN}==============================================================${NC}"
+        show_banner
+        echo -e "${CYAN}--- [2] WEB PANEL & DOMAIN ---${NC}"
         echo "  1) Show Web Panel URL & Credentials"
         echo "  2) Reset / Change Web Panel Password"
         echo "  3) Setup Domain & Free SSL Certificate (Let's Encrypt)"
@@ -6910,11 +6925,10 @@ menu_panel() {
 menu_optimization() {
     while true; do
         clear
-        echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}       3. PERFORMANCE & SECURITY (بهینه‌سازی و امنیت)          ${NC}"
-        echo -e "${CYAN}==============================================================${NC}"
+        show_banner
+        echo -e "${CYAN}--- [3] PERFORMANCE & SECURITY ---${NC}"
         echo "  1) Network Optimization (BBR + sysctl TCP buffers + MTU clamp)"
-        echo "  2) Tunnel Carrier Switch (Direct GRE ↔ FOU UDP ↔ WSS Obfuscated)"
+        echo "  2) Tunnel Carrier Switch (Direct GRE <-> FOU UDP <-> WSS Obfuscated)"
         echo "  3) DPI Shield (Anti-scan rate limit on reverse ports)"
         echo "  4) Traffic Chaff / Obfuscation (Idle traffic generator)"
         echo "  5) Tunnel Watchdog & Auto Failover / Telegram Alerts"
@@ -6942,9 +6956,8 @@ menu_optimization() {
 menu_diagnostics_backup() {
     while true; do
         clear
-        echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}       4. DIAGNOSTICS & BACKUP (عیب‌یابی و پشتیبان‌گیری)       ${NC}"
-        echo -e "${CYAN}==============================================================${NC}"
+        show_banner
+        echo -e "${CYAN}--- [4] DIAGNOSTICS & BACKUP ---${NC}"
         echo "  1) Full System & Tunnel Health Check (Doctor audit)"
         echo "  2) Check Listening Ports & Routing Table"
         echo "  3) View Live Logs (journalctl for FRP, Panel & Watchdog)"
@@ -7017,9 +7030,8 @@ menu_diagnostics_backup() {
 menu_maintenance() {
     while true; do
         clear
-        echo -e "${CYAN}==============================================================${NC}"
-        echo -e "${CYAN}       5. MAINTENANCE & UPDATE (بروزرسانی و نگهداری)          ${NC}"
-        echo -e "${CYAN}==============================================================${NC}"
+        show_banner
+        echo -e "${CYAN}--- [5] MAINTENANCE & UPDATE ---${NC}"
         echo "  1) Update All (Latest hashem.sh + latest Web Panel binary)"
         echo "  2) Pre-cache / Verify Core Binaries (FRP, Backhaul, Go Panel)"
         echo "  3) Install / Refresh System Dependencies"
@@ -7069,9 +7081,8 @@ menu_maintenance() {
 menu_uninstall() {
     while true; do
         clear
-        echo -e "${RED}==============================================================${NC}"
-        echo -e "${RED}            6. UNINSTALLATION (حذف و پاکسازی سیستم)           ${NC}"
-        echo -e "${RED}==============================================================${NC}"
+        show_banner
+        echo -e "${RED}--- [6] UNINSTALLATION ---${NC}"
         echo "  1) Uninstall Web Panel Only (Leaves all tunnels active)"
         echo "  2) Remove Tunnel Components Only (Leaves Web Panel active)"
         echo "  3) Full Clean System Wipe (Erases all tunnels, panel, firewall & CLI)"
@@ -7127,20 +7138,16 @@ menu_loop() {
     trap 'echo -e "\n\n${CYAN}[*] Exiting Hashem Manager. Goodbye!${NC}"; exit 0' INT
     while true; do
         clear
-        echo -e "${CYAN}"
-        echo "=========================================================="
-        echo "       HASHEM TUNNEL & WEB PANEL MANAGER (Iran <-> Kharej)"
-        echo "     Layer 3 GRE / FRP / Backhaul Reverse Tunnel Manager  "
-        echo "=========================================================="
-        echo -e "${NC}"
-        echo "MAIN MENU (منوی اصلی)"
-        echo "  1) مدیریت تونل‌ها        (Tunnel Management)"
-        echo "  2) پنل وب و دامنه       (Web Panel & Domain)"
-        echo "  3) بهینه‌سازی و امنیت    (Performance & Security)"
-        echo "  4) عیب‌یابی و پشتیبان‌گیری (Diagnostics & Backup)"
-        echo "  5) بروزرسانی و نگهداری   (Maintenance & Update)"
-        echo "  6) حذف و پاکسازی سیستم   (Uninstallation)"
-        echo "  0) خروج                 (Exit)"
+        show_banner
+        echo ""
+        echo "MAIN MENU"
+        echo "  1) Tunnel Management"
+        echo "  2) Web Panel & Domain"
+        echo "  3) Performance & Security"
+        echo "  4) Diagnostics & Backup"
+        echo "  5) Maintenance & Update"
+        echo "  6) Uninstallation"
+        echo "  0) Exit"
         echo ""
         read -p "Select an option [0-6]: " MAIN_OPT
         case "$MAIN_OPT" in
@@ -7507,6 +7514,8 @@ auto_install_and_show() {
     echo -e "${CYAN}║${NC}  • Run ${GREEN}hashem --help${NC} for CLI commands                      ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
+    echo -e "${GREEN}${BOLD}enjoy DNC MADE THIS${NC}"
+    echo ""
 }
 
 # ---- show_credentials_and_exit: pretty credentials banner for already-installed panel ----
@@ -7520,6 +7529,8 @@ show_credentials_and_exit() {
     echo -e "${CYAN}║${NC}  • Run ${GREEN}hashem${NC} for the interactive management menu          ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  • Run ${GREEN}hashem --help${NC} for CLI commands                      ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${GREEN}${BOLD}enjoy DNC MADE THIS${NC}"
     echo ""
 }
 

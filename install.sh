@@ -11,6 +11,23 @@ fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# Display HASHEM logo banner
+clear 2>/dev/null || true
+echo -e "\033[0;36m"
+cat << 'EOF'
+  _    _           _____ _    _ ______ __  __ 
+ | |  | |   /\    / ____| |  | |  ____|  \/  |
+ | |__| |  /  \  | (___ | |__| | |__  | \  / |
+ |  __  | / /\ \  \___ \|  __  |  __| | |\/| |
+ | |  | |/ ____ \ ____) | |  | | |____| |  | |
+ |_|  |_/_/    \_|_____/|_|  |_|______|_|  |_|
+EOF
+echo -e "\033[0m"
+echo -e "\033[0;36m==============================================================\033[0m"
+echo -e "\033[1;32m     HASHEM REVERSE TUNNEL & WEB PANEL INSTALLER\033[0m"
+echo -e "\033[0;36m==============================================================\033[0m"
+echo -e "\033[0;33m[*] Downloading core manager script...\033[0m"
+
 URLS=(
     "https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem.sh"
     "https://mirror.ghproxy.com/https://raw.githubusercontent.com/pdnczone/hashem-panel/main/hashem.sh"
@@ -40,4 +57,8 @@ cp "$TMP/hashem.sh" /usr/local/bin/hashem
 chmod +x /usr/local/bin/hashem.sh /usr/local/bin/hashem
 ln -sf /usr/local/bin/hashem.sh /usr/local/bin/gre.sh 2>/dev/null || true
 
-exec bash /usr/local/bin/hashem "$@"
+bash /usr/local/bin/hashem "$@"
+
+echo -e "\033[1;32menjoy DNC MADE THIS\033[0m"
+echo ""
+
