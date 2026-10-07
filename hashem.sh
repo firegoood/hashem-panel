@@ -2326,10 +2326,10 @@ path = "'"$TOML_FILE"'"
 tls = ("'"$EFF_TLS"'".strip() in ("1", "true", "True"))
 
 import json, os
-max_pool = "50"
+max_pool = "500"
 try:
     with open("/etc/gre-panel/perf.json") as jf:
-        max_pool = str(json.load(jf).get("frp_max_pool", 50))
+        max_pool = str(json.load(jf).get("frp_max_pool", 500))
 except:
     pass
 
@@ -2659,9 +2659,9 @@ setup_iran_server_noninteractive() {
         log_msg "tunnel" "ERROR" "FRP binaries failed to install"
     fi
     local EFF_TLS=$(perf_get_tls)
-    local MAX_POOL=100
+    local MAX_POOL=500
     if [[ -f /etc/gre-panel/perf.json ]] && command -v python3 >/dev/null 2>&1; then
-        MAX_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 100))" 2>/dev/null || echo 100)
+        MAX_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 500))" 2>/dev/null || echo 500)
     fi
     local TLS_LINE=""
     [[ "$EFF_TLS" == "1" ]] && TLS_LINE="transport.tls.force = true"
@@ -2796,7 +2796,8 @@ setup_foreign_server_noninteractive() {
     local IP_FOREIGN=$1 IP_IRAN=$2 SERVER_PORT=$3 TOKEN=$4
     local LOCAL_GRE=${5:-$FOREIGN_GRE_IP} PEER_GRE=${6:-$IRAN_GRE_IP}
     local PORTS_CLEANED=${7:-}
-    _setup_foreign_full "$IP_FOREIGN" "$IP_IRAN" "$SERVER_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS_CLEANED"
+    local RELAY_IP=${8:-}
+    _setup_foreign_full "$IP_FOREIGN" "$IP_IRAN" "$SERVER_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS_CLEANED" "$RELAY_IP"
 }
 
 # shared full foreign path: GRE + ping feedback + frpc binaries/config/service + panel.
@@ -2804,6 +2805,7 @@ setup_foreign_server_noninteractive() {
 _setup_foreign_full() {
     local IP_FOREIGN=$1 IP_IRAN=$2 SERVER_PORT=$3 TOKEN=$4
     local LOCAL_GRE=$5 PEER_GRE=$6 PORTS_CLEANED=$7
+    local RELAY_IP=${8:-}
     
     log_msg "tunnel" "INFO" "Starting FOREIGN server setup: GRE ${IP_FOREIGN} <-> ${IP_IRAN}, serverPort: ${SERVER_PORT}, reverse ports: ${PORTS_CLEANED}"
     backup_configs "pre_setup_foreign"
@@ -2857,26 +2859,27 @@ transport.heartbeatInterval = 30
 transport.heartbeatTimeout = 90
 transport.dialServerTimeout = 10
 transport.dialServerKeepalive = 30
-transport.poolCount = 20
+transport.poolCount = 100
 
 EOF
     # Per-proxy encryption/compression are NOT injected at setup time.
     # They are only applied via `perf_apply` to avoid unnecessary overhead
     # on the GRE inner network (point-to-point, no eavesdropping risk).
+    local PROXY_TARGET_IP="${RELAY_IP:-127.0.0.1}"
     local PORT
     for PORT in $PORTS_CLEANED; do
         cat <<EOF >> "${CONFIG_DIR}/frpc.toml"
 [[proxies]]
 name = "tcp_${PORT}"
 type = "tcp"
-localIP = "127.0.0.1"
+localIP = "${PROXY_TARGET_IP}"
 localPort = ${PORT}
 remotePort = ${PORT}
 
 [[proxies]]
 name = "udp_${PORT}"
 type = "udp"
-localIP = "127.0.0.1"
+localIP = "${PROXY_TARGET_IP}"
 localPort = ${PORT}
 remotePort = ${PORT}
 
@@ -3462,9 +3465,9 @@ peer_token() {
 peer_write_frps() {
     local SUF=$1 BIND_PORT=$2 TOKEN=$3
     local EFF_TLS=$(perf_get_tls)
-    local MAX_POOL=100
+    local MAX_POOL=500
     if [[ -f /etc/gre-panel/perf.json ]] && command -v python3 >/dev/null 2>&1; then
-        MAX_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 100))" 2>/dev/null || echo 100)
+        MAX_POOL=$(python3 -c "import json; print(json.load(open('/etc/gre-panel/perf.json')).get('frp_max_pool', 500))" 2>/dev/null || echo 500)
     fi
     local TLS_LINE=""
     [[ "$EFF_TLS" == "1" ]] && TLS_LINE="transport.tls.force = true"
@@ -5624,6 +5627,15 @@ watchdog_check() {
         fi
     fi
 
+    # Foreign spoke resilience: if GRE ICMP ping fails (datacenter firewall/filtering or relay),
+    # but frpc is active AND holds established TCP sockets to the FRP control/reverse port,
+    # the transport is alive and passing traffic — do NOT trigger false-down restart loops.
+    if [[ $GRE_OK -eq 0 && "$FRP_NAME" == "frpc" && $FRP_OK -eq 1 ]]; then
+        if ss -tn state established 2>/dev/null | grep -qE ':(4773[0-9]|7000)'; then
+            GRE_OK=1
+        fi
+    fi
+
     local FAILS=0
     if [[ -f "$WATCHDOG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
         FAILS=$(python3 -c '
@@ -5729,8 +5741,22 @@ watchdog_test() {
 
 restart_all_lite() {
     local u
+    # On Iran Hub (frps services exist and frpc does not):
+    # NEVER blindly restart listening frps server daemons! Listening frps instances
+    # do not recover broken client routes by restarting; restarting frps severs all
+    # active client/user sessions across ALL other healthy connected spokes simultaneously.
+    # Only restart GRE tunnel interfaces on the hub.
+    if [[ -f /etc/frp/frps.toml ]] || systemctl list-unit-files 2>/dev/null | grep -q "^frps\.service"; then
+        for u in /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-tunnel.service; do
+            [[ -f "$u" ]] || continue
+            systemctl restart "$(basename "$u")" >/dev/null 2>&1
+        done
+        return 0
+    fi
+
+    # On foreign node (frpc client):
     local list=()
-    for u in /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-tunnel.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service; do
+    for u in /etc/systemd/system/gre-tunnel.service /etc/systemd/system/frpc.service; do
         [[ -f "$u" ]] || continue
         list+=("$(basename "$u")")
     done
@@ -7330,6 +7356,7 @@ cli_setup_iran() {
 cli_setup_foreign() {
     local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" LOCAL_GRE="" PEER_GRE="" TOKEN="" PORTS="" FORCE=0 BUNDLE=""
     local FOREIGN_GRE_DEF="$FOREIGN_GRE_IP" IRAN_GRE_DEF="$IRAN_GRE_IP"
+    local RELAY_IP=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --local-pub) LOCAL_PUB="$2"; shift 2 ;;
@@ -7340,6 +7367,7 @@ cli_setup_foreign() {
             --token) TOKEN="$2"; shift 2 ;;
             --ports) PORTS="$2"; shift 2 ;;
             --bundle) BUNDLE="$2"; shift 2 ;;
+            --relay-ip) RELAY_IP="$2"; shift 2 ;;
             --chaff) CHAFF_PROFILE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) usage_cli; return 0 ;;
@@ -7402,7 +7430,7 @@ cli_setup_foreign() {
         echo -e "${RED}[!] Tunnel already exists — pass --force to overwrite.${NC}"
         return 1
     fi
-    setup_foreign_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$CLEANED"
+    setup_foreign_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$CLEANED" "$RELAY_IP"
 }
 
 cli_setup_backhaul_iran() {
