@@ -580,6 +580,7 @@ func runCarrierBenchmark() *BenchmarkReport {
 	saveBenchmarkReport(report)
 
 	// Check AutoPilot triggering
+	// Automatic carrier switching is strictly disabled: carrier changes require manual user action.
 	if peerCfg.AutoPilotEnabled && peerCfg.Role == "master" && bestCarrier != "" && bestCarrier != activeCarrier {
 		// Find active carrier metric
 		var activeLoss float64 = 100.0
@@ -591,16 +592,8 @@ func runCarrierBenchmark() *BenchmarkReport {
 		}
 
 		if activeLoss >= peerCfg.AutoPilotThreshold {
-			log.Printf("[AutoPilot] Active carrier %s has %.1f%% loss (threshold: %.1f%%). Auto-switching to best carrier: %s",
+			log.Printf("[AutoPilot] Active carrier %s has %.1f%% loss (threshold: %.1f%%). Best candidate: %s (automatic switching is disabled — carrier remains manual)",
 				activeCarrier, activeLoss, peerCfg.AutoPilotThreshold, bestCarrier)
-			if err := applyBenchmarkCarrier(bestCarrier); err == nil {
-				autoPilotTriggerCount++
-				lastAutoPilotSwitch = time.Now().Format("2006-01-02 15:04:05")
-				report.AutoPilot.LastTriggered = lastAutoPilotSwitch
-				report.AutoPilot.TriggerCount = autoPilotTriggerCount
-				report.ActiveCarrier = bestCarrier
-				saveBenchmarkReport(report)
-			}
 		}
 	}
 
