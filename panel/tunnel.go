@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -558,7 +559,13 @@ func localStatus() tunnelStatus {
 		} else if _, err := os.Stat("/etc/backhaul/server.toml"); err == nil {
 			st.Role = "iran (backhaul)"
 			st.FrpSvc = "backhaul-server"
+		} else if _, err := os.Stat(filepath.Join(configDir, "server.toml")); err == nil {
+			st.Role = "iran (backhaul)"
+			st.FrpSvc = "backhaul-server"
 		} else if _, err := os.Stat("/etc/backhaul/client.toml"); err == nil {
+			st.Role = "foreign (backhaul)"
+			st.FrpSvc = "backhaul-client"
+		} else if _, err := os.Stat(filepath.Join(configDir, "client.toml")); err == nil {
 			st.Role = "foreign (backhaul)"
 			st.FrpSvc = "backhaul-client"
 		}
@@ -576,11 +583,15 @@ func localStatus() tunnelStatus {
 		if _, err := os.Stat(bhPath); err != nil {
 			if _, err := os.Stat("/etc/backhaul/server.toml"); err == nil {
 				bhPath = "/etc/backhaul/server.toml"
+			} else if _, err := os.Stat(filepath.Join(configDir, "server.toml")); err == nil {
+				bhPath = filepath.Join(configDir, "server.toml")
 			}
 		}
 		if st.FrpSvc == "backhaul-client" {
 			if _, err := os.Stat("/etc/backhaul/client.toml"); err == nil {
 				bhPath = "/etc/backhaul/client.toml"
+			} else if _, err := os.Stat(filepath.Join(configDir, "client.toml")); err == nil {
+				bhPath = filepath.Join(configDir, "client.toml")
 			}
 		}
 		if data, err := os.ReadFile(bhPath); err == nil {

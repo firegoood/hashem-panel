@@ -69,10 +69,6 @@ func TestBenchmarkBackhaulCandidates(t *testing.T) {
 	configDir = tmpDir
 	defer func() { configDir = oldConfigDir }()
 
-	// Create mock server.toml for backhaul
-	_ = os.MkdirAll("/etc/backhaul", 0755)
-	defer os.RemoveAll("/etc/backhaul")
-
 	serverToml := `[server]
 bind_addr = "0.0.0.0:3080"
 transport = "tcpmux"
@@ -82,6 +78,10 @@ ports = [
     "8080=8080"
 ]
 `
+	// Create mock server.toml for backhaul in both mock configDir and system dir
+	_ = os.WriteFile(filepath.Join(tmpDir, "server.toml"), []byte(serverToml), 0644)
+	_ = os.MkdirAll("/etc/backhaul", 0755)
+	defer os.RemoveAll("/etc/backhaul")
 	_ = os.WriteFile("/etc/backhaul/server.toml", []byte(serverToml), 0644)
 
 	rep := runCarrierBenchmark()
