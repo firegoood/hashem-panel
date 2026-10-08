@@ -1130,6 +1130,18 @@
         </div>
       </section>
       <section id="tab-tunnel" role="tabpanel" hidden>
+        <div class="tunnel-card fleet" id="fleetCard" hidden>
+          <div class="fleet-hero">
+            <div class="fleet-ring" id="fleetRing" role="img" aria-label="Fleet health"><b id="fleetRingNum">0/0</b></div>
+            <div class="fleet-hero-txt">
+              <p class="tc-title" id="fleetTitle" data-i18n="fleet_title">Fleet health</p>
+              <div class="fleet-sum" id="fleetSum" aria-live="polite">—</div>
+              <div class="qs-hint" id="fleetMeta">—</div>
+            </div>
+          </div>
+          <div class="fleet-topo" id="fleetTopo" aria-hidden="false"></div>
+          <div class="fleet-grid" id="fleetGrid"></div>
+        </div>
         <div class="tunnel-card" id="tunnelStatusCard">
           <div class="tc-header"><p class="tc-title">Tunnel status</p><span class="status-indicator" id="tunnelDot"><span class="dot"></span><span id="tunnelDotTxt">—</span></span></div>
           <div id="tunnel"></div>
@@ -2569,7 +2581,7 @@ function goTab(name) {
   const dr = $('drawerNav');
   if (dr) dr.querySelectorAll('[data-tab]').forEach(markTab);
   if (name === 'perf') { loadPerf(); loadCarrier(); }
-  if (name === 'tunnel') loadCarrier();
+  if (name === 'tunnel') { loadCarrier(); loadFleet(); }
   if (name === 'watchdog') loadWatchdog();
   if (name === 'doctor') loadDoctor();
   if (name === 'benchmark') loadBenchmark();
@@ -2900,6 +2912,21 @@ const I18N = {
     login_pass_ph: "Password",
     login_signin: "Sign in",
     rs_header: "Live Activity Stream",
+    fleet_title: "Fleet health",
+    fleet_all_ok: "All servers healthy",
+    fleet_some: "{n} of {t} servers need attention",
+    fleet_all_down: "All servers are down",
+    fleet_meta: "Updated {time} · sampled every {s}s · last hour",
+    fleet_hub: "Iran hub",
+    fleet_healthy: "Healthy",
+    fleet_degraded: "Degraded",
+    fleet_down: "Down",
+    fleet_avg: "Avg",
+    fleet_loss: "Loss",
+    fleet_uptime: "Uptime",
+    fleet_nodata: "Collecting data…",
+    fleet_topo_aria: "Tunnel topology: {hub} connected to {n} servers",
+    fleet_ring_aria: "{h} of {t} servers healthy",
     rs_hide_aria: "Hide live activity stream",
     rs_hidden_toast: "Live Activity Stream hidden",
     rs_hidden_sub: "Bring it back from Logs → Live Activity Stream",
@@ -3256,6 +3283,21 @@ const I18N = {
     login_pass_ph: "رمز عبور",
     login_signin: "ورود به پنل",
     rs_header: "جریان زنده وقایع و لاگ‌ها",
+    fleet_title: "سلامت سرورها",
+    fleet_all_ok: "همه‌ی سرورها سالم‌اند",
+    fleet_some: "{n} از {t} سرور نیاز به توجه دارد",
+    fleet_all_down: "همه‌ی سرورها قطع هستند",
+    fleet_meta: "به‌روزرسانی {time} · نمونه‌گیری هر {s} ثانیه · یک ساعت اخیر",
+    fleet_hub: "هاب ایران",
+    fleet_healthy: "سالم",
+    fleet_degraded: "ناقص",
+    fleet_down: "قطع",
+    fleet_avg: "میانگین",
+    fleet_loss: "افت",
+    fleet_uptime: "آپتایم",
+    fleet_nodata: "در حال جمع‌آوری داده…",
+    fleet_topo_aria: "نقشه‌ی تونل: {hub} متصل به {n} سرور",
+    fleet_ring_aria: "{h} از {t} سرور سالم",
     rs_hide_aria: "بستن جریان زنده وقایع",
     rs_hidden_toast: "جریان زنده وقایع بسته شد",
     rs_hidden_sub: "از بخش لاگ‌ها ← جریان زنده وقایع دوباره بازش کنید",
@@ -3426,6 +3468,7 @@ function applyTranslations(lang) {
   });
   if (typeof rsSync === 'function') rsSync();
   if (typeof accRender === 'function') accRender();
+  if (typeof fleetRender === 'function' && typeof _fleetLast !== 'undefined' && _fleetLast) fleetRender(_fleetLast);
   if (typeof drawerSync === 'function') drawerSync();
 }
 
@@ -7050,6 +7093,91 @@ $('supSnooze').onclick = () => supHide('snooze');
 $('supGo').addEventListener('click', () => { supHide('donate'); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('supCard').hidden && !document.querySelector('.ent-modal-ov:not([hidden])')) supHide('close'); });
 setInterval(supTick, 5000);
+
+// ============================================================
+// Fleet: health hero + topology + per-server sparklines (Tunnel tab).
+// Display only. Data: /api/fleet (server-persisted ping history).
+// Hidden entirely when there are no peer tunnels (e.g. foreign server).
+// ============================================================
+const FLEET_COL = { healthy: 'var(--ok)', degraded: 'var(--wr)', down: 'var(--er)' };
+function fleetFmt(k, vars) { let t = tr(k, k); for (const x in (vars || {})) t = t.replace('{' + x + '}', vars[x]); return t; }
+function fleetSpark(h) {
+  const W = 120, H = 36, P = 3, MAX = 60;
+  if (!h || h.length < 2) return '<div class="fl-nodata">' + esc(tr('fleet_nodata', 'Collecting data…')) + '</div>';
+  // downsample to <= MAX buckets (avg of answered pings; a bucket with any loss keeps a loss mark)
+  const step = Math.max(1, Math.ceil(h.length / MAX)), pts = [];
+  for (let i = 0; i < h.length; i += step) {
+    const b = h.slice(i, i + step), ok = b.filter(x => x.ms >= 0);
+    pts.push({ ms: ok.length ? ok.reduce((a, x) => a + x.ms, 0) / ok.length : -1, loss: ok.length < b.length });
+  }
+  const vals = pts.filter(p => p.ms >= 0).map(p => p.ms);
+  const lo = vals.length ? Math.min(...vals) : 0, hi = vals.length ? Math.max(...vals) : 1, span = Math.max(hi - lo, 5);
+  const x = i => P + (W - 2 * P) * (pts.length === 1 ? 1 : i / (pts.length - 1));
+  const y = v => H - P - (H - 2 * P) * ((v - lo) / span);
+  let d = '', pen = false, lossMarks = '';
+  pts.forEach((p, i) => {
+    if (p.ms < 0) { pen = false; lossMarks += '<line x1="' + x(i).toFixed(1) + '" x2="' + x(i).toFixed(1) + '" y1="' + (H - P - 4) + '" y2="' + (H - P) + '" class="fl-loss"/>'; return; }
+    d += (pen ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.ms).toFixed(1); pen = true;
+  });
+  const area = d && vals.length > 1 ? '<path d="' + d + ' L' + x(pts.length - 1).toFixed(1) + ' ' + (H - P) + ' L' + x(0).toFixed(1) + ' ' + (H - P) + ' Z" class="fl-area"/>' : '';
+  return '<svg class="fl-spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' + area + '<path d="' + d + '" class="fl-line" vector-effect="non-scaling-stroke"/>' + lossMarks + '</svg>';
+}
+function fleetTopo(nodes, hubIp) {
+  const n = nodes.length, rowH = 62, padY = 26, W = 380, H = Math.max(130, padY * 2 + (n - 1) * rowH + 30);
+  const hx = 58, hy = H / 2, nx = 206;
+  let links = '', dots = '';
+  nodes.forEach((nd, i) => {
+    const ny = padY + 15 + i * rowH, c = nd.health;
+    const path = 'M' + (hx + 28) + ' ' + hy + ' C' + (hx + 110) + ' ' + hy + ' ' + (nx - 90) + ' ' + ny + ' ' + (nx - 26) + ' ' + ny;
+    links += '<path d="' + path + '" class="tp-link tp-' + c + '"/>';
+    const ms = nd.ping_ms >= 0 ? Math.round(nd.ping_ms) + ' ms' : '—';
+    dots += '<g class="tp-node tp-' + c + '"><circle cx="' + nx + '" cy="' + ny + '" r="22" class="tp-ring"/><circle cx="' + nx + '" cy="' + ny + '" r="6" class="tp-core"/>'
+      + '<text x="' + (nx + 32) + '" y="' + (ny - 3) + '" class="tp-name"><title>' + esc(nd.name) + '</title>' + esc(nd.name.length > 17 ? nd.name.slice(0, 16) + '…' : nd.name) + '</text>'
+      + '<text x="' + (nx + 32) + '" y="' + (ny + 13) + '" class="tp-sub">' + esc(tr('fleet_' + c, c)) + ' · ' + ms + '</text></g>';
+  });
+  const hub = '<g class="tp-hub"><circle cx="' + hx + '" cy="' + hy + '" r="30" class="tp-hub-ring"/><circle cx="' + hx + '" cy="' + hy + '" r="20" class="tp-hub-core"/>'
+    + '<text x="' + hx + '" y="' + (hy + 4) + '" class="tp-hub-ic" text-anchor="middle">IR</text>'
+    + '<text x="' + hx + '" y="' + (hy + 50) + '" class="tp-name" text-anchor="middle">' + esc(tr('fleet_hub', 'Iran hub')) + '</text>'
+    + (hubIp ? '<text x="' + hx + '" y="' + (hy + 65) + '" class="tp-sub" text-anchor="middle">' + esc(hubIp) + '</text>' : '') + '</g>';
+  return '<svg viewBox="0 0 ' + W + ' ' + (H + 20) + '" role="img" aria-label="' + esc(fleetFmt('fleet_topo_aria', { hub: tr('fleet_hub', 'Iran hub'), n })) + '" class="fl-topo-svg">' + links + hub + dots + '</svg>';
+}
+function fleetRender(d) {
+  const card = $('fleetCard'); if (!card) return;
+  const nodes = (d && d.nodes) || [];
+  card.hidden = !nodes.length;
+  if (!nodes.length) return;
+  const t = nodes.length, h = d.healthy || 0, bad = t - h;
+  const state = h === t ? 'healthy' : (d.down === t ? 'down' : 'degraded');
+  const ring = $('fleetRing');
+  ring.style.setProperty('--p', Math.round(h * 100 / t));
+  ring.style.setProperty('--c', FLEET_COL[state]);
+  ring.setAttribute('aria-label', fleetFmt('fleet_ring_aria', { h, t }));
+  $('fleetRingNum').textContent = h + '/' + t;
+  const sum = $('fleetSum');
+  sum.textContent = h === t ? tr('fleet_all_ok', 'All servers healthy') : (d.down === t ? tr('fleet_all_down', 'All servers are down') : fleetFmt('fleet_some', { n: bad, t }));
+  sum.style.color = FLEET_COL[state];
+  $('fleetMeta').textContent = fleetFmt('fleet_meta', { time: String(d.checked || '').slice(11, 19) + ' UTC', s: d.interval_s || 15 });
+  $('fleetTopo').innerHTML = fleetTopo(nodes, d.hub);
+  $('fleetGrid').innerHTML = nodes.map(n => {
+    const st = n.stats || {}, ms = n.ping_ms >= 0 ? Math.round(n.ping_ms) : null;
+    const eng = n.engine === 'backhaul' ? 'Backhaul' : n.engine === 'gre-backhaul' ? 'GRE+Backhaul' : 'FRP';
+    const cls = n.health === 'healthy' ? 'ok' : n.health === 'degraded' ? 'warn' : 'err';
+    return '<article class="fl-card fl-' + n.health + '" aria-label="' + esc(n.name) + '">'
+      + '<header class="fl-head"><span class="fl-name" title="' + esc(n.name) + '">' + esc(n.name) + '</span><span class="badge ' + cls + '"><span class="dot"></span>' + esc(tr('fleet_' + n.health, n.health)) + '</span></header>'
+      + '<div class="fl-ip mono">' + esc(n.remote_pub || '—') + ' · ' + esc(eng) + (n.transport ? ' · ' + esc(n.transport) : '') + '</div>'
+      + '<div class="fl-ms"><b>' + (ms != null ? ms : '—') + '</b><span>ms</span></div>'
+      + fleetSpark(n.history)
+      + '<footer class="fl-stats"><div><span>' + esc(tr('fleet_avg', 'Avg')) + '</span><b>' + (st.samples && st.avg_ms ? Math.round(st.avg_ms) + ' ms' : '—') + '</b></div>'
+      + '<div><span>' + esc(tr('fleet_loss', 'Loss')) + '</span><b>' + (st.samples ? st.loss_pct + '%' : '—') + '</b></div>'
+      + '<div><span>' + esc(tr('fleet_uptime', 'Uptime')) + '</span><b>' + (st.samples ? st.up_pct + '%' : '—') + '</b></div></footer></article>';
+  }).join('');
+}
+let _fleetLast = null;
+async function loadFleet() {
+  try { _fleetLast = await api('/api/fleet'); fleetRender(_fleetLast); return true; }
+  catch (e) { reportErr('fleet', e); return false; }
+}
+makePoller(async () => { if ($('app').classList.contains('hidden') || $('tab-tunnel').hidden) return true; return await loadFleet(); }, 10000);
 
 // ============================================================
 // Edit Peer / Edit Tunnel Modal

@@ -297,3 +297,86 @@ html[data-rs="0"] .right-sidebar { display:none; }
 body.sup-open .page { padding-bottom:calc(var(--sup-h, 280px) + 36px); }
 @media (min-width:641px) { body.sup-open .page { padding-bottom:40px; } }
 body[data-t="light"] .sup-card { box-shadow:0 18px 50px rgba(15,23,42,.22), 0 0 0 1px color-mix(in srgb, var(--ac) 18%, transparent), inset 0 1px 0 rgba(255,255,255,.8); border-color:var(--ln3); }
+
+
+/* ================= Fleet (Tunnel tab) ================= */
+.fleet { display:grid; gap:18px; margin-bottom:var(--ent-gap, 16px); }
+.fleet[hidden] { display:none; }
+.fleet-hero { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+.fleet-ring {
+  --p:0; --c:var(--ok);
+  width:72px; height:72px; flex:none; border-radius:50%; display:grid; place-items:center; position:relative;
+  background:conic-gradient(var(--c) calc(var(--p) * 1%), var(--ln2) 0);
+  transition:background .5s ease;
+}
+.fleet-ring::before { content:""; position:absolute; inset:7px; border-radius:50%; background:var(--s1); }
+.fleet-ring b { position:relative; font-size:var(--fs-h3); color:var(--tx); font-variant-numeric:tabular-nums; }
+.fleet-hero-txt { min-width:0; display:grid; gap:4px; }
+.fleet-sum { font-size:var(--fs-h2); font-weight:700; letter-spacing:-.01em; line-height:1.3; }
+.fleet-topo { display:grid; justify-items:center; padding:6px 0 2px; border-top:1px solid var(--ln); border-bottom:1px solid var(--ln); background:linear-gradient(180deg, var(--sunk), transparent); border-radius:var(--r-md); }
+.fl-topo-svg { width:100%; max-width:560px; height:auto; overflow:visible; direction:ltr; }
+.tp-link { fill:none; stroke-width:2.4; stroke-linecap:round; }
+.tp-link.tp-healthy { stroke:var(--ok); stroke-dasharray:6 7; animation:tpFlow 1.4s linear infinite; }
+.tp-link.tp-degraded { stroke:var(--wr); stroke-dasharray:10 6; }
+.tp-link.tp-down { stroke:var(--er); stroke-dasharray:2 7; opacity:.7; }
+@keyframes tpFlow { to { stroke-dashoffset:-26; } }
+.tp-ring { fill:var(--s2); stroke-width:2; }
+.tp-healthy .tp-ring { stroke:var(--ok); } .tp-degraded .tp-ring { stroke:var(--wr); } .tp-down .tp-ring { stroke:var(--er); }
+.tp-healthy .tp-core { fill:var(--ok); } .tp-degraded .tp-core { fill:var(--wr); } .tp-down .tp-core { fill:var(--er); }
+.tp-healthy .tp-core { animation:tpPulse 2.2s ease-in-out infinite; transform-box:fill-box; transform-origin:center; }
+@keyframes tpPulse { 50% { transform:scale(1.35); opacity:.7; } }
+.tp-hub-ring { fill:var(--ac-soft); stroke:var(--ac-b30); stroke-width:1.5; }
+.tp-hub-core { fill:var(--ac); }
+.tp-hub-ic { fill:var(--ac-on); font-size:12px; font-weight:800; letter-spacing:.04em; }
+.tp-name { fill:var(--tx); font-size:13px; font-weight:700; }
+.tp-sub { fill:var(--mu); font-size:11.5px; }
+.fleet-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:14px; }
+.fl-card {
+  display:grid; gap:10px; padding:16px; border-radius:var(--r-lg);
+  background:var(--s2); border:1px solid var(--ln2); position:relative; overflow:hidden;
+  transition:border-color .2s ease, transform .2s var(--spring);
+}
+.fl-card::before { content:""; position:absolute; inset:0 0 auto 0; height:3px; background:var(--ok); opacity:.9; }
+.fl-card.fl-degraded::before { background:var(--wr); } .fl-card.fl-down::before { background:var(--er); }
+.fl-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.fl-name { font-weight:700; color:var(--tx); font-size:var(--fs-h3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fl-ip { color:var(--mu); font-size:var(--fs-caption); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:ltr; text-align:start; }
+.fl-ms { display:flex; align-items:baseline; gap:5px; direction:ltr; justify-content:flex-start; }
+.fl-ms b { font-size:28px; font-weight:700; letter-spacing:-.02em; color:var(--tx); font-variant-numeric:tabular-nums; line-height:1; }
+.fl-ms span { color:var(--mu); font-size:var(--fs-small); }
+.fl-spark { width:100%; height:44px; display:block; overflow:visible; direction:ltr; }
+.fl-line { fill:none; stroke:var(--ac); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+.fl-area { fill:var(--ac-soft); stroke:none; }
+.fl-loss { stroke:var(--er); stroke-width:2; vector-effect:non-scaling-stroke; }
+.fl-nodata { height:44px; display:grid; place-items:center; color:var(--mu); font-size:var(--fs-small); border:1px dashed var(--ln2); border-radius:var(--r-sm); }
+.fl-stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; padding-top:10px; border-top:1px solid var(--ln); }
+.fl-stats div { display:grid; gap:2px; min-width:0; }
+.fl-stats span { color:var(--mu); font-size:var(--fs-caption); }
+.fl-stats b { color:var(--tx); font-size:var(--fs-small); font-variant-numeric:tabular-nums; direction:ltr; text-align:start; }
+@media (max-width:640px) {
+  .fleet-hero { gap:14px; } .fleet-ring { width:64px; height:64px; } .fleet-sum { font-size:var(--fs-h3); }
+  .fleet-grid { grid-template-columns:1fr; }
+  .tp-name { font-size:14px; } .tp-sub { font-size:12px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .tp-link.tp-healthy, .tp-healthy .tp-core { animation:none; }
+  .fleet-ring { transition:none; }
+}
+
+/* Fleet overflow guards: long names must shrink, never push the badge out. */
+.fleet, .fleet-hero-txt, .fl-card { min-width:0; }
+.fleet-grid { grid-template-columns:repeat(auto-fill, minmax(min(250px, 100%), 1fr)); }
+.fl-head > .fl-name { flex:1 1 auto; min-width:0; }
+.fl-head > .badge { flex:none; }
+.tp-name { font-size:14px; } .tp-sub { font-size:12.5px; }
+.fl-card { grid-template-columns:minmax(0, 1fr); }
+
+/* base.css gives every <svg> stroke:currentColor — reset it for text and solid dots. */
+.fl-topo-svg text { stroke:none; paint-order:normal; letter-spacing:0; }
+.fl-topo-svg .tp-core, .fl-topo-svg .tp-hub-core { stroke:none; }
+.fl-topo-svg .tp-ring { fill:var(--s2); }
+.fl-spark .fl-area { stroke:none; }
+/* RTL-safe figures: follow the page direction, isolate the Latin digits. */
+.fl-stats b, .fl-ip, .fl-ms { direction:inherit; unicode-bidi:isolate; text-align:start; }
+.fl-ms { justify-content:flex-start; }
+.fl-ms b, .fl-ms span { unicode-bidi:isolate; }
