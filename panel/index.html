@@ -849,23 +849,23 @@
       </svg>
     </div>
     <h1>Hashem Tunnel</h1>
-    <div class="sub">Sign in with your username and password</div>
+    <div class="sub" data-i18n="login_sub">Sign in with your username and password</div>
     <form id="loginForm">
       <label class="sr-only" for="u">Username</label>
       <div class="field">
-        <input id="u" maxlength="64" placeholder="Username" autofocus autocomplete="username">
+        <input id="u" maxlength="64" data-i18n-ph="login_user_ph" placeholder="Username" autofocus autocomplete="username">
         <div class="field-icon">
           <svg class="ic" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         </div>
       </div>
       <label class="sr-only" for="p">Password</label>
       <div class="field">
-        <input id="p" type="password" maxlength="128" placeholder="Password" autocomplete="current-password">
+        <input id="p" type="password" maxlength="128" data-i18n-ph="login_pass_ph" placeholder="Password" autocomplete="current-password">
         <button type="button" class="toggle" id="toggle" aria-label="Show password" aria-pressed="false">
           <svg class="ic" viewBox="0 0 24 24" id="eye"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
       </div>
-      <button type="submit" id="loginBtn">Sign in</button>
+      <button type="submit" id="loginBtn" data-i18n="login_signin">Sign in</button>
     </form>
     <p id="loginErr"></p>
     <div class="foot"><b>Hashem Tunnel</b> · Infrastructure<br><span class="u-foot-sub">DNC MADE THIS</span></div>
@@ -2580,6 +2580,10 @@ const I18N = {
     term_clear: "Clear Screen",
 
     // Right Sidebar & Modals
+    login_sub: "Sign in with your username and password",
+    login_user_ph: "Username",
+    login_pass_ph: "Password",
+    login_signin: "Sign in",
     rs_header: "Live Activity Stream",
     rs_waiting: "Waiting for logs...",
     edit_tunnel_title: "Edit Tunnel",
@@ -2820,6 +2824,10 @@ const I18N = {
     term_clear: "پاک کردن صفحه",
 
     // Right Sidebar & Modals
+    login_sub: "ورود با نام کاربری و رمز عبور",
+    login_user_ph: "نام کاربری",
+    login_pass_ph: "رمز عبور",
+    login_signin: "ورود به پنل",
     rs_header: "جریان زنده وقایع و لاگ‌ها",
     rs_waiting: "در انتظار دریافت لاگ‌های سیستمی...",
     edit_tunnel_title: "ویرایش مشخصات تونل",
@@ -2881,6 +2889,10 @@ function applyTranslations(lang) {
     rsH.textContent = dict.rs_header;
   }
   if (typeof drawerSync === 'function') drawerSync();
+}
+
+function tr(k, fb) {
+  return (I18N[currentLang] && I18N[currentLang][k]) ? I18N[currentLang][k] : (fb || k);
 }
 
 function toggleLang() {
@@ -3944,13 +3956,12 @@ async function refreshDash() {
     const detCard = (icon, title, rows) =>
       `<div class="det-card"><div class="det-head"><span class="det-ico">${icon}</span>${esc(title)}</div><div class="det-rows">${rows}</div></div>`;
     const detRow = (k, cell) => `<div class="det-row"><span class="det-k">${esc(k)}</span>${cell}</div>`;
-    const t = (k, fb) => (I18N[currentLang] && I18N[currentLang][k]) ? I18N[currentLang][k] : fb;
-    const frpBadge = f.up ? dbadge(f.svc || t('status_running', 'running'), 'ok') : dbadge(t('status_down', 'down'), 'err');
+    const frpBadge = f.up ? dbadge(f.svc || tr('status_running', 'running'), 'ok') : dbadge(tr('status_down', 'down'), 'err');
     const roleBadge = d.role === 'iran' ? dbadge('🇮🇷 ' + (currentLang === 'fa' ? 'ایران' : 'Iran'), 'ok') : d.role === 'foreign' ? dbadge('🌍 ' + (currentLang === 'fa' ? 'خارج' : 'Foreign'), '') : dval(d.role);
     const bindPort = (f.port && f.port !== NA) ? String(f.port) : '';
     const proxyPorts = (f.proxy_ports || []).filter(p => p && String(p) !== bindPort);
     const isFrpc = (f.svc === 'frpc') || /foreign/i.test(d.role || '');
-    const portLabel = isFrpc ? t('lbl_control_port', 'Server Port') : t('lbl_bind_port', 'Bind Port');
+    const portLabel = isFrpc ? tr('lbl_control_port', 'Server Port') : tr('lbl_bind_port', 'Bind Port');
     const portCell = bindPort ? dmono(bindPort) : dval('—');
     const proxyList = (f.proxy_ports && f.proxy_ports.length) ? f.proxy_ports.join(', ') : ((f.proxies || []).join(', ') || '—');
     const activeEng = String(d.active_engine || 'frp').toUpperCase();
@@ -3961,11 +3972,11 @@ async function refreshDash() {
       : dbadge(currentLang === 'fa' ? 'پایدار / بدون پکت‌لاس' : 'Stable / Zero Drops', 'ok');
     const ICO_BOLT = '<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
     setHTML('dashDetails',
-      detCard(ICO_SRV, t('card_server_title', 'Server & Role'), detRow(t('lbl_public_ip', 'Public IP'), dmono(d.local_pub)) + detRow(t('lbl_role', 'Role'), roleBadge) + detRow(t('lbl_forwarded_ports', 'Forwarded'), dval(proxyList)))
-      + detCard(ICO_GRE, t('card_gre_title', 'GRE Tunnel'), detRow(t('lbl_gre_local', 'Local'), dmono(g.local)) + detRow(t('lbl_gre_peer', 'Peer'), dmono(g.peer)) + detRow(t('lbl_gre_interface', 'Inner'), dmono(g.inner)))
-      + detCard(ICO_FRP, t('card_frp_title', 'Tunnel Engine'), detRow(t('lbl_frp_status', 'Status'), frpBadge) + detRow(currentLang === 'fa' ? 'موتور تونل' : 'Engine', dval(activeEng)) + detRow(portLabel, portCell)
-        + (proxyPorts.length ? detRow(t('lbl_tunnel_ports', 'Tunnel Ports'), `<span class="det-v">${proxyPorts.map(p => `<span class="det-v mono" style="margin-right:4px">${esc(String(p))}</span>`).join('')}</span>`) : '')
-        + (u.frp_since ? detRow(t('lbl_uptime_since', 'Since'), dval(u.frp_since)) : ''))
+      detCard(ICO_SRV, tr('card_server_title', 'Server & Role'), detRow(tr('lbl_public_ip', 'Public IP'), dmono(d.local_pub)) + detRow(tr('lbl_role', 'Role'), roleBadge) + detRow(tr('lbl_forwarded_ports', 'Forwarded'), dval(proxyList)))
+      + detCard(ICO_GRE, tr('card_gre_title', 'GRE Tunnel'), detRow(tr('lbl_gre_local', 'Local'), dmono(g.local)) + detRow(tr('lbl_gre_peer', 'Peer'), dmono(g.peer)) + detRow(tr('lbl_gre_interface', 'Inner'), dmono(g.inner)))
+      + detCard(ICO_FRP, tr('card_frp_title', 'Tunnel Engine'), detRow(tr('lbl_frp_status', 'Status'), frpBadge) + detRow(currentLang === 'fa' ? 'موتور تونل' : 'Engine', dval(activeEng)) + detRow(portLabel, portCell)
+        + (proxyPorts.length ? detRow(tr('lbl_tunnel_ports', 'Tunnel Ports'), `<span class="det-v">${proxyPorts.map(p => `<span class="det-v mono" style="margin-right:4px">${esc(String(p))}</span>`).join('')}</span>`) : '')
+        + (u.frp_since ? detRow(tr('lbl_uptime_since', 'Since'), dval(u.frp_since)) : ''))
       + detCard(ICO_BOLT, currentLang === 'fa' ? 'کریر و فیل‌اور' : 'Carrier & Failover', detRow(currentLang === 'fa' ? 'کریر فعال' : 'Active Carrier', dmono(activeCarr)) + detRow(currentLang === 'fa' ? 'سیاست سوییچ' : 'Failover Policy', failoverBadge) + detRow(currentLang === 'fa' ? 'عیب‌یابی' : 'Diagnostics', diagBadge))
       + dashPeersCard(d.peers || []));
     // one-click copy for IP/port pills
@@ -4094,13 +4105,12 @@ function drawActivityChart(hist, isDown) {
 
 function dashPeersCard(peers) {
   if (!peers || !peers.length) return '';
-  const t = (k, fb) => (I18N[currentLang] && I18N[currentLang][k]) ? I18N[currentLang][k] : fb;
   const rows = peers.map(p => {
     const up = !!(p.gre_up || p.frp_up);
     const nm = p.name || ('peer-' + p.id);
-    const pingTxt = p.ping_ok ? (p.ping_ms || 'ok') : t('status_down', 'down');
+    const pingTxt = p.ping_ok ? (p.ping_ms || 'ok') : tr('status_down', 'down');
     const pingCls = p.ping_ok ? 'ok' : 'err';
-    const statusTxt = up ? (currentLang === 'fa' ? 'تونل فعال' : 'tunnel up') : t('status_down', 'down');
+    const statusTxt = up ? (currentLang === 'fa' ? 'تونل فعال' : 'tunnel up') : tr('status_down', 'down');
     return `<div class="dash-peer-row" data-goto-peer="${p.id}" title="${currentLang === 'fa' ? 'مشاهده کارت کامل در تب تونل' : 'Open full card in Tunnel tab'}">`
       + `<span class="ent-st ${up ? 'on' : 'off'}"><i></i></span>`
       + `<b style="color:var(--tx)">${esc(nm)}</b><span class="qs-hint mono">#${p.id}</span>`
@@ -4109,7 +4119,7 @@ function dashPeersCard(peers) {
       + `<span class="qs-hint">${esc((p.ports || []).join(', ') || '—')} · </span><span class="badge ${pingCls}"><span class="dot"></span>${esc(pingTxt)}</span>`
       + `</div>`;
   }).join('');
-  return `<div class="det-card" style="grid-column:1/-1"><div class="det-head"><span class="det-ico">${ICO_SRV}</span>${esc(t('card_peers_title', 'Peer Tunnels'))} (${peers.length})</div><div>${rows}</div></div>`;
+  return `<div class="det-card" style="grid-column:1/-1"><div class="det-head"><span class="det-ico">${ICO_SRV}</span>${esc(tr('card_peers_title', 'Peer Tunnels'))} (${peers.length})</div><div>${rows}</div></div>`;
 }
 // Scroll to a peer's full card (switches tab if needed).
 function gotoPeerCard(peerId) {
