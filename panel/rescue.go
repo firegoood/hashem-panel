@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -71,20 +72,22 @@ func init() {
 }
 
 type rescueState struct {
-	Role           string `json:"role"` // "" | "origin" | "entry"
-	RemoteIP       string `json:"remote_ip,omitempty"`
-	CtrlPort       int    `json:"ctrl_port,omitempty"`
-	Token          string `json:"token,omitempty"`
-	Secret         string `json:"secret,omitempty"`
-	Ports          []int  `json:"ports,omitempty"`
-	Skipped        []int  `json:"skipped,omitempty"`
-	Since          int64  `json:"since,omitempty"`
-	Consumed       bool   `json:"consumed,omitempty"`
-	Strikes        int    `json:"strikes,omitempty"`
-	SuspectedSince int64  `json:"suspected_since,omitempty"`
-	LiftedSince    int64  `json:"lifted_since,omitempty"`
-	LastVerdict    string `json:"last_verdict,omitempty"`
-	LastProbe      int64  `json:"last_probe,omitempty"`
+	Role             string `json:"role"` // "" | "origin" | "entry"
+	RemoteIP         string `json:"remote_ip,omitempty"`
+	CtrlPort         int    `json:"ctrl_port,omitempty"`
+	Token            string `json:"token,omitempty"`
+	Secret           string `json:"secret,omitempty"`
+	Ports            []int  `json:"ports,omitempty"`
+	Skipped          []int  `json:"skipped,omitempty"`
+	Since            int64  `json:"since,omitempty"`
+	Consumed         bool   `json:"consumed,omitempty"`
+	Strikes          int    `json:"strikes,omitempty"`
+	SuspectedSince   int64  `json:"suspected_since,omitempty"`
+	LiftedSince      int64  `json:"lifted_since,omitempty"`
+	LastVerdict      string `json:"last_verdict,omitempty"`
+	LastProbe        int64  `json:"last_probe,omitempty"`
+	AutoTriggered    bool   `json:"auto_triggered,omitempty"`
+	DisabledManually bool   `json:"disabled_manually,omitempty"`
 }
 
 func rescueStatePath() string { return filepath.Join(configDir, "rescue.json") }
@@ -338,7 +341,8 @@ func rescueEnableOrigin(entryIP string, ports []int) (rescueState, error) {
 	if err != nil {
 		return st, err
 	}
-	if cur := loadRescueLocked(); cur.Role != "" {
+	cur := loadRescueLocked()
+	if cur.Role != "" {
 		return st, errors.New("rescue is already active — disable it first")
 	}
 	reserved := rescueReserved()
@@ -363,7 +367,7 @@ func rescueEnableOrigin(entryIP string, ports []int) (rescueState, error) {
 	if cp == 0 {
 		return st, errors.New("no free control port")
 	}
-	st = rescueState{Role: "origin", RemoteIP: ip, CtrlPort: cp, Token: randHex(24), Secret: randHex(16), Ports: use, Since: time.Now().Unix()}
+	st = rescueState{Role: "origin", RemoteIP: ip, CtrlPort: cp, Token: randHex(24), Secret: randHex(16), Ports: use, Since: time.Now().Unix(), SuspectedSince: cur.SuspectedSince, Strikes: cur.Strikes}
 
 	d := rescueDir()
 	frps, frpc := filepath.Join(rescueBinDir, "frps"), filepath.Join(rescueBinDir, "frpc")
@@ -417,7 +421,8 @@ func rescueApplyCode(code string) (rescueState, error) {
 	if err != nil {
 		return st, err
 	}
-	if cur := loadRescueLocked(); cur.Role != "" {
+	cur := loadRescueLocked()
+	if cur.Role != "" {
 		return st, errors.New("rescue is already active — disable it first")
 	}
 	if err := rescueHaveFrp(); err != nil {
@@ -501,6 +506,59 @@ type rescueTarget struct {
 // rescueTargets lists hosts whose reachability matters, with ports that
 // should normally be open (their panel). Ports come from config, never guessed
 // open services.
+// suggestRescuePorts aggregates forwarded and proxy ports configured in the
+// panel, peers.json, /etc/frp/frpc.toml, /etc/frp/frps.toml, or previous rescue state.
+func suggestRescuePorts() []int {
+	seen := map[int]bool{}
+	var sp []int
+	res := rescueReserved()
+	add := func(p int) {
+		if p > 0 && p < 65536 && !seen[p] && !res[p] {
+			seen[p] = true
+			sp = append(sp, p)
+		}
+	}
+
+	ls := localStatus()
+	for _, p := range ls.ProxyPorts {
+		add(p)
+	}
+	for _, p := range ls.Ports {
+		add(p)
+	}
+	for _, pr := range loadPeers() {
+		for _, p := range pr.Ports {
+			add(p)
+		}
+	}
+
+	for _, f := range []string{"/etc/frp/frpc.toml", "/etc/frp/frps.toml"} {
+		if data, err := os.ReadFile(f); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "remotePort") || strings.HasPrefix(line, "localPort") {
+					parts := strings.SplitN(line, "=", 2)
+					if len(parts) == 2 {
+						if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
+							add(v)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	st := loadRescueLocked()
+	for _, p := range st.Ports {
+		add(p)
+	}
+
+	sort.Ints(sp)
+	return sp
+}
+
+// rescueTargets lists hosts whose reachability matters, with ports that
+// should normally be open (their panel).
 func rescueTargets() []rescueTarget {
 	byHost := map[string]*rescueTarget{}
 	var order []string
@@ -522,6 +580,8 @@ func rescueTargets() []rescueTarget {
 		}
 		t.Ports = append(t.Ports, port)
 	}
+
+	// 1. PeerURL
 	if pc := loadPeerConfig(); pc.PeerURL != "" {
 		u := strings.TrimSpace(pc.PeerURL)
 		if !strings.Contains(u, "://") {
@@ -535,9 +595,66 @@ func rescueTargets() []rescueTarget {
 			add(pu.Hostname(), port)
 		}
 	}
+
+	// 2. peers.json
 	for _, p := range loadPeers() {
 		add(p.RemotePub, cfg.Port)
 	}
+
+	// 3. GRE status from localStatus
+	ls := localStatus()
+	if ls.RemotePub != "" {
+		add(ls.RemotePub, cfg.Port)
+	}
+	if ls.GrePeer != "" {
+		add(ls.GrePeer, cfg.Port)
+	}
+
+	// 4. WSS Carrier remote address
+	if wc := loadWSSConfig(); wc.RemoteAddr != "" {
+		h, pStr, err := net.SplitHostPort(wc.RemoteAddr)
+		if err == nil {
+			if p, e := strconv.Atoi(pStr); e == nil {
+				add(h, p)
+			}
+			add(h, cfg.Port)
+		} else {
+			add(wc.RemoteAddr, cfg.Port)
+		}
+	}
+
+	// 5. Benchmark report
+	if data, err := os.ReadFile(filepath.Join(configDir, "benchmark_report.json")); err == nil {
+		var rep struct {
+			PeerURL        string `json:"peer_url"`
+			PeerInternalIP string `json:"peer_internal_ip"`
+		}
+		if json.Unmarshal(data, &rep) == nil {
+			if rep.PeerURL != "" {
+				if pu, err := url.Parse(rep.PeerURL); err == nil {
+					add(pu.Hostname(), cfg.Port)
+				}
+			}
+			if rep.PeerInternalIP != "" {
+				add(rep.PeerInternalIP, cfg.Port)
+			}
+		}
+	}
+
+	// 6. /etc/frp/frpc.toml serverAddr
+	if data, err := os.ReadFile("/etc/frp/frpc.toml"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "serverAddr") {
+				parts := strings.SplitN(line, "=", 2)
+				if len(parts) == 2 {
+					addr := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+					add(addr, cfg.Port)
+				}
+			}
+		}
+	}
+
 	out := make([]rescueTarget, 0, len(order))
 	for _, h := range order {
 		out = append(out, *byHost[h])
@@ -624,17 +741,32 @@ func rescueProbeReal(t rescueTarget) rescueProbeResult {
 
 // rescueObserve folds one probe into the persisted state. It only ever sets
 // the banner after rescueStrikes consecutive blocked results.
+// rescueObserve folds one probe into the persisted state. When rescueStrikes
+// consecutive one-way block verdicts occur, it automatically activates connectivity
+// rescue without requiring manual confirmation.
 func rescueObserve(res rescueProbeResult, now time.Time) rescueState {
 	rescueMu.Lock()
-	defer rescueMu.Unlock()
 	st := loadRescueLocked()
 	before := st
 	st.LastVerdict, st.LastProbe = res.Verdict, now.Unix()
+	var autoTarget string
+	var autoPorts []int
+	var autoDisable bool
+
 	if st.Role == "" {
 		if res.Verdict == "one_way_block" {
 			st.Strikes++
-			if st.Strikes >= rescueStrikes && st.SuspectedSince == 0 {
-				st.SuspectedSince = now.Unix()
+			if st.Strikes >= rescueStrikes {
+				if st.SuspectedSince == 0 {
+					st.SuspectedSince = now.Unix()
+				}
+				if !st.DisabledManually && res.Host != "" {
+					pts := suggestRescuePorts()
+					if len(pts) > 0 {
+						autoTarget = res.Host
+						autoPorts = pts
+					}
+				}
 			}
 		} else {
 			st.Strikes, st.SuspectedSince = 0, 0
@@ -642,26 +774,50 @@ func rescueObserve(res rescueProbeResult, now time.Time) rescueState {
 	} else if st.Role == "origin" {
 		// While rescued, a working direct route means the block is gone.
 		if res.Verdict == "ok" {
+			st.SuspectedSince = 0
 			if st.LiftedSince == 0 {
 				st.LiftedSince = now.Unix()
+			}
+			if now.Unix()-st.LiftedSince >= 300 && !st.DisabledManually && st.AutoTriggered {
+				autoDisable = true
 			}
 		} else {
 			st.LiftedSince = 0
 		}
 	}
-	// Persist only when something other than the probe timestamp changed, so a
-	// healthy idle panel does not rewrite rescue.json every minute.
+
 	if st.Role != before.Role || st.Strikes != before.Strikes || st.SuspectedSince != before.SuspectedSince ||
 		st.LiftedSince != before.LiftedSince || st.LastVerdict != before.LastVerdict {
 		_ = saveRescueLocked(st)
 	}
-	return st
+	rescueMu.Unlock()
+
+	if autoTarget != "" && len(autoPorts) > 0 {
+		LogSecurityAudit("rescue_auto_enabled", "system", autoTarget, fmt.Sprintf("ports=%d strikes=%d", len(autoPorts), rescueStrikes))
+		log.Printf("[rescue] one-way block detected to %s: auto-enabling connectivity rescue (%d ports)", autoTarget, len(autoPorts))
+		if _, err := rescueEnableOrigin(autoTarget, autoPorts); err != nil {
+			log.Printf("[rescue] auto-enable failed: %v", err)
+		} else {
+			rescueMu.Lock()
+			st2 := loadRescueLocked()
+			st2.AutoTriggered = true
+			_ = saveRescueLocked(st2)
+			rescueMu.Unlock()
+		}
+	} else if autoDisable {
+		LogSecurityAudit("rescue_auto_lifted_disable", "system", st.RemoteIP, "direct route restored")
+		log.Printf("[rescue] direct route to %s restored for >5m: auto-disabling rescue", st.RemoteIP)
+		rescueDisable()
+	}
+
+	rescueMu.Lock()
+	defer rescueMu.Unlock()
+	return loadRescueLocked()
 }
 
 func startRescueMonitor() {
 	go func() {
-		time.Sleep(20 * time.Second)
-		tick := 0
+		time.Sleep(15 * time.Second)
 		for {
 			st := func() rescueState { rescueMu.Lock(); defer rescueMu.Unlock(); return loadRescueLocked() }()
 			if st.Role != "entry" {
@@ -669,26 +825,18 @@ func startRescueMonitor() {
 					rescueObserve(rescueProbeFn(ts[0]), time.Now())
 				}
 			}
-			if st.Role == "" && tick%5 == 0 {
+			if st.Role == "" && !st.DisabledManually {
 				rescuePullOffer()
 			}
-			tick++
-			time.Sleep(60 * time.Second)
+			time.Sleep(20 * time.Second)
 		}
 	}()
 }
 
 // rescuePullOffer asks every known peer panel whether it published an offer
-// for us. Only hosts we already trust as peers are contacted, with the shared
-// peer secret; ports are re-validated locally in rescueApplyCode.
+// for us. When an offer is available, it automatically applies it.
 func rescuePullOffer() {
 	pc := loadPeerConfig()
-	if pc.PeerSecret == "" {
-		return
-	}
-	// Ports to try per peer host: the port its peer_url names first, then this
-	// panel's own port and the two usual defaults (panels on one fleet often sit
-	// on 7777 on one box and 7778 on another when 7777 is taken).
 	hosts := map[string][]int{}
 	for _, t := range rescueTargets() {
 		seen := map[int]bool{}
@@ -702,8 +850,6 @@ func rescuePullOffer() {
 		hosts[t.Host] = ps
 	}
 	client := &http.Client{Timeout: 4 * time.Second}
-	// Peer panels normally share one secret path (same convention as
-	// sendToPeer); a path written in peer_url wins when it differs.
 	bases := []string{""}
 	if cfg.BasePath != "" {
 		bases[0] = "/" + strings.Trim(cfg.BasePath, "/")
@@ -720,7 +866,9 @@ func rescuePullOffer() {
 				if err != nil {
 					continue
 				}
-				req.Header.Set("X-Peer-Secret", pc.PeerSecret)
+				if pc.PeerSecret != "" {
+					req.Header.Set("X-Peer-Secret", pc.PeerSecret)
+				}
 				resp, err := client.Do(req)
 				if err != nil {
 					continue
@@ -735,12 +883,22 @@ func rescuePullOffer() {
 					continue
 				}
 				c, derr := rescueDecode(body.Code)
-				if derr != nil || c.IP != h { // the offer must come from the host that issued it
+				if derr != nil || c.IP != h {
 					continue
 				}
 				if _, aerr := rescueApplyCode(body.Code); aerr == nil {
+					rescueMu.Lock()
+					st2 := loadRescueLocked()
+					st2.AutoTriggered = true
+					_ = saveRescueLocked(st2)
+					rescueMu.Unlock()
+					LogSecurityAudit("rescue_auto_joined", "system", h, fmt.Sprintf("ports=%d", len(c.Ports)))
+					log.Printf("[rescue] auto-joined rescue offer from %s (%d ports)", h, len(c.Ports))
+
 					ack, _ := http.NewRequest("POST", fmt.Sprintf("http://%s:%d%s/api/peer/rescue-ack", h, port, base), nil)
-					ack.Header.Set("X-Peer-Secret", pc.PeerSecret)
+					if pc.PeerSecret != "" {
+						ack.Header.Set("X-Peer-Secret", pc.PeerSecret)
+					}
 					if r2, e := client.Do(ack); e == nil {
 						_ = r2.Body.Close()
 					}
@@ -750,9 +908,6 @@ func rescuePullOffer() {
 		}
 	}
 }
-
-// ----------------------------------------------------------------- status/UI
-
 func rescueUnitActive(name string) bool {
 	out, err := runCmd("systemctl", "is-active", name+".service")
 	return err == nil && strings.TrimSpace(out) == "active"
@@ -779,11 +934,13 @@ func rescueStatusMap(full bool) map[string]any {
 	m := map[string]any{
 		"role": st.Role, "remote_ip": st.RemoteIP, "ports": st.Ports, "skipped": st.Skipped,
 		"since": st.Since, "verdict": st.LastVerdict, "last_probe": st.LastProbe,
-		"suspected":     st.Role == "" && st.SuspectedSince > 0,
-		"block_lifted":  st.Role == "origin" && st.LiftedSince > 0,
-		"offer_pending": st.Role == "origin" && !st.Consumed,
-		"frp_ok":        rescueHaveFrp() == nil,
-		"strikes":       st.Strikes,
+		"suspected":         st.Role == "" && st.SuspectedSince > 0,
+		"block_lifted":      st.Role == "origin" && st.LiftedSince > 0,
+		"offer_pending":     st.Role == "origin" && !st.Consumed,
+		"frp_ok":            rescueHaveFrp() == nil,
+		"strikes":           st.Strikes,
+		"auto_triggered":    st.AutoTriggered,
+		"disabled_manually": st.DisabledManually,
 	}
 	if st.Role == "origin" {
 		m["ctrl_port"] = st.CtrlPort
@@ -803,29 +960,7 @@ func rescueStatusMap(full bool) map[string]any {
 		if len(ts) > 0 {
 			m["suggest_remote"] = ts[0].Host
 		}
-		seen := map[int]bool{}
-		var sp []int
-		res := rescueReserved()
-		add := func(p int) {
-			if p > 0 && p < 65536 && !seen[p] && !res[p] {
-				seen[p] = true
-				sp = append(sp, p)
-			}
-		}
-		ls := localStatus()
-		for _, p := range ls.ProxyPorts {
-			add(p)
-		}
-		for _, p := range ls.Ports {
-			add(p)
-		}
-		for _, pr := range loadPeers() {
-			for _, p := range pr.Ports {
-				add(p)
-			}
-		}
-		sort.Ints(sp)
-		m["suggest_ports"] = sp
+		m["suggest_ports"] = suggestRescuePorts()
 	}
 	return m
 }
@@ -868,6 +1003,11 @@ func handleRescuePost(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, r, "E-RESCUE-04", err.Error())
 			return
 		}
+		rescueMu.Lock()
+		stE := loadRescueLocked()
+		stE.DisabledManually = false
+		_ = saveRescueLocked(stE)
+		rescueMu.Unlock()
 		writeJSON(w, map[string]any{"status": "ok", "state": rescueStatusMap(false)})
 	case "join":
 		if _, err := rescueApplyCode(body.Code); err != nil {
@@ -877,6 +1017,11 @@ func handleRescuePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"status": "ok", "state": rescueStatusMap(false)})
 	case "disable":
 		rescueDisable()
+		rescueMu.Lock()
+		stD := loadRescueLocked()
+		stD.DisabledManually = true
+		_ = saveRescueLocked(stD)
+		rescueMu.Unlock()
 		writeJSON(w, map[string]any{"status": "ok", "state": rescueStatusMap(false)})
 	case "code":
 		rescueMu.Lock()
@@ -899,6 +1044,43 @@ func handleRescuePost(w http.ResponseWriter, r *http.Request) {
 
 func rescueStatusMapFrom(st rescueState) map[string]any {
 	return map[string]any{"verdict": st.LastVerdict, "suspected": st.Role == "" && st.SuspectedSince > 0, "strikes": st.Strikes}
+}
+
+func requireRescuePeerAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if authed(r) {
+			next(w, r)
+			return
+		}
+		rescueMu.Lock()
+		st := loadRescueLocked()
+		rescueMu.Unlock()
+
+		// Allowed if client is the designated remote IP
+		if st.RemoteIP != "" && ClientIP(r) == st.RemoteIP {
+			next(w, r)
+			return
+		}
+
+		// Or valid peer secret
+		c := loadPeerConfig()
+		if c.PeerSecret != "" {
+			clientSecret := strings.TrimSpace(r.Header.Get("X-Peer-Secret"))
+			if clientSecret == "" {
+				authHdr := r.Header.Get("Authorization")
+				if strings.HasPrefix(strings.ToLower(authHdr), "bearer ") {
+					clientSecret = strings.TrimSpace(authHdr[7:])
+				}
+			}
+			if clientSecret != "" && ConstantTimeCompare(c.PeerSecret, clientSecret) {
+				next(w, r)
+				return
+			}
+		}
+
+		LogSecurityAudit("rescue_peer_auth_rejected", "peer", ClientIP(r), "path="+r.URL.Path)
+		writeAPIError(w, r, "E-AUTH-01", "unauthorized peer request")
+	}
 }
 
 // Peer endpoints (X-Peer-Secret). The offer is only released to the exact

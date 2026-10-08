@@ -2972,10 +2972,10 @@ const I18N = {
     rsc_ban_d: "Ping works but every TCP connection is dropped on the way. A one-click fix reverses the connection direction.", rsc_ban_go: "Fix it",
     rsc_idle_ok: "No problem detected. If a peer can ping you but connections time out, this tool reverses the direction automatically.",
     rsc_idle_warn: "A one-way block was detected: ping works but TCP is dropped. Enable Rescue to reverse the direction.",
-    rsc_b_off: "Off", rsc_b_susp: "Block detected", rsc_b_on: "Active", rsc_b_wait: "Waiting for peer", rsc_b_lift: "Block lifted",
+    rsc_b_off: "Off", rsc_b_susp: "Block detected", rsc_b_on: "Active", rsc_b_on_auto: "Active (Auto)", rsc_b_wait: "Waiting for peer", rsc_b_lift: "Block lifted",
     rsc_check: "Check now", rsc_enable: "Enable Rescue", rsc_join: "Join with code", rsc_apply: "Apply code", rsc_disable: "Disable and remove",
     rsc_cancel: "Cancel", rsc_getcode: "Show rescue code", rsc_copy: "Copy code", rsc_nocfg: "frp binaries are missing on this server. Run hashem update first.",
-    rsc_origin: "This server is the blocked side. {n} port(s) are forwarded through {ip}.", rsc_entry: "This server is the entry. {n} port(s) are served here and tunnelled to {ip}.",
+    rsc_origin: "This server is the blocked side. {n} port(s) are forwarded through {ip}.", rsc_origin_auto: "One-way block detected: connectivity automatically established through {ip} ({n} ports forwarded).", rsc_entry: "This server is the entry. {n} port(s) are served here and tunnelled to {ip}.", rsc_entry_auto: "This server is acting as the entry for {ip} ({n} ports tunnelled).",
     rsc_skipped: "Skipped (busy or reserved): {p}", rsc_conn: "Control link", rsc_conn_ok: "connected", rsc_conn_no: "not connected yet",
     rsc_svc: "Services", rsc_auto: "The other panel picks this up by itself within a few minutes if the two panels are paired. Otherwise use the code.",
     rsc_lift: "The direct route works again. You can disable Rescue and use the normal tunnel.",
@@ -3373,10 +3373,10 @@ const I18N = {
     rsc_ban_d: "پینگ جواب می‌دهد ولی همه‌ی اتصال‌های TCP در مسیر قطع می‌شوند. با یک کلیک جهت اتصال برعکس می‌شود.", rsc_ban_go: "درستش کن",
     rsc_idle_ok: "مشکلی دیده نشد. اگر سرور مقابل پینگ می‌گیرد ولی اتصال‌ها timeout می‌شوند، این ابزار جهت را خودکار برعکس می‌کند.",
     rsc_idle_warn: "بلاک یک‌طرفه پیدا شد: پینگ کار می‌کند ولی TCP قطع می‌شود. برای برعکس‌کردن جهت، نجات را فعال کنید.",
-    rsc_b_off: "خاموش", rsc_b_susp: "بلاک پیدا شد", rsc_b_on: "فعال", rsc_b_wait: "در انتظار سرور مقابل", rsc_b_lift: "بلاک برداشته شد",
+    rsc_b_off: "خاموش", rsc_b_susp: "بلاک پیدا شد", rsc_b_on: "فعال", rsc_b_on_auto: "فعال (خودکار)", rsc_b_wait: "در انتظار سرور مقابل", rsc_b_lift: "بلاک برداشته شد",
     rsc_check: "بررسی الان", rsc_enable: "فعال‌کردن نجات", rsc_join: "اتصال با کد", rsc_apply: "اعمال کد", rsc_disable: "غیرفعال و حذف",
     rsc_cancel: "انصراف", rsc_getcode: "نمایش کد نجات", rsc_copy: "کپی کد", rsc_nocfg: "فایل‌های frp روی این سرور نیست. اول hashem update را اجرا کنید.",
-    rsc_origin: "این سرور طرف بلاک‌شده است. {n} پورت از طریق {ip} فوروارد می‌شود.", rsc_entry: "این سرور ورودی است. {n} پورت اینجا سرو و به {ip} تونل می‌شود.",
+    rsc_origin: "این سرور طرف بلاک‌شده است. {n} پورت از طریق {ip} فوروارد می‌شود.", rsc_origin_auto: "بلاک یک‌طرفه تشخیص داده شد: اتصال به صورت خودکار از طریق {ip} برقرار شد ({n} پورت فوروارد شده).", rsc_entry: "این سرور ورودی است. {n} پورت اینجا سرو و به {ip} تونل می‌شود.", rsc_entry_auto: "این سرور به صورت خودکار به عنوان ورودی برای {ip} فعال شد ({n} پورت تونل شده).",
     rsc_skipped: "رد شد (مشغول یا رزرو): {p}", rsc_conn: "لینک کنترلی", rsc_conn_ok: "وصل است", rsc_conn_no: "هنوز وصل نشده",
     rsc_svc: "سرویس‌ها", rsc_auto: "اگر دو پنل جفت شده باشند، پنل مقابل ظرف چند دقیقه خودش این را برمی‌دارد. در غیر این صورت از کد استفاده کنید.",
     rsc_lift: "مسیر مستقیم دوباره کار می‌کند. می‌توانید نجات را غیرفعال کنید و از تونل عادی استفاده کنید.",
@@ -7333,12 +7333,13 @@ function rscRender() {
   let msg = '';
   if (!s.frp_ok) msg = tr('rsc_nocfg', '');
   if (active) {
+    const onBadge = s.auto_triggered ? 'rsc_b_on_auto' : 'rsc_b_on';
     if (s.role === 'origin') {
-      rscBadge(s.connected ? 'ok' : 'warn', s.connected ? 'rsc_b_on' : 'rsc_b_wait');
-      msg = msg || fleetFmt('rsc_origin', { n: (s.ports || []).length, ip: s.remote_ip });
+      rscBadge(s.connected ? 'ok' : 'warn', s.connected ? onBadge : 'rsc_b_wait');
+      msg = msg || fleetFmt(s.auto_triggered ? 'rsc_origin_auto' : 'rsc_origin', { n: (s.ports || []).length, ip: s.remote_ip });
     } else {
-      rscBadge(s.connected ? 'ok' : 'warn', s.connected ? 'rsc_b_on' : 'rsc_b_wait');
-      msg = msg || fleetFmt('rsc_entry', { n: (s.ports || []).length, ip: s.remote_ip });
+      rscBadge(s.connected ? 'ok' : 'warn', s.connected ? onBadge : 'rsc_b_wait');
+      msg = msg || fleetFmt(s.auto_triggered ? 'rsc_entry_auto' : 'rsc_entry', { n: (s.ports || []).length, ip: s.remote_ip });
     }
     if (s.block_lifted) { rscBadge('warn', 'rsc_b_lift'); msg += ' ' + tr('rsc_lift', ''); }
     const rows = [[tr('rsc_conn', ''), s.connected ? tr('rsc_conn_ok', '') : tr('rsc_conn_no', '')],

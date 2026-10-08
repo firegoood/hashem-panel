@@ -332,3 +332,45 @@ func TestObserveDetectsLiftedBlockWhileRescued(t *testing.T) {
 		t.Fatal("block back => lifted flag cleared")
 	}
 }
+
+func TestRescueAutoEnableAndAutoJoin(t *testing.T) {
+	fakeSystem(t)
+	now := time.Unix(1_800_000_000, 0)
+	blocked := rescueProbeResult{Host: "194.107.116.102", Verdict: "one_way_block"}
+
+	// 1. Trigger consecutive strikes on origin
+	var st rescueState
+	for i := 0; i < rescueStrikes; i++ {
+		st = rescueObserve(blocked, now)
+	}
+
+	if st.Role != "origin" {
+		t.Fatalf("expected origin role after %d strikes, got %q", rescueStrikes, st.Role)
+	}
+	if !st.AutoTriggered {
+		t.Fatal("expected AutoTriggered to be true")
+	}
+	if st.RemoteIP != "194.107.116.102" {
+		t.Fatalf("expected remote IP 194.107.116.102, got %q", st.RemoteIP)
+	}
+
+	// 2. Test auto-offer generation
+	pub := rescuePublicIP()
+	if pub == "" {
+		pub = "5.75.197.22"
+	}
+	code := rescueEncode(st, pub)
+	if !strings.HasPrefix(code, rescueCodePrefix) {
+		t.Fatalf("bad rescue code: %q", code)
+	}
+
+	// 3. Clear origin (simulating distinct entry server) and test applying the code
+	rescueDisable()
+	stEntry, err := rescueApplyCode(code)
+	if err != nil {
+		t.Fatalf("auto-join apply error: %v", err)
+	}
+	if stEntry.Role != "entry" {
+		t.Fatalf("expected entry role, got %q", stEntry.Role)
+	}
+}

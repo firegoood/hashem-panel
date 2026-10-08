@@ -173,7 +173,6 @@ func mustJSON(v any) []byte {
 	return b
 }
 
-
 func randomBase(n int) string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, n)
@@ -257,8 +256,8 @@ func main() {
 	mux.HandleFunc("POST "+base+"/api/peer/apply-carrier", requirePeerAuth(handlePeerApplyCarrier))
 	mux.HandleFunc("POST "+base+"/api/peer/apply-engine", requirePeerAuth(handlePeerApplyEngine))
 	mux.HandleFunc("POST "+base+"/api/peer/ping", requirePeerAuth(handlePeerPing))
-	mux.HandleFunc("GET "+base+"/api/peer/rescue-offer", requirePeerAuth(handlePeerRescueOffer))
-	mux.HandleFunc("POST "+base+"/api/peer/rescue-ack", requirePeerAuth(handlePeerRescueAck))
+	mux.HandleFunc("GET "+base+"/api/peer/rescue-offer", requireRescuePeerAuth(handlePeerRescueOffer))
+	mux.HandleFunc("POST "+base+"/api/peer/rescue-ack", requireRescuePeerAuth(handlePeerRescueAck))
 	mux.HandleFunc("GET "+base+"/api/rescue", requireAuth(handleRescueGet))
 	mux.HandleFunc("POST "+base+"/api/rescue", requireAuth(requireCSRF(handleRescuePost)))
 	mux.HandleFunc("GET "+base+"/api/peer/status", requirePeerAuth(handlePeerStatus))
