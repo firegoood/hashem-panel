@@ -1808,12 +1808,88 @@
       </section>
       <!-- Tab: Carrier Benchmark & Auto-Pilot -->
       <section id="tab-benchmark" hidden>
-        <!-- Peer Link & AutoPilot Top Row -->
-        <div class="u-grid-2 u-gap-16 u-mb-16">
+        <!-- Top Hero Leaderboard Card -->
+        <div class="tunnel-card bench-hero-card" style="border:1px solid rgba(56,189,248,0.22); background:linear-gradient(180deg, rgba(15,23,42,0.85) 0%, rgba(10,15,28,0.95) 100%); box-shadow:0 12px 36px -8px rgba(0,0,0,0.55); backdrop-filter:blur(14px);">
+          <div class="tc-header" style="border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:14px; margin-bottom:16px;">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span class="tc-title" style="font-size:18px;font-weight:700;display:flex;align-items:center;gap:8px;" data-i18n="bench_leaderboard_title">
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#38bdf8" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  Carrier Performance Leaderboard
+                </span>
+                <span class="badge ok" id="benchStatusPill">Probed</span>
+              </div>
+              <div class="qs-hint u-mt-4" id="benchMetaSub">Last benchmark: — · Probing GRE, WSS, TCP, KCP, QUIC &amp; WS</div>
+            </div>
+            <div class="qs-actions">
+              <button class="hashem-btn hashem-btn-primary" id="benchRunBtn" style="padding:9px 18px;font-weight:600;display:flex;align-items:center;gap:8px;box-shadow:0 0 20px rgba(56,189,248,0.28);">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span id="benchRunBtnTxt" data-i18n="bench_run_btn">Run Carrier Benchmark</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick Telemetry Stats Grid -->
+          <div class="wd-hero-grid u-mb-16" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+            <div class="wd-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 12px 14px;">
+              <span class="wd-stat-label" style="font-size: 11px; text-transform: uppercase; color: var(--mu); display: flex; align-items: center; gap: 6px;">
+                🏆 Best Recommended
+              </span>
+              <div class="wd-stat-val" id="benchStatWinner" style="font-size: 16px; font-weight: 700; color: #10b981; margin: 4px 0;">—</div>
+              <span class="wd-stat-sub" id="benchStatWinnerSub" style="font-size: 11px; color: var(--mu);">Top quality candidate</span>
+            </div>
+            <div class="wd-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 12px 14px;">
+              <span class="wd-stat-label" style="font-size: 11px; text-transform: uppercase; color: var(--mu); display: flex; align-items: center; gap: 6px;">
+                ⚡ Active Carrier
+              </span>
+              <div class="wd-stat-val" id="benchStatActive" style="font-size: 16px; font-weight: 700; color: #38bdf8; margin: 4px 0;">—</div>
+              <span class="wd-stat-sub" id="benchStatActiveSub" style="font-size: 11px; color: var(--mu);">Active route traffic</span>
+            </div>
+            <div class="wd-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 12px 14px;">
+              <span class="wd-stat-label" style="font-size: 11px; text-transform: uppercase; color: var(--mu); display: flex; align-items: center; gap: 6px;">
+                ⏱️ Lowest Latency (RTT)
+              </span>
+              <div class="wd-stat-val" id="benchStatMinRtt" style="font-size: 16px; font-weight: 700; color: var(--tx); margin: 4px 0;">—</div>
+              <span class="wd-stat-sub" id="benchStatMinRttSub" style="font-size: 11px; color: var(--mu);">Best round-trip time</span>
+            </div>
+            <div class="wd-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 12px 14px;">
+              <span class="wd-stat-label" style="font-size: 11px; text-transform: uppercase; color: var(--mu); display: flex; align-items: center; gap: 6px;">
+                🛡️ Drop Rate
+              </span>
+              <div class="wd-stat-val" id="benchStatLoss" style="font-size: 16px; font-weight: 700; color: #10b981; margin: 4px 0;">0%</div>
+              <span class="wd-stat-sub" id="benchStatLossSub" style="font-size: 11px; color: var(--mu);">Packet loss on winner</span>
+            </div>
+          </div>
+
+          <!-- Leaderboard Table -->
+          <div class="t-scroll" style="border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.06); overflow: hidden;">
+            <table class="hashem-table" id="benchTable" style="margin: 0;">
+              <thead>
+                <tr style="background: rgba(255, 255, 255, 0.03);">
+                  <th data-i18n="bench_tbl_rank" style="padding: 12px 14px;">Rank &amp; Carrier</th>
+                  <th data-i18n="bench_tbl_trans">Transport</th>
+                  <th data-i18n="bench_tbl_port">Port</th>
+                  <th data-i18n="bench_tbl_rtt">Latency (RTT)</th>
+                  <th data-i18n="bench_tbl_loss">Packet Loss</th>
+                  <th data-i18n="bench_tbl_jitter">Jitter</th>
+                  <th data-i18n="bench_tbl_score">Quality Score</th>
+                  <th data-i18n="bench_tbl_status">Status</th>
+                  <th data-i18n="bench_tbl_action">Action</th>
+                </tr>
+              </thead>
+              <tbody id="benchTableBody">
+                <tr><td colspan="9" class="u-text-center" style="padding:28px;color:var(--mu);">Click &quot;Run Carrier Benchmark&quot; to probe carrier models.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Secondary Controls Grid: Peer Link & Automatic Failover -->
+        <div class="u-grid-2 u-gap-16 u-mt-16">
           <!-- Card 1: Peer Link Status -->
-          <div class="tunnel-card">
+          <div class="tunnel-card" style="border: 1px solid var(--ln); background: color-mix(in srgb, var(--bg) 80%, var(--s1));">
             <div class="tc-header">
-              <span class="tc-title">
+              <span class="tc-title" style="display:flex;align-items:center;gap:8px;">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 <span data-i18n="bench_peer_link_title">Inter-Panel Link (Peer)</span>
               </span>
@@ -1847,9 +1923,9 @@
           </div>
 
           <!-- Card 2: Automatic Failover Settings -->
-          <div class="tunnel-card" id="failoverCard">
+          <div class="tunnel-card" id="failoverCard" style="border: 1px solid var(--ln); background: color-mix(in srgb, var(--bg) 80%, var(--s1));">
             <div class="tc-header">
-              <span class="tc-title">
+              <span class="tc-title" style="display:flex;align-items:center;gap:8px;">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                 <span data-i18n="bench_failover_title">Automatic Failover</span>
               </span>
@@ -1878,44 +1954,6 @@
             <div class="qs-actions u-mt-12">
               <button class="hashem-btn hashem-btn-primary u-btn-xs" id="autoPilotSaveBtn" data-i18n="bench_failover_save">Save Failover Policy</button>
             </div>
-          </div>
-        </div>
-
-        <!-- Carrier Matrix Leaderboard Card -->
-        <div class="tunnel-card">
-          <div class="tc-header">
-            <div>
-              <p class="tc-title" data-i18n="bench_leaderboard_title">Carrier Performance Leaderboard</p>
-              <div class="qs-hint" id="benchMetaSub">Last benchmark: — · Probed carrier modes</div>
-            </div>
-            <div class="qs-actions">
-              <button class="hashem-btn hashem-btn-primary" id="benchRunBtn">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                <span id="benchRunBtnTxt" data-i18n="bench_run_btn">Run Carrier Benchmark</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Leaderboard Table -->
-          <div class="t-scroll u-mt-12">
-            <table class="hashem-table" id="benchTable">
-              <thead>
-                <tr>
-                  <th data-i18n="bench_tbl_rank">Rank &amp; Carrier</th>
-                  <th data-i18n="bench_tbl_trans">Transport</th>
-                  <th data-i18n="bench_tbl_port">Port</th>
-                  <th data-i18n="bench_tbl_rtt">Latency (RTT)</th>
-                  <th data-i18n="bench_tbl_loss">Packet Loss</th>
-                  <th data-i18n="bench_tbl_jitter">Jitter</th>
-                  <th data-i18n="bench_tbl_score">Quality Score</th>
-                  <th data-i18n="bench_tbl_status">Status</th>
-                  <th data-i18n="bench_tbl_action">Action</th>
-                </tr>
-              </thead>
-              <tbody id="benchTableBody">
-                <tr><td colspan="9" class="u-text-center" style="padding:24px;color:var(--mu);">Click &quot;Run Carrier Benchmark&quot; to probe carrier models.</td></tr>
-              </tbody>
-            </table>
           </div>
         </div>
 
@@ -6695,12 +6733,31 @@ function renderBenchmark(bench, peer) {
     }
   }
 
-  if (bench && bench.auto_pilot) {
-    if ($('autoPilotLastVal')) $('autoPilotLastVal').textContent = bench.auto_pilot.last_triggered || 'None';
-    if ($('autoPilotCountVal')) $('autoPilotCountVal').textContent = bench.auto_pilot.trigger_count || 0;
+  if (bench && bench.metrics && bench.metrics.length > 0) {
+    const winner = bench.metrics.find(m => m.is_recommended) || bench.metrics[0];
+    const active = bench.metrics.find(m => m.is_active) || { name: bench.active_carrier || 'Direct GRE', id: bench.active_carrier || 'direct' };
+    const minRtt = bench.metrics.reduce((acc, m) => (m.avg_rtt_ms > 0 && (acc === 0 || m.avg_rtt_ms < acc)) ? m.avg_rtt_ms : acc, 0);
+
+    const winnerName = winner ? (winner.name || winner.id).replace(/\s*\(.*?\)/, '') : '—';
+    const activeName = active ? (active.name || active.id).replace(/\s*\(.*?\)/, '') : '—';
+
+    if ($('benchStatWinner')) $('benchStatWinner').textContent = winnerName;
+    if ($('benchStatWinnerSub')) $('benchStatWinnerSub').textContent = winner ? `Score: ${winner.score}/100 · ${winner.avg_rtt_ms} ms` : 'Top candidate';
+    if ($('benchStatActive')) $('benchStatActive').textContent = activeName;
+    if ($('benchStatActiveSub')) $('benchStatActiveSub').textContent = currentLang === 'fa' ? 'پروتکل فعال تونل' : 'Active route';
+    if ($('benchStatMinRtt')) $('benchStatMinRtt').textContent = minRtt > 0 ? `${minRtt.toFixed(1)} ms` : (winner && winner.avg_rtt_ms > 0 ? `${winner.avg_rtt_ms} ms` : '—');
+    if ($('benchStatMinRttSub')) $('benchStatMinRttSub').textContent = currentLang === 'fa' ? 'کمترین تاخیر ثبت‌شده' : 'Best round-trip';
+    if ($('benchStatLoss')) $('benchStatLoss').textContent = winner ? `${winner.packet_loss}%` : '0%';
+    if ($('benchStatLossSub')) $('benchStatLossSub').textContent = (winner && winner.packet_loss === 0) ? (currentLang === 'fa' ? 'لینک بدون پکت‌لاس' : 'Zero loss link') : (currentLang === 'fa' ? 'پکت‌لاس کاندیدای برتر' : 'Packet drop rate');
+
     if ($('benchMetaSub')) {
-      $('benchMetaSub').textContent = `Last benchmark: ${bench.timestamp || '—'} · Active: ${bench.active_carrier || '—'} · Winner: ${bench.best_carrier || '—'}`;
+      $('benchMetaSub').textContent = `${currentLang === 'fa' ? 'آخرین سنجش' : 'Last benchmark'}: ${bench.timestamp || '—'} · ${bench.metrics.length} ${currentLang === 'fa' ? 'پروتکل و کریر فعال' : 'candidates probed'}`;
     }
+  }
+
+  if (bench && bench.auto_pilot) {
+    if ($('autoPilotLastVal')) $('autoPilotLastVal').textContent = bench.auto_pilot.last_triggered || (currentLang === 'fa' ? 'هیچ‌وقت' : 'None');
+    if ($('autoPilotCountVal')) $('autoPilotCountVal').textContent = bench.auto_pilot.trigger_count || 0;
   }
 
   // Render Table
@@ -6708,58 +6765,101 @@ function renderBenchmark(bench, peer) {
   if (!tbody) return;
 
   if (!bench || !bench.metrics || bench.metrics.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="u-text-center" style="padding:24px;color:var(--mu);">No benchmark metrics yet. Click "Run Carrier Benchmark".</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="9" class="u-text-center" style="padding:32px;color:var(--mu);">${currentLang === 'fa' ? 'هنوز بنچمارکی ثبت نشده است. روی «اجرای بنچمارک پروتکل‌ها» کلیک کنید.' : 'No benchmark metrics yet. Click "Run Carrier Benchmark".'}</td></tr>`;
     return;
   }
 
   let html = '';
   bench.metrics.forEach((m, idx) => {
-    const isWinner = m.is_recommended;
-    const isActive = m.is_active;
+    const isWinner = !!m.is_recommended;
+    const isActive = !!m.is_active;
 
-    // Badges & status
     let statusClass = 'dim';
-    if (m.status === 'healthy') statusClass = 'ok';
-    else if (m.status === 'good') statusClass = 'info';
-    else if (m.status === 'warning') statusClass = 'warn';
-    else if (m.status === 'critical' || m.status === 'down') statusClass = 'err';
+    let statusLabel = m.status;
+    if (m.status === 'healthy') {
+      statusClass = 'ok';
+      statusLabel = currentLang === 'fa' ? 'سالم' : 'Healthy';
+    } else if (m.status === 'good') {
+      statusClass = 'info';
+      statusLabel = currentLang === 'fa' ? 'مطلوب' : 'Good';
+    } else if (m.status === 'warning') {
+      statusClass = 'warn';
+      statusLabel = currentLang === 'fa' ? 'هشدار' : 'Warning';
+    } else if (m.status === 'critical' || m.status === 'down') {
+      statusClass = 'err';
+      statusLabel = currentLang === 'fa' ? 'قطع' : 'Down';
+    }
 
-    // Loss badge
     let lossClass = 'ok';
     if (m.packet_loss > 0 && m.packet_loss <= 15) lossClass = 'warn';
     else if (m.packet_loss > 15) lossClass = 'err';
 
     const rank = idx + 1;
-    const portStr = m.port > 0 ? m.port : 'Raw';
+    let rankBadge = `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;border-radius:6px;background:rgba(255,255,255,0.04);color:var(--mu);font-weight:600;font-size:11px">#${rank}</span>`;
+    if (rank === 1) {
+      rankBadge = `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;padding:0 6px;border-radius:6px;background:rgba(234,179,8,0.18);color:#facc15;font-weight:800;font-size:11px;border:1px solid rgba(234,179,8,0.35);box-shadow:0 0 12px rgba(250,204,21,0.25)">🥇 #1</span>`;
+    } else if (rank === 2) {
+      rankBadge = `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;padding:0 6px;border-radius:6px;background:rgba(226,232,240,0.14);color:#e2e8f0;font-weight:700;font-size:11px;border:1px solid rgba(226,232,240,0.25)">🥈 #2</span>`;
+    } else if (rank === 3) {
+      rankBadge = `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;padding:0 6px;border-radius:6px;background:rgba(217,119,6,0.16);color:#f59e0b;font-weight:700;font-size:11px;border:1px solid rgba(217,119,6,0.3)">🥉 #3</span>`;
+    }
 
-    html += `<tr class="${isActive ? 'row-active' : ''}">
+    const portStr = m.port > 0 ? m.port : (currentLang === 'fa' ? 'کرنل ۴۷' : 'Raw 47');
+
+    // Protocol badge styling
+    let protoPill = `<span class="badge dim">${esc(m.type.toUpperCase())}</span>`;
+    const tLower = (m.type || '').toLowerCase();
+    if (tLower === 'gre') {
+      protoPill = `<span class="badge" style="background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);font-size:10px;font-weight:700">GRE KERNEL</span>`;
+    } else if (tLower === 'frp_tcp') {
+      protoPill = `<span class="badge" style="background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3);font-size:10px;font-weight:700">TCP MULTIPLEX</span>`;
+    } else if (tLower === 'frp_kcp') {
+      protoPill = `<span class="badge" style="background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid rgba(245,158,11,0.3);font-size:10px;font-weight:700">KCP ARQ UDP</span>`;
+    } else if (tLower === 'frp_quic') {
+      protoPill = `<span class="badge" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);font-size:10px;font-weight:700">QUIC STREAM</span>`;
+    } else if (tLower === 'frp_ws') {
+      protoPill = `<span class="badge" style="background:rgba(20,184,166,0.15);color:#2dd4bf;border:1px solid rgba(20,184,166,0.3);font-size:10px;font-weight:700">WEBSOCKET</span>`;
+    } else if (tLower === 'wss') {
+      protoPill = `<span class="badge" style="background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);font-size:10px;font-weight:700">TLS WSS</span>`;
+    } else if (tLower.includes('backhaul')) {
+      protoPill = `<span class="badge info" style="font-size:10px;font-weight:700">BACKHAUL</span>`;
+    }
+
+    const rowBg = isActive
+      ? 'background:rgba(56,189,248,0.06);border-left:3px solid #38bdf8;'
+      : (isWinner ? 'background:rgba(16,185,129,0.04);' : '');
+
+    html += `<tr class="${isActive ? 'row-active' : ''}" style="${rowBg}">
       <td>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <strong style="color:var(--mu);min-width:16px;">#${rank}</strong>
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${rankBadge}
           <div>
-            <strong>${esc(m.name)}</strong>
-            ${isActive ? `<span class="badge ok" style="margin-left:6px;font-size:10px;">${currentLang === 'fa' ? 'فعال' : 'ACTIVE'}</span>` : ''}
-            ${isWinner ? `<span class="badge info" style="margin-left:6px;font-size:10px;">${currentLang === 'fa' ? 'پیشنهادی' : 'RECOMMENDED'}</span>` : ''}
+            <div style="display:flex;align-items:center;gap:6px;">
+              <strong style="color:var(--tx);font-size:13px;">${esc(m.name)}</strong>
+              ${isActive ? `<span class="badge ok" style="font-size:9.5px;padding:2px 6px;">${currentLang === 'fa' ? '● فعال' : '● ACTIVE'}</span>` : ''}
+              ${isWinner ? `<span class="badge info" style="font-size:9.5px;padding:2px 6px;">${currentLang === 'fa' ? '★ برتر' : '★ BEST'}</span>` : ''}
+            </div>
+            ${m.error_detail ? `<span style="font-size:11px;color:var(--err);display:block;margin-top:2px;">${esc(m.error_detail)}</span>` : ''}
           </div>
         </div>
       </td>
-      <td><span class="badge dim">${esc(m.type.toUpperCase())}</span></td>
-      <td><code>${portStr}</code></td>
-      <td>${m.avg_rtt_ms > 0 ? m.avg_rtt_ms + ' ms' : '—'}</td>
-      <td><span class="badge ${lossClass}">${m.packet_loss}%</span></td>
-      <td>${m.jitter_ms > 0 ? m.jitter_ms + ' ms' : '—'}</td>
+      <td>${protoPill}</td>
+      <td><code class="mono" style="font-size:12px;background:rgba(255,255,255,0.04);padding:2px 6px;border-radius:4px;">${portStr}</code></td>
+      <td><span style="font-weight:600;font-family:var(--font-mono);font-size:13px;">${m.avg_rtt_ms > 0 ? m.avg_rtt_ms + ' ms' : '—'}</span></td>
+      <td><span class="badge ${lossClass}" style="font-size:11px;font-weight:700;">${m.packet_loss}%</span></td>
+      <td><span style="color:var(--mu);font-size:12px;font-family:var(--font-mono);">${m.jitter_ms > 0 ? m.jitter_ms + ' ms' : '—'}</span></td>
       <td>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <div style="flex:1;background:rgba(255,255,255,0.08);height:6px;border-radius:3px;overflow:hidden;min-width:50px;">
-            <div style="width:${m.score}%;height:100%;background:${m.score >= 70 ? 'var(--ok)' : (m.score >= 40 ? 'var(--warn)' : 'var(--err)')};"></div>
+        <div style="display:flex;align-items:center;gap:8px;min-width:90px;">
+          <div style="flex:1;background:rgba(255,255,255,0.08);height:7px;border-radius:4px;overflow:hidden;">
+            <div style="width:${Math.max(4, m.score)}%;height:100%;border-radius:4px;background:${m.score >= 70 ? 'linear-gradient(90deg, #10b981, #34d399)' : (m.score >= 40 ? 'linear-gradient(90deg, #f59e0b, #fbbf24)' : 'linear-gradient(90deg, #ef4444, #f87171)')};box-shadow:0 0 8px ${m.score >= 70 ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)'};"></div>
           </div>
-          <strong style="font-size:12px;">${m.score}</strong>
+          <strong style="font-size:12px;font-family:var(--font-mono);min-width:24px;">${m.score}</strong>
         </div>
       </td>
-      <td><span class="badge ${statusClass}">${esc(m.status)}</span></td>
+      <td><span class="badge ${statusClass}" style="font-size:10.5px;">${esc(statusLabel)}</span></td>
       <td>
-        ${isActive ? `<button class="hashem-btn hashem-btn-ghost u-btn-xs" disabled style="opacity:0.6;">${currentLang === 'fa' ? 'فعلی' : 'Current'}</button>` :
-          `<button class="hashem-btn ${isWinner ? 'hashem-btn-primary' : 'hashem-btn-secondary'} u-btn-xs" onclick="applyCarrierClick('${esc(m.id)}')">${currentLang === 'fa' ? 'سوییچ' : 'Switch'}</button>`}
+        ${isActive ? `<button class="hashem-btn hashem-btn-ghost u-btn-xs" disabled style="opacity:0.65;font-weight:600;">${currentLang === 'fa' ? 'فعلی' : 'Current'}</button>` :
+          `<button class="hashem-btn ${isWinner ? 'hashem-btn-primary' : 'hashem-btn-secondary'} u-btn-xs" style="font-weight:600;padding:4px 10px;" onclick="applyCarrierClick('${esc(m.id)}')">${currentLang === 'fa' ? 'سوییچ' : 'Switch'}</button>`}
       </td>
     </tr>`;
   });
@@ -6773,30 +6873,33 @@ async function runBenchmarkClick() {
   const btn = $('benchRunBtn');
   const txt = $('benchRunBtnTxt');
   if (btn) btn.disabled = true;
-  if (txt) txt.textContent = 'Probing carriers...';
-  toast('Benchmarking carriers', 'Probing GRE, FOU, WSS, and transport ports...');
+  if (txt) txt.textContent = currentLang === 'fa' ? 'در حال سنجش پروتکل‌ها...' : 'Probing carriers...';
+  toast(currentLang === 'fa' ? 'آغاز بنچمارک پروتکل‌ها' : 'Benchmarking carriers', currentLang === 'fa' ? 'در حال ارزیابی تاخیر و پکت‌لاس ترنسپورت‌ها...' : 'Probing GRE, WSS, TCP, KCP, QUIC, and WS...');
 
   try {
     await loadBenchmark(true);
-    toastOk('Benchmark Complete', `Best Carrier: ${benchData ? benchData.best_carrier : '—'}`);
+    toastOk(currentLang === 'fa' ? 'بنچمارک تکمیل شد' : 'Benchmark Complete', `${currentLang === 'fa' ? 'پروتکل برتر' : 'Best Carrier'}: ${benchData ? (benchData.best_carrier || '—') : '—'}`);
   } catch (err) {
-    toastErr('Benchmark failed', err.message || err);
+    toastErr(currentLang === 'fa' ? 'خطا در بنچمارک' : 'Benchmark failed', err.message || err);
   } finally {
     benchRunning = false;
     if (btn) btn.disabled = false;
-    if (txt) txt.textContent = 'Run Carrier Benchmark';
+    if (txt) txt.textContent = tr('bench_run_btn', 'Run Carrier Benchmark');
   }
 }
 
 async function applyCarrierClick(carrierId) {
-  if (!confirm(`Switch both Iran & Foreign servers to carrier "${carrierId}"?`)) return;
-  toast('Applying carrier', `Synchronizing and applying ${carrierId}...`);
+  const confirmMsg = currentLang === 'fa'
+    ? `آیا از تغییر پروتکل و سوییچ تونل به «${carrierId}» اطمینان دارید؟`
+    : `Switch both Iran & Foreign servers to carrier "${carrierId}"?`;
+  if (!confirm(confirmMsg)) return;
+  toast(currentLang === 'fa' ? 'در حال اعمال پروتکل...' : 'Applying carrier', `${carrierId}...`);
   try {
     const res = await api('/api/benchmark/apply', { carrier: carrierId });
-    toastOk('Carrier Applied', res.detail || `Active carrier is now ${carrierId}`);
+    toastOk(currentLang === 'fa' ? 'پروتکل با موفقیت اعمال شد' : 'Carrier Applied', res.detail || `Active carrier is now ${carrierId}`);
     await loadBenchmark();
   } catch (err) {
-    toastErr('Apply failed', err.message || err);
+    toastErr(currentLang === 'fa' ? 'خطا در اعمال پروتکل' : 'Apply failed', err.message || err);
   }
 }
 
