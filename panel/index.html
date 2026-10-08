@@ -1145,6 +1145,28 @@
         </div>
       </section>
       <section id="tab-tunnel" role="tabpanel" hidden>
+        <div class="tunnel-card rsc" id="rescueCard" hidden aria-live="polite">
+          <div class="rsc-head">
+            <span class="rsc-ic" id="rscIc" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l9 4v5c0 5-3.8 8.4-9 9.5C6.8 20.4 3 17 3 12V7l9-4z"/><path d="M9 12l2 2 4-4"/></svg></span>
+            <div class="rsc-ttl"><p class="tc-title" id="rscTitle" data-i18n="rsc_title">Connectivity Rescue</p>
+              <span class="badge" id="rscBadge"><span class="dot"></span><span id="rscBadgeTxt">—</span></span></div>
+          </div>
+          <p class="rsc-msg" id="rscMsg"></p>
+          <div class="rsc-det" id="rscDet"></div>
+          <div class="rsc-form" id="rscForm" hidden>
+            <div class="fg"><label for="rscRemote" data-i18n="rsc_remote">Reachable server (the one that can connect to this server)</label><input class="hashem-input" id="rscRemote" inputmode="decimal" autocomplete="off" placeholder="203.0.113.10"></div>
+            <div class="fg"><label for="rscPorts" data-i18n="rsc_ports">Ports to connect (TCP + UDP)</label><input class="hashem-input" id="rscPorts" inputmode="numeric" autocomplete="off" placeholder="1020, 1030, 1040"></div>
+          </div>
+          <div class="rsc-join" id="rscJoin" hidden>
+            <div class="fg"><label for="rscCode" data-i18n="rsc_code">Rescue code from the blocked server</label><input class="hashem-input" id="rscCode" autocomplete="off" spellcheck="false" placeholder="hrc1_…"></div>
+          </div>
+          <div class="rsc-acts" id="rscActs"></div>
+        </div>
+        <div class="tunnel-card rsc-banner" id="rscBanner" hidden role="alert">
+          <span class="rsc-ic warn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg></span>
+          <div class="rsc-ban-t"><b data-i18n="rsc_ban_t">This server cannot connect to its peer</b><span data-i18n="rsc_ban_d">Ping works but every TCP connection is dropped on the way. A one-click fix reverses the connection direction.</span></div>
+          <button type="button" class="hashem-btn hashem-btn-primary" id="rscBanGo" data-i18n="rsc_ban_go">Fix it</button>
+        </div>
         <div class="tunnel-card fleet" id="fleetCard" hidden>
           <div class="fleet-hero">
             <div class="fleet-ring" id="fleetRing" role="img" aria-label="Fleet health"><b id="fleetRingNum">0/0</b></div>
@@ -2945,6 +2967,22 @@ const I18N = {
     login_pass_ph: "Password",
     login_signin: "Sign in",
     rs_header: "Live Activity Stream",
+    rsc_title: "Connectivity Rescue", rsc_remote: "Reachable server (the one that can connect to this server)", rsc_ports: "Ports to connect (TCP + UDP)",
+    rsc_code: "Rescue code from the blocked server", rsc_ban_t: "This server cannot connect to its peer",
+    rsc_ban_d: "Ping works but every TCP connection is dropped on the way. A one-click fix reverses the connection direction.", rsc_ban_go: "Fix it",
+    rsc_idle_ok: "No problem detected. If a peer can ping you but connections time out, this tool reverses the direction automatically.",
+    rsc_idle_warn: "A one-way block was detected: ping works but TCP is dropped. Enable Rescue to reverse the direction.",
+    rsc_b_off: "Off", rsc_b_susp: "Block detected", rsc_b_on: "Active", rsc_b_wait: "Waiting for peer", rsc_b_lift: "Block lifted",
+    rsc_check: "Check now", rsc_enable: "Enable Rescue", rsc_join: "Join with code", rsc_apply: "Apply code", rsc_disable: "Disable and remove",
+    rsc_cancel: "Cancel", rsc_getcode: "Show rescue code", rsc_copy: "Copy code", rsc_nocfg: "frp binaries are missing on this server. Run hashem update first.",
+    rsc_origin: "This server is the blocked side. {n} port(s) are forwarded through {ip}.", rsc_entry: "This server is the entry. {n} port(s) are served here and tunnelled to {ip}.",
+    rsc_skipped: "Skipped (busy or reserved): {p}", rsc_conn: "Control link", rsc_conn_ok: "connected", rsc_conn_no: "not connected yet",
+    rsc_svc: "Services", rsc_auto: "The other panel picks this up by itself within a few minutes if the two panels are paired. Otherwise use the code.",
+    rsc_lift: "The direct route works again. You can disable Rescue and use the normal tunnel.",
+    rsc_confirm_t: "Enable Connectivity Rescue?", rsc_confirm_b: "This starts three small services here and opens one firewalled control port. The reachable server is the only host allowed to use it. You can remove everything with one click.",
+    rsc_dis_t: "Remove Rescue?", rsc_dis_b: "The forwarded ports on the entry server stop working until the normal tunnel is up.",
+    rsc_probe_ok: "Peer reachable", rsc_probe_block: "One-way block confirmed", rsc_probe_down: "Peer unreachable (outage, not a block)", rsc_probe_svc: "Peer reachable but its panel is not listening",
+    rsc_done: "Rescue enabled", rsc_removed: "Rescue removed", rsc_copied: "Copied",
     pal_open: "Search and commands", pal_search: "Search", pal_title: "Command palette", pal_ph: "Search pages and actions…",
     pal_nav: "navigate", pal_run: "run", pal_close: "close", pal_none: "Nothing matches", pal_go: "Go to", pal_act: "Actions", pal_look: "Appearance",
     pal_refresh: "Refresh data", pal_theme: "Toggle dark / light theme", pal_lang: "Switch language", pal_stream: "Show / hide Live Activity Stream",
@@ -3330,6 +3368,22 @@ const I18N = {
     login_pass_ph: "رمز عبور",
     login_signin: "ورود به پنل",
     rs_header: "جریان زنده وقایع و لاگ‌ها",
+    rsc_title: "نجات اتصال", rsc_remote: "سرور قابل‌دسترس (سروری که می‌تواند به این سرور وصل شود)", rsc_ports: "پورت‌هایی که وصل شوند (TCP و UDP)",
+    rsc_code: "کد نجات از سرور بلاک‌شده", rsc_ban_t: "این سرور نمی‌تواند به سرور مقابل وصل شود",
+    rsc_ban_d: "پینگ جواب می‌دهد ولی همه‌ی اتصال‌های TCP در مسیر قطع می‌شوند. با یک کلیک جهت اتصال برعکس می‌شود.", rsc_ban_go: "درستش کن",
+    rsc_idle_ok: "مشکلی دیده نشد. اگر سرور مقابل پینگ می‌گیرد ولی اتصال‌ها timeout می‌شوند، این ابزار جهت را خودکار برعکس می‌کند.",
+    rsc_idle_warn: "بلاک یک‌طرفه پیدا شد: پینگ کار می‌کند ولی TCP قطع می‌شود. برای برعکس‌کردن جهت، نجات را فعال کنید.",
+    rsc_b_off: "خاموش", rsc_b_susp: "بلاک پیدا شد", rsc_b_on: "فعال", rsc_b_wait: "در انتظار سرور مقابل", rsc_b_lift: "بلاک برداشته شد",
+    rsc_check: "بررسی الان", rsc_enable: "فعال‌کردن نجات", rsc_join: "اتصال با کد", rsc_apply: "اعمال کد", rsc_disable: "غیرفعال و حذف",
+    rsc_cancel: "انصراف", rsc_getcode: "نمایش کد نجات", rsc_copy: "کپی کد", rsc_nocfg: "فایل‌های frp روی این سرور نیست. اول hashem update را اجرا کنید.",
+    rsc_origin: "این سرور طرف بلاک‌شده است. {n} پورت از طریق {ip} فوروارد می‌شود.", rsc_entry: "این سرور ورودی است. {n} پورت اینجا سرو و به {ip} تونل می‌شود.",
+    rsc_skipped: "رد شد (مشغول یا رزرو): {p}", rsc_conn: "لینک کنترلی", rsc_conn_ok: "وصل است", rsc_conn_no: "هنوز وصل نشده",
+    rsc_svc: "سرویس‌ها", rsc_auto: "اگر دو پنل جفت شده باشند، پنل مقابل ظرف چند دقیقه خودش این را برمی‌دارد. در غیر این صورت از کد استفاده کنید.",
+    rsc_lift: "مسیر مستقیم دوباره کار می‌کند. می‌توانید نجات را غیرفعال کنید و از تونل عادی استفاده کنید.",
+    rsc_confirm_t: "نجات اتصال فعال شود؟", rsc_confirm_b: "سه سرویس کوچک اینجا اجرا می‌شود و یک پورت کنترلی فایروال‌شده باز می‌شود. فقط سرور قابل‌دسترس اجازه‌ی استفاده دارد. با یک کلیک همه چیز حذف می‌شود.",
+    rsc_dis_t: "نجات حذف شود؟", rsc_dis_b: "پورت‌های فوروارد روی سرور ورودی تا بالا آمدن تونل عادی کار نمی‌کنند.",
+    rsc_probe_ok: "سرور مقابل در دسترس است", rsc_probe_block: "بلاک یک‌طرفه تأیید شد", rsc_probe_down: "سرور مقابل در دسترس نیست (قطعی، نه بلاک)", rsc_probe_svc: "سرور مقابل در دسترس است ولی پنلش گوش نمی‌دهد",
+    rsc_done: "نجات فعال شد", rsc_removed: "نجات حذف شد", rsc_copied: "کپی شد",
     pal_open: "جستجو و دستورها", pal_search: "جستجو", pal_title: "پالت دستورها", pal_ph: "جستجوی صفحه‌ها و کارها…",
     pal_nav: "حرکت", pal_run: "اجرا", pal_close: "بستن", pal_none: "موردی پیدا نشد", pal_go: "رفتن به", pal_act: "کارها", pal_look: "ظاهر",
     pal_refresh: "تازه‌سازی داده‌ها", pal_theme: "تغییر تم تیره / روشن", pal_lang: "تغییر زبان", pal_stream: "نمایش / بستن جریان زنده وقایع",
@@ -3533,6 +3587,7 @@ function applyTranslations(lang) {
   if (typeof accRender === 'function') accRender();
   if (typeof fleetRender === 'function' && typeof _fleetLast !== 'undefined' && _fleetLast) fleetRender(_fleetLast);
   if (typeof drawerSync === 'function') drawerSync();
+  try { if (typeof rscRender === 'function') rscRender(); } catch (e) { /* first call runs before the rescue state exists */ }
 }
 
 function tr(k, fb) {
@@ -7245,6 +7300,129 @@ async function loadFleet() {
   catch (e) { reportErr('fleet', e); return false; }
 }
 makePoller(async () => { if ($('app').classList.contains('hidden') || $('tab-tunnel').hidden) return true; return await loadFleet(); }, 10000);
+
+// ============================================================
+// Connectivity Rescue: detect a one-way block and reverse the dial direction.
+// Nothing is changed until the user clicks; the banner only reports.
+// ============================================================
+let _rsc = null, _rscFull = false, _rscMode = '';
+function rscSet(id, v) { const e = $(id); if (e) e.textContent = v; }
+async function loadRescue() {
+  try { _rsc = await api('/api/rescue' + (_rscFull ? '?full=1' : '')); rscRender(); return true; }
+  catch (e) { reportErr('rescue', e); return false; }
+}
+function rscBadge(kind, key) {
+  const b = $('rscBadge'); b.className = 'badge ' + kind;
+  rscSet('rscBadgeTxt', tr(key, key));
+}
+function rscBtn(id, key, cls, fn) {
+  const b = document.createElement('button'); b.type = 'button'; b.id = id; b.className = 'hashem-btn ' + cls;
+  b.textContent = tr(key, key); b.onclick = fn; return b;
+}
+function rscRender() {
+  const s = _rsc || {}, card = $('rescueCard'), ban = $('rscBanner');
+  const active = !!s.role, show = active || s.suspected || _rscMode;
+  card.hidden = !show;
+  // Banner: only on the tunnel-less detection state, and only outside the card's own tab flow.
+  ban.hidden = !(s.suspected && !active);
+  if (!show) return;
+  const acts = $('rscActs'); acts.textContent = '';
+  const det = $('rscDet'); det.textContent = '';
+  $('rscForm').hidden = _rscMode !== 'enable'; $('rscJoin').hidden = _rscMode !== 'join';
+  const ic = $('rscIc'); ic.className = 'rsc-ic' + (active ? (s.block_lifted ? ' warn' : ' ok') : (s.suspected ? ' warn' : ''));
+  let msg = '';
+  if (!s.frp_ok) msg = tr('rsc_nocfg', '');
+  if (active) {
+    if (s.role === 'origin') {
+      rscBadge(s.connected ? 'ok' : 'warn', s.connected ? 'rsc_b_on' : 'rsc_b_wait');
+      msg = msg || fleetFmt('rsc_origin', { n: (s.ports || []).length, ip: s.remote_ip });
+    } else {
+      rscBadge(s.connected ? 'ok' : 'warn', s.connected ? 'rsc_b_on' : 'rsc_b_wait');
+      msg = msg || fleetFmt('rsc_entry', { n: (s.ports || []).length, ip: s.remote_ip });
+    }
+    if (s.block_lifted) { rscBadge('warn', 'rsc_b_lift'); msg += ' ' + tr('rsc_lift', ''); }
+    const rows = [[tr('rsc_conn', ''), s.connected ? tr('rsc_conn_ok', '') : tr('rsc_conn_no', '')],
+      ['TCP/UDP', (s.ports || []).join(', ')]];
+    if (s.skipped && s.skipped.length) rows.push([tr('rsc_skipped', '').replace('{p}', '').replace(/[:：]\s*$/, ''), s.skipped.join(', ')]);
+    if (s.services) rows.push([tr('rsc_svc', ''), Object.entries(s.services).map(([k, v]) => k + (v ? ' ✓' : ' ✗')).join('  ')]);
+    rows.forEach(([k, v]) => { const d = document.createElement('div'); d.className = 'rsc-row'; const a = document.createElement('span'); a.textContent = k; const b = document.createElement('b'); b.textContent = v; d.append(a, b); det.appendChild(d); });
+    if (s.role === 'origin' && s.offer_pending) { const h = document.createElement('div'); h.className = 'qs-hint'; h.textContent = tr('rsc_auto', ''); det.appendChild(h); }
+    if (s.role === 'origin') acts.appendChild(rscBtn('rscGetCode', 'rsc_getcode', 'hashem-btn-secondary', rscShowCode));
+    acts.appendChild(rscBtn('rscDisable', 'rsc_disable', 'hashem-btn-danger', rscDisable));
+  } else if (_rscMode === 'enable') {
+    rscBadge('', 'rsc_b_off'); msg = msg || tr('rsc_idle_warn', '');
+    acts.appendChild(rscBtn('rscEnableGo', 'rsc_enable', 'hashem-btn-primary', rscEnable));
+    acts.appendChild(rscBtn('rscCancel', 'rsc_cancel', 'hashem-btn-secondary', () => { _rscMode = ''; rscRender(); }));
+  } else if (_rscMode === 'join') {
+    rscBadge('', 'rsc_b_off'); msg = msg || tr('rsc_auto', '');
+    acts.appendChild(rscBtn('rscJoinGo', 'rsc_apply', 'hashem-btn-primary', rscJoin));
+    acts.appendChild(rscBtn('rscCancel', 'rsc_cancel', 'hashem-btn-secondary', () => { _rscMode = ''; rscRender(); }));
+  } else {
+    rscBadge(s.suspected ? 'warn' : '', s.suspected ? 'rsc_b_susp' : 'rsc_b_off');
+    msg = msg || tr(s.suspected ? 'rsc_idle_warn' : 'rsc_idle_ok', '');
+    acts.appendChild(rscBtn('rscOpenEnable', 'rsc_enable', 'hashem-btn-primary', rscOpenEnable));
+    acts.appendChild(rscBtn('rscOpenJoin', 'rsc_join', 'hashem-btn-secondary', () => { _rscMode = 'join'; rscRender(); $('rscCode').focus(); }));
+    acts.appendChild(rscBtn('rscProbe', 'rsc_check', 'hashem-btn-ghost', rscProbe));
+  }
+  rscSet('rscMsg', msg);
+}
+async function rscOpenEnable() {
+  _rscFull = true; await loadRescue(); const s = _rsc || {};
+  _rscMode = 'enable';
+  if (!$('rscRemote').value && s.suggest_remote) $('rscRemote').value = s.suggest_remote;
+  if (!$('rscPorts').value && (s.suggest_ports || []).length) $('rscPorts').value = s.suggest_ports.join(', ');
+  rscRender(); $('rscRemote').focus();
+}
+async function rscProbe() {
+  const b = $('rscProbe'); if (b) b.disabled = true;
+  try {
+    const r = await api('/api/rescue', { action: 'probe' });
+    const v = r.result && r.result.verdict;
+    const k = { ok: 'rsc_probe_ok', one_way_block: 'rsc_probe_block', host_unreachable: 'rsc_probe_down', service_down: 'rsc_probe_svc' }[v] || 'rsc_probe_down';
+    (v === 'ok' ? toastOk : toastWarn)(tr(k, k));
+    await loadRescue();
+  } catch (e) { toastErr(e.message || String(e)); reportErr('rescue', e); }
+  finally { if ($('rscProbe')) $('rscProbe').disabled = false; }
+}
+async function rscEnable() {
+  if (!await entConfirm(tr('rsc_confirm_t', ''), tr('rsc_confirm_b', ''), tr('rsc_enable', ''))) return;
+  const b = $('rscEnableGo'); if (b) b.disabled = true;
+  try {
+    await api('/api/rescue', { action: 'enable', remote_ip: $('rscRemote').value.trim(), ports: $('rscPorts').value.trim() });
+    _rscMode = ''; toastOk(tr('rsc_done', '')); await loadRescue(); rscShowCode();
+  } catch (e) { toastErr(e.message || String(e)); }
+  finally { if ($('rscEnableGo')) $('rscEnableGo').disabled = false; }
+}
+async function rscJoin() {
+  const b = $('rscJoinGo'); if (b) b.disabled = true;
+  try {
+    await api('/api/rescue', { action: 'join', code: $('rscCode').value.trim() });
+    $('rscCode').value = ''; _rscMode = ''; toastOk(tr('rsc_done', '')); await loadRescue();
+  } catch (e) { toastErr(e.message || String(e)); }
+  finally { if ($('rscJoinGo')) $('rscJoinGo').disabled = false; }
+}
+async function rscDisable() {
+  if (!await entConfirm(tr('rsc_dis_t', ''), tr('rsc_dis_b', ''), tr('rsc_disable', ''))) return;
+  try { await api('/api/rescue', { action: 'disable' }); _rscMode = ''; toastOk(tr('rsc_removed', '')); await loadRescue(); }
+  catch (e) { toastErr(e.message || String(e)); }
+}
+async function rscShowCode() {
+  try {
+    const r = await api('/api/rescue', { action: 'code' });
+    const box = $('rscDet'); let row = $('rscCodeRow');
+    if (!row) { row = document.createElement('div'); row.id = 'rscCodeRow'; row.className = 'rsc-code'; box.appendChild(row); }
+    row.textContent = '';
+    const inp = document.createElement('input'); inp.className = 'hashem-input mono'; inp.readOnly = true; inp.value = r.code; inp.setAttribute('aria-label', tr('rsc_code', ''));
+    inp.onfocus = () => inp.select();
+    const cp = document.createElement('button'); cp.type = 'button'; cp.className = 'hashem-btn hashem-btn-secondary'; cp.textContent = tr('rsc_copy', '');
+    cp.onclick = () => { navigator.clipboard.writeText(r.code).then(() => toastOk(tr('rsc_copied', '')), () => { inp.select(); }); };
+    row.append(inp, cp);
+  } catch (e) { toastErr(e.message || String(e)); }
+}
+$('rscBanGo').onclick = () => { goTab('tunnel'); setTimeout(() => { $('rescueCard').scrollIntoView({ behavior: 'smooth', block: 'start' }); rscOpenEnable(); }, 80); };
+makePoller(async () => { if ($('app').classList.contains('hidden')) return true; return await loadRescue(); }, 20000);
+// First paint must not wait a whole poll interval: fetch once as soon as the app is visible.
+(function rscFirst(n) { if (!$('app').classList.contains('hidden')) { loadRescue(); return; } if (n < 40) setTimeout(() => rscFirst(n + 1), 500); })(0);
 
 // ============================================================
 // Stage 3: command palette, collapsible sidebar + alert badges,

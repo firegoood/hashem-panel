@@ -257,6 +257,10 @@ func main() {
 	mux.HandleFunc("POST "+base+"/api/peer/apply-carrier", requirePeerAuth(handlePeerApplyCarrier))
 	mux.HandleFunc("POST "+base+"/api/peer/apply-engine", requirePeerAuth(handlePeerApplyEngine))
 	mux.HandleFunc("POST "+base+"/api/peer/ping", requirePeerAuth(handlePeerPing))
+	mux.HandleFunc("GET "+base+"/api/peer/rescue-offer", requirePeerAuth(handlePeerRescueOffer))
+	mux.HandleFunc("POST "+base+"/api/peer/rescue-ack", requirePeerAuth(handlePeerRescueAck))
+	mux.HandleFunc("GET "+base+"/api/rescue", requireAuth(handleRescueGet))
+	mux.HandleFunc("POST "+base+"/api/rescue", requireAuth(requireCSRF(handleRescuePost)))
 	mux.HandleFunc("GET "+base+"/api/peer/status", requirePeerAuth(handlePeerStatus))
 	mux.HandleFunc("GET "+base+"/api/peer/config", requireAuth(handlePeerConfigGet))
 	mux.HandleFunc("POST "+base+"/api/peer/config", requireAuth(requireCSRF(handlePeerConfigPost)))
@@ -274,6 +278,7 @@ func main() {
 	go startPeerSyncWorker()
 	go startTrafficRecorder()
 	go startFleetSampler()
+	go startRescueMonitor()
 	go func() {
 		cc := loadCarrierConfig()
 		if strings.HasPrefix(cc.ActiveCarrier, "wss") {

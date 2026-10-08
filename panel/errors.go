@@ -94,6 +94,13 @@ var errCatalog = map[string]errInfo{
 	"E-SYS-01": {0, "host tool unavailable", "journalctl/systemctl/ip missing on this host."},
 	"E-SUPPORT-01": {400, "bad support request (invalid JSON)", "Reload the page and try again."},
 	"E-SUPPORT-02": {400, "unknown support action", "Use claim, close, snooze or donate."},
+	"E-RESCUE-01": {400, "bad rescue request", "Reload the page and try again."},
+	"E-RESCUE-02": {409, "no peer address known to test against", "Pair this server with its peer first (Settings > Peer link) or create a tunnel."},
+	"E-RESCUE-03": {400, "invalid port list", "Use ports like 1020, 1030 or a range 2000-2005 (max 64)."},
+	"E-RESCUE-04": {400, "cannot enable rescue", "See the message for the cause; nothing was left behind."},
+	"E-RESCUE-05": {400, "cannot apply rescue code", "Paste the full code generated on the blocked server."},
+	"E-RESCUE-06": {409, "rescue is not active on this server", "Enable rescue on the blocked server first."},
+	"E-RESCUE-07": {403, "rescue offer denied", "Only the server named when rescue was enabled may fetch the offer."},
 	// terminal (Phase 3)
 	"E-TERM-00": {0, "terminal command audit", "Informational: redacted command line from the terminal session."},
 	"E-TERM-01": {500, "cannot start shell", "bash/sh missing or PTY unavailable on this host."},

@@ -522,3 +522,34 @@ html[data-dens="compact"] .hashem-table th, html[data-dens="compact"] .hashem-ta
   .pal-esc::before { content:"\00D7"; font-size:24px; line-height:1; color:var(--tx2); font-family:var(--font); }
 }
 .pal-list { padding-bottom:20px; scroll-padding-block:8px; }
+
+/* ---- Connectivity Rescue ---- */
+.tunnel-card.rsc { gap:14px; margin-bottom:var(--ent-gap-lg, 16px); }
+.tunnel-card.rsc[hidden], .tunnel-card.rsc-banner[hidden] { display:none; }
+.tunnel-card.rsc-banner { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:14px;
+  margin-bottom:var(--ent-gap-lg, 16px); border-color:color-mix(in srgb, var(--wr) 45%, var(--ln)); background:color-mix(in srgb, var(--wr) 8%, var(--s1)); }
+.rsc-head { display:flex; align-items:center; gap:14px; }
+.rsc-ttl { display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; }
+.rsc-ic { width:44px; height:44px; flex:none; display:grid; place-items:center; border-radius:14px; background:var(--sunk); color:var(--mu); border:1px solid var(--ln2); }
+.rsc-ic svg { width:22px; height:22px; stroke-width:1.9; }
+.rsc-ic.ok { background:color-mix(in srgb, var(--ok) 14%, transparent); color:var(--ok); border-color:color-mix(in srgb, var(--ok) 40%, transparent); }
+.rsc-ic.warn { background:color-mix(in srgb, var(--wr) 14%, transparent); color:var(--wr); border-color:color-mix(in srgb, var(--wr) 40%, transparent); }
+.rsc-msg { margin:0; color:var(--tx2); font-size:var(--fs-body); line-height:1.7; overflow-wrap:anywhere; unicode-bidi:plaintext; text-align:start; }
+.rsc-det { display:grid; gap:8px; }
+.rsc-row { display:flex; justify-content:space-between; gap:12px; padding:8px 12px; border-radius:var(--r-md); background:var(--sunk); font-size:var(--fs-small); }
+.rsc-row span { color:var(--mu); flex:none; }
+.rsc-row b { color:var(--tx); font-variant-numeric:tabular-nums; text-align:end; overflow-wrap:anywhere; min-width:0; }
+.rsc-form, .rsc-join { display:grid; gap:12px; }
+.rsc-form[hidden], .rsc-join[hidden] { display:none; }
+.rsc-acts { display:flex; gap:10px; flex-wrap:wrap; }
+.rsc-code { display:flex; gap:8px; align-items:stretch; flex-wrap:wrap; }
+.rsc-code .hashem-input { flex:1 1 240px; min-width:0; font-size:12px; direction:ltr; text-align:left; }
+.rsc-ban-t { display:grid; gap:2px; min-width:0; text-align:start; }
+.rsc-ban-t b { color:var(--tx); }
+.rsc-ban-t span { color:var(--tx2); font-size:var(--fs-small); line-height:1.6; }
+@media (max-width:640px) {
+  .tunnel-card.rsc-banner { grid-template-columns:auto minmax(0,1fr); }
+  .tunnel-card.rsc-banner .hashem-btn { grid-column:1 / -1; width:100%; min-height:48px; }
+  .rsc-acts .hashem-btn { flex:1 1 100%; min-height:48px; }
+  .rsc-code .hashem-btn { flex:1 1 100%; min-height:44px; }
+}
