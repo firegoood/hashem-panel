@@ -126,6 +126,24 @@ func TestWatchdogAPIEndpoints(t *testing.T) {
 		t.Fatalf("expected auto_restart=true")
 	}
 
+	// 2c. POST /api/watchdog - set-restart-schedule
+	hVal := 4
+	restartSchedBody := watchdogPostRequest{
+		Action:       "set-restart-schedule",
+		RestartHours: &hVal,
+	}
+	bSchedData, _ := json.Marshal(restartSchedBody)
+	req = httptest.NewRequest("POST", "/api/watchdog", bytes.NewReader(bSchedData))
+	rr = httptest.NewRecorder()
+	handleWatchdogPost(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("set-restart-schedule returned %d: %s", rr.Code, rr.Body.String())
+	}
+	updatedSched := loadWatchdogConfig()
+	if updatedSched.RestartEveryHours != 4 {
+		t.Fatalf("expected restart_every_hours=4, got %d", updatedSched.RestartEveryHours)
+	}
+
 	// 3. POST /api/watchdog - bad action
 	req = httptest.NewRequest("POST", "/api/watchdog", bytes.NewReader([]byte(`{"action":"bogus"}`)))
 	rr = httptest.NewRecorder()

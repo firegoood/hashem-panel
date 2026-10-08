@@ -17,22 +17,25 @@ import (
 )
 
 type watchdogConfig struct {
-	Enabled          bool   `json:"enabled"`
-	IntervalSec      int    `json:"interval_sec"`
-	FailThreshold    int    `json:"fail_threshold"`
-	AutoRestart      bool   `json:"auto_restart"`
-	TGBotToken       string `json:"tg_bot_token"`
-	TGChatID         string `json:"tg_chat_id"`
-	TGRoute          string `json:"tg_route"`
-	TGTunnelPort     int    `json:"tg_tunnel_port"`
-	BackupEveryHours int    `json:"backup_every_hours"`
-	BackupDailyAt    string `json:"backup_daily_at"`
-	LastCheck        string `json:"last_check"`
-	ConsecFails      int    `json:"consec_fails"`
-	LastAlert        string `json:"last_alert"`
-	DownSince        int64  `json:"down_since,omitempty"`
-	LastBackup       int64  `json:"last_backup,omitempty"`
-	LastBackupDate   string `json:"last_backup_date,omitempty"`
+	Enabled           bool   `json:"enabled"`
+	IntervalSec       int    `json:"interval_sec"`
+	FailThreshold     int    `json:"fail_threshold"`
+	AutoRestart       bool   `json:"auto_restart"`
+	RestartEveryHours int    `json:"restart_every_hours"`
+	LastRestart       int64  `json:"last_restart,omitempty"`
+	LastRestartDate   string `json:"last_restart_date,omitempty"`
+	TGBotToken        string `json:"tg_bot_token"`
+	TGChatID          string `json:"tg_chat_id"`
+	TGRoute           string `json:"tg_route"`
+	TGTunnelPort      int    `json:"tg_tunnel_port"`
+	BackupEveryHours  int    `json:"backup_every_hours"`
+	BackupDailyAt     string `json:"backup_daily_at"`
+	LastCheck         string `json:"last_check"`
+	ConsecFails       int    `json:"consec_fails"`
+	LastAlert         string `json:"last_alert"`
+	DownSince         int64  `json:"down_since,omitempty"`
+	LastBackup        int64  `json:"last_backup,omitempty"`
+	LastBackupDate    string `json:"last_backup_date,omitempty"`
 }
 
 type backupItem struct {
@@ -42,37 +45,42 @@ type backupItem struct {
 }
 
 type watchdogStatusResponse struct {
-	Enabled          bool         `json:"enabled"`
-	Status           string       `json:"status"`
-	CheckResult      string       `json:"check_result"`
-	LastCheck        string       `json:"last_check"`
-	ConsecFails      int          `json:"consec_fails"`
-	FailThreshold    int          `json:"fail_threshold"`
-	AutoRestart      bool         `json:"auto_restart"`
-	TGBotTokenMasked string       `json:"tg_bot_token_masked"`
-	TGChatID         string       `json:"tg_chat_id"`
-	TGRoute          string       `json:"tg_route"`
-	TGTunnelPort     int          `json:"tg_tunnel_port"`
-	ScheduleMode     string       `json:"schedule_mode"`
-	BackupEveryHours int          `json:"backup_every_hours"`
-	BackupDailyAt    string       `json:"backup_daily_at"`
-	ScheduleHuman    string       `json:"schedule_human"`
-	Backups          []backupItem `json:"backups"`
-	TunnelPorts      []int        `json:"tunnel_ports"`
-	RecentEvents     []errEvent   `json:"recent_events"`
+	Enabled           bool         `json:"enabled"`
+	Status            string       `json:"status"`
+	CheckResult       string       `json:"check_result"`
+	LastCheck         string       `json:"last_check"`
+	ConsecFails       int          `json:"consec_fails"`
+	FailThreshold     int          `json:"fail_threshold"`
+	AutoRestart       bool         `json:"auto_restart"`
+	RestartEveryHours int          `json:"restart_every_hours"`
+	LastRestart       int64        `json:"last_restart"`
+	LastRestartDate   string       `json:"last_restart_date"`
+	NextRestartHuman  string       `json:"next_restart_human"`
+	TGBotTokenMasked  string       `json:"tg_bot_token_masked"`
+	TGChatID          string       `json:"tg_chat_id"`
+	TGRoute           string       `json:"tg_route"`
+	TGTunnelPort      int          `json:"tg_tunnel_port"`
+	ScheduleMode      string       `json:"schedule_mode"`
+	BackupEveryHours  int          `json:"backup_every_hours"`
+	BackupDailyAt     string       `json:"backup_daily_at"`
+	ScheduleHuman     string       `json:"schedule_human"`
+	Backups           []backupItem `json:"backups"`
+	TunnelPorts       []int        `json:"tunnel_ports"`
+	RecentEvents      []errEvent   `json:"recent_events"`
 }
 
 type watchdogPostRequest struct {
-	Action      string `json:"action"`
-	BotToken    string `json:"bot_token,omitempty"`
-	ChatID      string `json:"chat_id,omitempty"`
-	Route       string `json:"route,omitempty"`
-	TunnelPort  int    `json:"tunnel_port,omitempty"`
-	Mode        string `json:"mode,omitempty"`
-	Hours       int    `json:"hours,omitempty"`
-	At          string `json:"at,omitempty"`
-	File        string `json:"file,omitempty"`
-	AutoRestart *bool  `json:"auto_restart,omitempty"`
+	Action       string `json:"action"`
+	BotToken     string `json:"bot_token,omitempty"`
+	ChatID       string `json:"chat_id,omitempty"`
+	Route        string `json:"route,omitempty"`
+	TunnelPort   int    `json:"tunnel_port,omitempty"`
+	Mode         string `json:"mode,omitempty"`
+	Hours        int    `json:"hours,omitempty"`
+	At           string `json:"at,omitempty"`
+	File         string `json:"file,omitempty"`
+	AutoRestart  *bool  `json:"auto_restart,omitempty"`
+	RestartHours *int   `json:"restart_hours,omitempty"`
 }
 
 func watchdogConfigPath() string {
@@ -139,6 +147,27 @@ func formatSchedule(c watchdogConfig) string {
 		return fmt.Sprintf("Daily at %s", c.BackupDailyAt)
 	}
 	return "Disabled"
+}
+
+func formatRestartSchedule(c watchdogConfig) string {
+	if c.RestartEveryHours <= 0 {
+		return "Disabled"
+	}
+	if c.LastRestart <= 0 {
+		return fmt.Sprintf("Every %d hours (pending)", c.RestartEveryHours)
+	}
+	nextTime := time.Unix(c.LastRestart, 0).Add(time.Duration(c.RestartEveryHours) * time.Hour)
+	diff := time.Until(nextTime)
+	if diff <= 0 {
+		return fmt.Sprintf("Every %d hours (due now)", c.RestartEveryHours)
+	}
+	mins := int(diff.Minutes())
+	if mins < 60 {
+		return fmt.Sprintf("Every %d hours (in %dm)", c.RestartEveryHours, mins)
+	}
+	hours := mins / 60
+	remMins := mins % 60
+	return fmt.Sprintf("Every %d hours (in %dh %dm)", c.RestartEveryHours, hours, remMins)
 }
 
 func listBackups() []backupItem {
@@ -259,9 +288,13 @@ func handleWatchdogGet(w http.ResponseWriter, r *http.Request) {
 		CheckResult:      checkResult,
 		LastCheck:        c.LastCheck,
 		ConsecFails:      c.ConsecFails,
-		FailThreshold:    c.FailThreshold,
-		AutoRestart:      c.AutoRestart,
-		TGBotTokenMasked: maskBotToken(c.TGBotToken),
+		FailThreshold:     c.FailThreshold,
+		AutoRestart:       c.AutoRestart,
+		RestartEveryHours: c.RestartEveryHours,
+		LastRestart:       c.LastRestart,
+		LastRestartDate:   c.LastRestartDate,
+		NextRestartHuman:  formatRestartSchedule(c),
+		TGBotTokenMasked:  maskBotToken(c.TGBotToken),
 		TGChatID:         c.TGChatID,
 		TGRoute:          c.TGRoute,
 		TGTunnelPort:     c.TGTunnelPort,
@@ -422,6 +455,41 @@ func handleWatchdogPost(w http.ResponseWriter, r *http.Request) {
 		}
 		recordError("E-WD-00", "watchdog", fmt.Sprintf("Watchdog auto-restart set to %v", c.AutoRestart))
 		writeJSON(w, map[string]any{"status": "ok", "auto_restart": c.AutoRestart, "detail": "Watchdog auto-restart updated"})
+
+	case "set-restart-schedule":
+		c := loadWatchdogConfig()
+		if body.RestartHours != nil {
+			c.RestartEveryHours = *body.RestartHours
+		} else if body.Hours > 0 {
+			c.RestartEveryHours = body.Hours
+		}
+		if c.RestartEveryHours < 0 {
+			c.RestartEveryHours = 0
+		}
+		if err := saveWatchdogConfig(c); err != nil {
+			writeAPIError(w, r, "E-WD-01", "failed to save config: "+err.Error())
+			return
+		}
+		msg := "Tunnel auto-restart disabled"
+		if c.RestartEveryHours > 0 {
+			msg = fmt.Sprintf("Tunnel auto-restart scheduled every %d hours", c.RestartEveryHours)
+		}
+		recordError("E-WD-00", "watchdog", msg)
+		writeJSON(w, map[string]any{"status": "ok", "restart_every_hours": c.RestartEveryHours, "detail": msg})
+
+	case "restart-tunnel-now":
+		out, err := runWatchdogCmd("tunnel-restart-lite")
+		if err != nil {
+			recordError("E-WD-04", "watchdog", "Tunnel restart failed: "+out)
+			writeAPIError(w, r, "E-WD-04", "restart failed: "+out)
+			return
+		}
+		c := loadWatchdogConfig()
+		c.LastRestart = time.Now().Unix()
+		c.LastRestartDate = time.Now().Format("2006-01-02 15:04:05")
+		_ = saveWatchdogConfig(c)
+		recordError("E-WD-00", "watchdog", "Tunnel restarted gracefully by user")
+		writeJSON(w, map[string]string{"status": "ok", "detail": "Tunnel services restarted successfully"})
 
 	default:
 		writeAPIError(w, r, "E-WD-01", "unknown action: "+body.Action)

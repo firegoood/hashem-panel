@@ -708,6 +708,79 @@
     transform: translateY(-2px) !important;
     box-shadow: 0 12px 32px color-mix(in srgb, var(--ac) 45%, transparent) !important;
   }
+
+  /* RTL / Persian (Farsi) Layout Overrides */
+  html[dir="rtl"] {
+    direction: rtl;
+    text-align: right;
+  }
+  html[dir="rtl"] body {
+    font-family: -apple-system, BlinkMacSystemFont, "Vazirmatn", "Segoe UI", Tahoma, Roboto, Arial, sans-serif;
+  }
+  html[dir="rtl"] .sidebar {
+    border-right: none;
+    border-left: 1px solid var(--ln);
+  }
+  html[dir="rtl"] .topbar .acts {
+    margin-left: 0;
+    margin-right: auto;
+  }
+  html[dir="rtl"] .topbar .menu-btn {
+    margin-right: 0;
+    margin-left: 10px;
+  }
+  html[dir="rtl"] .sidebar-nav .nav-item {
+    text-align: right;
+    flex-direction: row;
+  }
+  html[dir="rtl"] .sidebar-nav .nav-item svg {
+    margin-right: 0;
+    margin-left: 10px;
+  }
+  html[dir="rtl"] .u-ml-auto {
+    margin-left: 0 !important;
+    margin-right: auto !important;
+  }
+  html[dir="rtl"] .drawer-head .drawer-x {
+    margin-left: 0;
+    margin-right: auto;
+  }
+  html[dir="rtl"] .modal-head {
+    flex-direction: row-reverse;
+  }
+  html[dir="rtl"] .modal-close {
+    margin-left: 0;
+    margin-right: auto;
+  }
+  html[dir="rtl"] .kpi-top, html[dir="rtl"] .chart-head {
+    flex-direction: row-reverse;
+  }
+  html[dir="rtl"] .chart-actions {
+    margin-left: 0;
+    margin-right: auto;
+  }
+  html[dir="rtl"] .chart-legend {
+    justify-content: flex-start;
+  }
+  html[dir="rtl"] .qs-step {
+    flex-direction: row;
+  }
+  html[dir="rtl"] .qs-num {
+    margin-right: 0;
+    margin-left: 12px;
+  }
+  html[dir="rtl"] .wd-hero-grid, html[dir="rtl"] .u-flex-center-wrap10, html[dir="rtl"] .u-flex-center-gap8, html[dir="rtl"] .u-flex-center-gap10 {
+    flex-direction: row;
+  }
+  html[dir="rtl"] .tc-header {
+    flex-direction: row;
+  }
+  html[dir="rtl"] .qs-actions, html[dir="rtl"] .modal-foot {
+    flex-direction: row;
+  }
+  html[dir="rtl"] .badge {
+    direction: ltr;
+  }
 </style>
 
 </head>
@@ -768,37 +841,43 @@
       <span class="brand-name">Hashem</span>
     </div>
     <nav class="sidebar-nav" id="sideNav">
-      <div class="nav-sec">Overview</div>
-      <button class="nav-item on" data-tab="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Dashboard</span></button>
-      <div class="nav-sec">Tunnel</div>
-      <button class="nav-item" data-tab="tunnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span>Tunnel</span></button>
-      <button class="nav-item" data-tab="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span>Setup</span></button>
-      <button class="nav-item" data-tab="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Logs</span></button>
-      <div class="nav-sec">System</div>
-      <button class="nav-item" data-tab="perf" id="perfNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Performance</span></button>
-      <button class="nav-item" data-tab="watchdog" id="watchdogNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span>Watchdog</span></button>
-      <button class="nav-item" data-tab="doctor" id="doctorNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span>Diagnostics</span></button>
-      <button class="nav-item" data-tab="benchmark" id="benchmarkNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span>Benchmark</span></button>
-      <button class="nav-item" data-tab="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg><span>Update</span><span class="badge info hidden u-ml-auto" id="updBadge" >new</span></button>
-      <button class="nav-item" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg><span>Settings</span></button>
-      <button class="nav-item hidden" data-tab="terminal" id="termNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span>Terminal</span><span class="term-live hidden u-ml-auto" id="termLiveDot" ></span></button>
+      <div class="nav-sec" data-i18n="sec_overview">Overview</div>
+      <button class="nav-item on" data-tab="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span data-i18n="nav_dashboard">Dashboard</span></button>
+      <div class="nav-sec" data-i18n="sec_tunnel">Tunnel</div>
+      <button class="nav-item" data-tab="tunnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span data-i18n="nav_tunnel">Tunnel</span></button>
+      <button class="nav-item" data-tab="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span data-i18n="nav_setup">Setup</span></button>
+      <button class="nav-item" data-tab="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span data-i18n="nav_logs">Logs</span></button>
+      <div class="nav-sec" data-i18n="sec_system">System</div>
+      <button class="nav-item" data-tab="perf" id="perfNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span data-i18n="nav_perf">Performance</span></button>
+      <button class="nav-item" data-tab="watchdog" id="watchdogNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span data-i18n="nav_watchdog">Watchdog</span></button>
+      <button class="nav-item" data-tab="doctor" id="doctorNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span data-i18n="nav_doctor">Diagnostics</span></button>
+      <button class="nav-item" data-tab="benchmark" id="benchmarkNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span data-i18n="nav_benchmark">Benchmark</span></button>
+      <button class="nav-item" data-tab="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg><span data-i18n="nav_update">Update</span><span class="badge info hidden u-ml-auto" id="updBadge" >new</span></button>
+      <button class="nav-item" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg><span data-i18n="nav_settings">Settings</span></button>
+      <button class="nav-item hidden" data-tab="terminal" id="termNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span data-i18n="nav_terminal">Terminal</span><span class="term-live hidden u-ml-auto" id="termLiveDot" ></span></button>
     </nav>
     <div class="sidebar-foot">
-      <button class="hashem-btn hashem-btn-secondary u-flex-1" id="themeBtn" >Theme</button>
-      <button class="hashem-btn hashem-btn-ghost" id="logoutBtn">Logout</button>
+      <button class="hashem-btn hashem-btn-secondary u-flex-1" id="themeBtn" data-i18n="theme">Theme</button>
+      <button class="hashem-btn hashem-btn-ghost" id="logoutBtn" data-i18n="logout">Logout</button>
     </div>
   </aside>
   <div class="main">
     <header class="topbar">
       <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
       <div><h1>Hashem</h1><div class="sub" id="roleLine">—</div></div>
-      <div class="acts"><button class="hashem-btn hashem-btn-secondary" id="refreshBtn">Refresh</button></div>
+      <div class="acts">
+        <button class="hashem-btn hashem-btn-ghost lang-btn" id="langToggleBtn" title="تغییر زبان / Switch Language" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:6px 12px;border:1px solid var(--ln);border-radius:8px">
+          <span id="langFlag">🇮🇷</span> <span id="langTxt">فارسی</span>
+        </button>
+        <button class="hashem-btn hashem-btn-secondary" id="refreshBtn">Refresh</button>
+      </div>
     </header>
   <div class="drawer-ov" id="drawerOv"></div>
   <aside class="drawer" id="drawer" aria-label="Menu">
     <div class="drawer-head"><span class="brand-name">Hashem</span><button class="drawer-x" id="drawerX" aria-label="Close">×</button></div>
     <nav class="drawer-nav" id="drawerNav"></nav>
     <div class="drawer-foot">
+      <button class="hashem-btn hashem-btn-secondary" id="langToggleBtnM" style="font-size:12px">🇮🇷 فارسی</button>
       <button class="hashem-btn hashem-btn-secondary u-flex-1" id="themeBtnM" >Theme</button>
       <button class="hashem-btn hashem-btn-ghost" id="logoutBtnM">Logout</button>
     </div>
@@ -807,28 +886,28 @@
       <section id="tab-dashboard">
         <div class="dash-grid ent-dense kpi-hero" id="dashGrid">
           <div class="tunnel-card kpi">
-            <div class="kpi-top"><span class="kpi-label">Traffic &amp; Speed</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span></div>
+            <div class="kpi-top"><span class="kpi-label" data-i18n="kpi_traffic">Traffic &amp; Speed</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span></div>
             <div class="kpi-val" id="kpiTraffic">N/A</div>
             <div class="kpi-sub" id="kpiTrafficSub">↑ — · ↓ —</div>
           </div>
           <div class="tunnel-card kpi">
-            <div class="kpi-top"><span class="kpi-label">Tunnel Status</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span></div>
+            <div class="kpi-top"><span class="kpi-label" data-i18n="kpi_status">Tunnel Status</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span></div>
             <div class="kpi-val" id="kpiStatus">—</div>
             <div class="kpi-sub" id="kpiStatusSub">—</div>
           </div>
           <div class="tunnel-card kpi">
-            <div class="kpi-top"><span class="kpi-label">Links (GRE / FRP)</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span></div>
+            <div class="kpi-top"><span class="kpi-label" data-i18n="kpi_links">Links (GRE / FRP)</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span></div>
             <div class="kpi-val" id="kpiLinks">—</div>
             <div class="kpi-sub" id="kpiLinksSub">—</div>
           </div>
           <div class="tunnel-card kpi">
-            <div class="kpi-top"><span class="kpi-label">Latency</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg></span></div>
+            <div class="kpi-top"><span class="kpi-label" data-i18n="kpi_latency">Latency</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg></span></div>
             <div class="kpi-val" id="kpiPing">N/A</div>
             <div class="kpi-sub" id="kpiPingSub">—</div>
           </div>
           <div class="tunnel-card dash-span chart-card" id="chartCard">
             <div class="chart-head">
-              <div><p class="chart-title">Tunnel Traffic Throughput</p><div class="chart-sub" id="chartHint">Real-time download and upload speeds over time</div></div>
+              <div><p class="chart-title" data-i18n="chart_traffic_title">Tunnel Traffic Throughput</p><div class="chart-sub" id="chartHint" data-i18n="chart_traffic_sub">Real-time download and upload speeds over time</div></div>
               <div class="chart-actions">
                 <div class="chart-live-badge" id="chartLiveBadge"><span class="live-dot"></span><span class="live-txt">LIVE</span></div>
                 <div class="chart-filters" role="group" aria-label="Range">
@@ -840,7 +919,7 @@
             </div>
             <div class="chart-down hidden" id="chartDown">🔴 Tunnel is down — no live traffic. History below is stale until the tunnel comes back up.</div>
             <canvas id="trafficChart" height="260"></canvas>
-            <div class="chart-legend"><span><i class="sw sw-dl"></i>Download</span><span><i class="sw sw-ul"></i>Upload</span></div>
+            <div class="chart-legend"><span><i class="sw sw-dl"></i><span data-i18n="download">Download</span></span><span><i class="sw sw-ul"></i><span data-i18n="upload">Upload</span></span></div>
             <div class="warnbox hidden" id="tunnelWarn"></div>
           </div>
           <div class="tunnel-card dash-span chart-card" id="activityCard">
@@ -854,25 +933,25 @@
             <div class="chart-legend"><span style="color:#10b981"><i class="sw" style="background:#10b981;box-shadow:0 0 6px rgba(16,185,129,.45)"></i>Active Connections</span></div>
           </div>
           <div class="tunnel-card kpi">
-            <div class="kpi-top"><span class="kpi-label">CPU</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span></div>
+            <div class="kpi-top"><span class="kpi-label" data-i18n="kpi_cpu">CPU</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span></div>
             <div class="kpi-val" id="kpiCpu">N/A</div>
             <div class="kpi-sub" id="kpiCpuSub">—</div>
             <div class="sysbar"><i id="cpuBar"></i></div>
           </div>
           <div class="tunnel-card kpi">
-            <div class="kpi-top"><span class="kpi-label">RAM</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 7v10h16V7M4 7l2-3h12l2 3"/></svg></span></div>
+            <div class="kpi-top"><span class="kpi-label" data-i18n="kpi_ram">RAM</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 7v10h16V7M4 7l2-3h12l2 3"/></svg></span></div>
             <div class="kpi-val" id="kpiRam">N/A</div>
             <div class="kpi-sub" id="kpiRamSub">—</div>
             <div class="sysbar"><i id="ramBar"></i></div>
           </div>
           <div class="tunnel-card kpi">
-            <div class="kpi-top"><span class="kpi-label">Disk</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg></span></div>
+            <div class="kpi-top"><span class="kpi-label" data-i18n="kpi_disk">Disk</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg></span></div>
             <div class="kpi-val" id="kpiDisk">N/A</div>
             <div class="kpi-sub" id="kpiDiskSub">—</div>
             <div class="sysbar"><i id="diskBar"></i></div>
           </div>
           <div class="tunnel-card kpi">
-            <div class="kpi-top"><span class="kpi-label">Uptime / Conns</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span></div>
+            <div class="kpi-top"><span class="kpi-label" data-i18n="kpi_conns">Uptime / Conns</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span></div>
             <div class="kpi-val" id="kpiUp">N/A</div>
             <div class="kpi-sub" id="kpiUpSub">—</div>
           </div>
@@ -880,7 +959,7 @@
             <div class="tc-header">
               <div class="det-head-live">
                 <span class="det-pulse"></span>
-                <p class="tc-title">Details</p>
+                <p class="tc-title" data-i18n="details">Details</p>
               </div>
               <span class="det-checked" id="dashChecked">—</span>
             </div>
@@ -1434,6 +1513,33 @@
             <button class="hashem-btn hashem-btn-secondary" id="wdTestTgBtn">Test Alert</button>
           </div>
           <div class="qs-hint" id="wdTgMsg"></div>
+        </div>
+
+        <!-- Tunnel Auto-Restart Scheduler Card -->
+        <div class="tunnel-card" id="wdRestartCard">
+          <div class="tc-header">
+            <p class="tc-title" data-i18n="wd_restart_title">Tunnel Auto-Restart Schedule</p>
+            <span class="badge" id="wdRestartBadge">Disabled</span>
+          </div>
+          <div class="qs-hint" data-i18n="wd_restart_hint">Periodically refreshes the tunnel interfaces and restarts FRP/Backhaul relay services gracefully without interrupting the web panel or losing configuration.</div>
+          <div class="fg">
+            <label for="wdRestartHoursSelect" data-i18n="wd_restart_interval">Restart Interval</label>
+            <div class="u-flex-center-wrap10">
+              <select class="hashem-input u-max-w-260" id="wdRestartHoursSelect">
+                <option value="0">Disabled (Off)</option>
+                <option value="1">Every 1 Hour</option>
+                <option value="3">Every 3 Hours</option>
+                <option value="6">Every 6 Hours</option>
+                <option value="12">Every 12 Hours</option>
+                <option value="24">Every 24 Hours (Daily)</option>
+                <option value="custom">Custom Hours…</option>
+              </select>
+              <input type="number" class="hashem-input u-max-w-140 hidden" id="wdRestartCustomHours" min="1" max="720" placeholder="Hours (e.g. 4)">
+              <button class="hashem-btn hashem-btn-primary" id="wdSaveRestartSchedBtn" data-i18n="wd_restart_save">Save Schedule</button>
+              <button class="hashem-btn hashem-btn-secondary" id="wdRestartTunnelNowBtn" data-i18n="wd_restart_now">Restart Tunnel Now</button>
+            </div>
+          </div>
+          <div class="wd-stat-sub u-mt-8" id="wdRestartStatusSub">Next restart: Not scheduled</div>
         </div>
 
         <!-- Encrypted Backups card -->
@@ -2181,6 +2287,195 @@ function setTheme(t) {
 }
 $('themeBtn').onclick = () => setTheme(document.body.dataset.t === 'dark' ? 'light' : 'dark');
 try { setTheme(localStorage.getItem('gre_theme') || document.body.dataset.t || 'dark'); } catch(e) {}
+
+// i18n & Persian (Farsi) Language System
+const I18N = {
+  en: {
+    nav_dashboard: "Dashboard",
+    nav_tunnel: "Tunnel",
+    nav_setup: "Setup",
+    nav_logs: "Logs",
+    nav_perf: "Performance",
+    nav_watchdog: "Watchdog",
+    nav_doctor: "Diagnostics",
+    nav_benchmark: "Benchmark",
+    nav_update: "Update",
+    nav_settings: "Settings",
+    nav_terminal: "Terminal",
+    sec_overview: "Overview",
+    sec_tunnel: "Tunnel",
+    sec_system: "System",
+    theme: "Theme",
+    logout: "Logout",
+    refresh: "Refresh",
+    kpi_traffic: "Traffic & Speed",
+    kpi_status: "Tunnel Status",
+    kpi_links: "Links (GRE / FRP)",
+    kpi_latency: "Latency",
+    kpi_cpu: "CPU",
+    kpi_ram: "RAM",
+    kpi_disk: "Disk",
+    kpi_conns: "Uptime / Conns",
+    details: "Details",
+    chart_traffic_title: "Tunnel Traffic Throughput",
+    chart_traffic_sub: "Real-time download and upload speeds over time",
+    chart_activity_title: "Tunnel Activity & Connections",
+    chart_activity_sub: "Active concurrent connections and session stream over time",
+    download: "Download",
+    upload: "Upload",
+    wd_title: "Tunnel Watchdog",
+    wd_hint: "Monitors GRE ping and FRP service every 1 minute. Sends Telegram alerts and optional auto-restart after consecutive failures.",
+    wd_autorestart_label: "Auto-Restart on Failure",
+    wd_autorestart_sub: "(Disabled by default to prevent CPU spike storms; alerts only)",
+    wd_health: "Tunnel Health",
+    wd_fails: "Consecutive Fails",
+    wd_last_check: "Last Check",
+    wd_restart_title: "Tunnel Auto-Restart Schedule",
+    wd_restart_hint: "Periodically refreshes the tunnel interfaces and restarts FRP/Backhaul relay services gracefully without interrupting the web panel or losing configuration.",
+    wd_restart_interval: "Restart Interval",
+    wd_restart_save: "Save Schedule",
+    wd_restart_now: "Restart Tunnel Now",
+    wd_tg_title: "Telegram Alerts",
+    wd_tg_hint: "Receive instant Telegram notifications when the tunnel drops or recovers. Middle of bot token is never exposed.",
+    wd_tg_token: "Bot Token",
+    wd_tg_chat: "Chat ID",
+    wd_tg_route: "Telegram Route",
+    wd_tg_save: "Save Telegram Settings",
+    wd_tg_test: "Test Alert",
+    wd_backup_title: "Encrypted Backups",
+    wd_backup_hint: "Full backup of FRP tomls, panel settings, peers registry, and systemd units encrypted with OpenSSL AES-256-CBC keyed from your panel password.",
+    wd_backup_now: "Create Backup Now",
+    wd_backup_sched: "Backup Schedule",
+    wd_backup_save: "Save Schedule",
+    wd_events_title: "Watchdog Event Log",
+    edit_tunnel_title: "Edit Tunnel",
+    edit_tunnel_sub: "Modify tunnel parameters, carrier protocol, or forwarded ports. Changes apply immediately.",
+    carrier_title: "Carrier Selection / Policy",
+    save_carrier: "Save Mode",
+    connect_iran: "Connect to Iran",
+    reverse_ports: "Reverse ports (ranges & mappings allowed)",
+    disabled: "Disabled",
+    enabled: "Enabled",
+    save: "Save",
+    cancel: "Cancel",
+    close: "Close"
+  },
+  fa: {
+    nav_dashboard: "داشبورد",
+    nav_tunnel: "تونل",
+    nav_setup: "راه‌اندازی (Setup)",
+    nav_logs: "گزارش‌ها (Logs)",
+    nav_perf: "عملکرد سیستم",
+    nav_watchdog: "دیده‌بان و زمان‌بندی",
+    nav_doctor: "عیب‌یابی شبکه",
+    nav_benchmark: "بنچمارک کیفیت",
+    nav_update: "به‌روزرسانی",
+    nav_settings: "تنظیمات",
+    nav_terminal: "ترمینال",
+    sec_overview: "نمای کلی",
+    sec_tunnel: "مدیریت تونل",
+    sec_system: "سیستم و نظارت",
+    theme: "تغییر تم",
+    logout: "خروج",
+    refresh: "بازخوانی",
+    kpi_traffic: "ترافیک و سرعت",
+    kpi_status: "وضعیت تونل",
+    kpi_links: "لینک‌ها (GRE / FRP)",
+    kpi_latency: "تاخیر (پینگ)",
+    kpi_cpu: "پردازنده (CPU)",
+    kpi_ram: "حافظه (RAM)",
+    kpi_disk: "دیسک",
+    kpi_conns: "اتصالات فعال / آپ‌تایم",
+    details: "جزئیات فنی",
+    chart_traffic_title: "نرخ ترافیک عبوری تونل",
+    chart_traffic_sub: "سرعت لحظه‌ای دانلود و آپلود بر بستر تونل در طول زمان",
+    chart_activity_title: "فعالیت تونل و اتصالات زنده",
+    chart_activity_sub: "تعداد کانکشن‌های فعال همزمان و استریم سشن‌ها",
+    download: "دانلود",
+    upload: "آپلود",
+    wd_title: "دیده‌بان سلامت تونل (Watchdog)",
+    wd_hint: "بررسی خودکار پینگ GRE و وضعیت سرویس‌ها در هر ۱ دقیقه. ارسال هشدارهای آنی تلگرام و ری‌استارت اختیاری در صورت قطعی مکرر.",
+    wd_autorestart_label: "ری‌استارت خودکار در صورت قطعی",
+    wd_autorestart_sub: "(پیش‌فرض خاموش برای جلوگیری از پرش مصرف پردازنده؛ فقط هشدار)",
+    wd_health: "سلامت تونل",
+    wd_fails: "خطاهای متوالی",
+    wd_last_check: "آخرین بررسی",
+    wd_restart_title: "زمان‌بندی ری‌استارت دوره‌ای تونل (Scheduler)",
+    wd_restart_hint: "بازنشانی خودکار و نرم اینترفیس‌های تونل و سرویس‌های FRP/Backhaul در بازه‌های زمانی معین بدون قطعی وب‌پنل یا از دست رفتن تنظیمات.",
+    wd_restart_interval: "بازه زمانی ری‌استارت",
+    wd_restart_save: "ذخیره زمان‌بندی",
+    wd_restart_now: "ری‌استارت اکنون تونل",
+    wd_tg_title: "هشدارهای تلگرام",
+    wd_tg_hint: "دریافت نوتیفیکیشن آنی تلگرام هنگام قطعی یا وصل مجدد تونل. توکن ربات به صورت ایمن نگهداری می‌شود.",
+    wd_tg_token: "توکن ربات تلگرام",
+    wd_tg_chat: "شناسه چت (Chat ID)",
+    wd_tg_route: "مسیر ارسال تلگرام",
+    wd_tg_save: "ذخیره تنظیمات تلگرام",
+    wd_tg_test: "ارسال پیام تست",
+    wd_backup_title: "پشتیبان‌گیری رمزنگاری‌شده (Backup)",
+    wd_backup_hint: "پشتیبان‌گیری کامل از فایل‌های کانفیگ، تنظیمات، رجیستری پیرها و سرویس‌ها با رمزنگاری AES-256.",
+    wd_backup_now: "ایجاد نسخه پشتیبان اکنون",
+    wd_backup_sched: "زمان‌بندی پشتیبان‌گیری",
+    wd_backup_save: "ذخیره زمان‌بندی",
+    wd_events_title: "لاگ وقایع دیده‌بان",
+    edit_tunnel_title: "ویرایش مشخصات تونل",
+    edit_tunnel_sub: "تغییر پارامترها، پروتکل کریر یا پورت‌های فوروارد شده. تغییرات بلافاصله اعمال می‌شوند.",
+    carrier_title: "انتخاب و مدیریت کریر (Carrier)",
+    save_carrier: "ذخیره حالت",
+    connect_iran: "اتصال به سرور ایران",
+    reverse_ports: "پورت‌های معکوس (تکی، رنج یا نگاشت)",
+    disabled: "غیرفعال",
+    enabled: "فعال",
+    save: "ذخیره",
+    cancel: "انصراف",
+    close: "بستن"
+  }
+};
+
+let currentLang = 'en';
+
+function setLanguage(lang) {
+  currentLang = lang;
+  try { localStorage.setItem('hashem_lang', lang); } catch(e) {}
+  const isFa = lang === 'fa';
+  document.documentElement.setAttribute('dir', isFa ? 'rtl' : 'ltr');
+  document.documentElement.setAttribute('lang', lang);
+  document.body.classList.toggle('is-rtl', isFa);
+  
+  const b = $('langToggleBtn');
+  if (b) {
+    b.innerHTML = isFa ? '<span id="langFlag">🇬🇧</span> <span id="langTxt">English</span>' : '<span id="langFlag">🇮🇷</span> <span id="langTxt">فارسی</span>';
+  }
+  const bm = $('langToggleBtnM');
+  if (bm) {
+    bm.innerHTML = isFa ? '🇬🇧 English' : '🇮🇷 فارسی';
+  }
+  
+  applyTranslations(lang);
+}
+
+function applyTranslations(lang) {
+  const dict = I18N[lang] || I18N.en;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.dataset.i18n;
+    if (dict[key]) {
+      if (el.tagName === 'INPUT' && (el.type === 'button' || el.type === 'submit')) {
+        el.value = dict[key];
+      } else {
+        el.textContent = dict[key];
+      }
+    }
+  });
+  if (typeof drawerSync === 'function') drawerSync();
+}
+
+function toggleLang() {
+  setLanguage(currentLang === 'fa' ? 'en' : 'fa');
+}
+
+if ($('langToggleBtn')) $('langToggleBtn').onclick = toggleLang;
+if ($('langToggleBtnM')) $('langToggleBtnM').onclick = toggleLang;
+try { setLanguage(localStorage.getItem('hashem_lang') || 'en'); } catch(e) {}
 
 function dot(ok) { return `<span class="dot ${ok ? 'up' : 'down'}"></span>`; }
 // Shared detail-card icons + builder (Dashboard AND peer cards use these;
@@ -4839,6 +5134,38 @@ async function loadWatchdog() {
       }
     }
 
+    // Tunnel Auto-Restart Scheduler card
+    const rBadge = $('wdRestartBadge');
+    const rSel = $('wdRestartHoursSelect');
+    const rCustom = $('wdRestartCustomHours');
+    const rSub = $('wdRestartStatusSub');
+    const rHours = s.restart_every_hours || 0;
+    if (rBadge) {
+      if (rHours > 0) {
+        rBadge.textContent = 'Every ' + rHours + 'h';
+        rBadge.className = 'badge ok';
+      } else {
+        rBadge.textContent = 'Disabled';
+        rBadge.className = 'badge';
+      }
+    }
+    if (rSel) {
+      const known = [0, 1, 3, 6, 12, 24];
+      if (known.includes(rHours)) {
+        rSel.value = String(rHours);
+        if (rCustom) rCustom.classList.add('hidden');
+      } else {
+        rSel.value = 'custom';
+        if (rCustom) {
+          rCustom.value = rHours;
+          rCustom.classList.remove('hidden');
+        }
+      }
+    }
+    if (rSub) {
+      rSub.textContent = 'Next restart: ' + (s.next_restart_human || 'Not scheduled') + (s.last_restart_date ? ' · Last run: ' + s.last_restart_date : '');
+    }
+
     // Backup schedule
     $('wdSchedBadge').textContent = s.schedule_human || 'Off';
     $('wdSchedBadge').className = 'badge ' + (s.schedule_mode !== 'off' ? 'info' : '');
@@ -5025,6 +5352,66 @@ $('wdSaveSchedBtn').onclick = async () => {
     toastErr('save schedule failed', e.message);
   }
 };
+
+// Tunnel Auto-Restart Scheduler listeners
+if ($('wdRestartHoursSelect')) {
+  $('wdRestartHoursSelect').onchange = () => {
+    if ($('wdRestartHoursSelect').value === 'custom') {
+      $('wdRestartCustomHours').classList.remove('hidden');
+      $('wdRestartCustomHours').focus();
+    } else {
+      $('wdRestartCustomHours').classList.add('hidden');
+    }
+  };
+}
+
+if ($('wdSaveRestartSchedBtn')) {
+  $('wdSaveRestartSchedBtn').onclick = async () => {
+    const selVal = $('wdRestartHoursSelect').value;
+    let hours = 0;
+    if (selVal === 'custom') {
+      hours = parseInt($('wdRestartCustomHours').value) || 0;
+      if (hours < 1) {
+        toastWarn('Invalid hours', 'Please specify a positive integer for custom hours.');
+        return;
+      }
+    } else {
+      hours = parseInt(selVal) || 0;
+    }
+    setBtnLoading($('wdSaveRestartSchedBtn'), true, 'Saving…');
+    try {
+      const res = await api('/api/watchdog', { action: 'set-restart-schedule', restart_hours: hours });
+      toastOk(res.detail || 'Schedule saved');
+      loadWatchdog();
+    } catch(e) {
+      toastErr('Failed to save schedule', e.message);
+    } finally {
+      setBtnLoading($('wdSaveRestartSchedBtn'), false);
+    }
+  };
+}
+
+if ($('wdRestartTunnelNowBtn')) {
+  $('wdRestartTunnelNowBtn').onclick = async () => {
+    const ok = await entConfirm({
+      title: 'Restart Tunnel Services?',
+      body: 'This will perform a graceful soft-restart of GRE interface and FRP/Backhaul relay services. The web panel will stay online.',
+      yesText: 'Restart Tunnel',
+      noText: 'Cancel'
+    });
+    if (!ok) return;
+    setBtnLoading($('wdRestartTunnelNowBtn'), true, 'Restarting…');
+    try {
+      const res = await api('/api/watchdog', { action: 'restart-tunnel-now' });
+      toastOk('Tunnel Restarted', res.detail || 'Services refreshed successfully');
+      loadWatchdog();
+    } catch(e) {
+      toastErr('Restart failed', e.message);
+    } finally {
+      setBtnLoading($('wdRestartTunnelNowBtn'), false);
+    }
+  };
+}
 
 $('wdBackupNowBtn').onclick = async () => {
   const btn = $('wdBackupNowBtn');

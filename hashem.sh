@@ -5600,6 +5600,9 @@ init_watchdog_json() {
   "interval_sec": 60,
   "fail_threshold": 2,
   "auto_restart": false,
+  "restart_every_hours": 0,
+  "last_restart": 0,
+  "last_restart_date": "",
   "tg_bot_token": "",
   "tg_chat_id": "",
   "tg_route": "direct",
@@ -5864,6 +5867,8 @@ try:
     backup_daily = d.get("backup_daily_at", "").strip()
     last_backup = int(d.get("last_backup", 0))
     last_bdate = d.get("last_backup_date", "")
+    restart_every = int(d.get("restart_every_hours", 0))
+    last_restart = int(d.get("last_restart", 0))
     now = int(time.time())
     do_backup = False
     if backup_every > 0:
@@ -5874,14 +5879,19 @@ try:
         cur_date = time.strftime("%Y-%m-%d")
         if cur_hm == backup_daily and last_bdate != cur_date:
             do_backup = True
-    print(f"{enabled} {do_backup}")
+    do_restart = False
+    if restart_every > 0:
+        if (now - last_restart) >= (restart_every * 3600):
+            do_restart = True
+    print(f"{enabled} {do_backup} {do_restart}")
 except Exception as e:
-    print("False False")
+    print("False False False")
 ' 2>/dev/null)
 
     local IS_ENABLED="False"
     local DO_BACKUP="False"
-    read -r IS_ENABLED DO_BACKUP <<< "$TICK_ACTION"
+    local DO_RESTART_SCHED="False"
+    read -r IS_ENABLED DO_BACKUP DO_RESTART_SCHED <<< "$TICK_ACTION"
 
     if [[ "$IS_ENABLED" == "True" || "$IS_ENABLED" == "true" ]]; then
         local CHECK_OUT
@@ -5971,6 +5981,26 @@ try:
         d = json.load(f)
     d["last_backup"] = int(time.time())
     d["last_backup_date"] = time.strftime("%Y-%m-%d")
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f, indent=2)
+    import os
+    os.replace(path + ".tmp", path)
+    os.chmod(path, 0o600)
+except Exception:
+    pass
+' 2>/dev/null || true
+    fi
+
+    if [[ "$DO_RESTART_SCHED" == "True" || "$DO_RESTART_SCHED" == "true" ]]; then
+        restart_all_lite >/dev/null 2>&1 || true
+        python3 -c '
+import json, time
+path = "'"$WATCHDOG_FILE"'"
+try:
+    with open(path) as f:
+        d = json.load(f)
+    d["last_restart"] = int(time.time())
+    d["last_restart_date"] = time.strftime("%Y-%m-%d %H:%M:%S")
     with open(path + ".tmp", "w") as f:
         json.dump(d, f, indent=2)
     import os
@@ -7766,6 +7796,7 @@ if [[ $# -gt 0 ]]; then
         peer-list) peer_list ;;
         logs) show_logs ;;
         restart) restart_all ;;
+        restart-lite|tunnel-restart-lite) restart_all_lite; echo -e "${GREEN}[✔️] Tunnel services restarted successfully.${NC}" ;;
         perf) shift; cli_perf "$@" ;;
         chaff) shift; cli_chaff "$@" ;;
         dpi-shield|dpi_shield|dpishield) shift; cli_dpi_shield "$@" ;;
