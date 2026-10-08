@@ -19,7 +19,13 @@
     var t = localStorage.getItem('gre_theme') || 'dark';
     document.documentElement.dataset.t = t;
     document.addEventListener('DOMContentLoaded', function () { document.body.dataset.t = t; });
-  } catch (e) {}
+  } catch (e) { /* storage blocked: keep default dark theme */ }
+  /* Language/direction before first paint (same key setLanguage() persists) so RTL never flashes LTR. */
+  try {
+    var l = localStorage.getItem('hashem_lang') || 'en';
+    document.documentElement.lang = l;
+    document.documentElement.dir = l === 'fa' ? 'rtl' : 'ltr';
+  } catch (e) { /* storage blocked: stay LTR/en */ }
 </script>
 <style>
   :root {
@@ -175,7 +181,7 @@
   .chart-live-badge {
     display:inline-flex; align-items:center; gap:6px;
     padding:4px 9px; border-radius:99px;
-    font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+    font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
     line-height:1; font-variant-numeric:tabular-nums;
     background:rgba(56,189,248,.09); border:1px solid rgba(56,189,248,.25);
     color:#38bdf8; -webkit-user-select:none; user-select:none;
@@ -209,7 +215,7 @@
     transition:background .18s ease, color .18s ease; }
   .chart-filters button[aria-pressed="true"] { background:var(--ac); color:var(--ac-on); }
   /* Sidebar sections */
-  .nav-sec { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  .nav-sec { font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
     color:var(--dim); padding:12px 12px 4px; }
   .nav-sec:first-child { padding-top:2px; }
   /* Chart card — Total Traffic & Activity (dark, premium) */
@@ -237,7 +243,7 @@
   /* Glass tooltip */
   .ent-chart-tip {
     position:absolute; z-index:40; pointer-events:none; display:none; align-items:center; gap:8px;
-    padding:6px 12px; border-radius:9px; font-size:11.5px; font-weight:500; line-height:1; white-space:nowrap;
+    padding:6px 12px; border-radius:9px; font-size:12px; font-weight:500; line-height:1; white-space:nowrap;
     background:rgba(18, 18, 20, 0.82); -webkit-backdrop-filter:blur(14px) saturate(160%); backdrop-filter:blur(14px) saturate(160%);
     border:1px solid rgba(255, 255, 255, 0.12); color:var(--tx);
     box-shadow:0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -355,10 +361,10 @@
     background:linear-gradient(180deg, color-mix(in srgb, var(--sunk) 70%, transparent), var(--sunk));
     border:1px solid var(--ln); box-shadow:inset 0 1px 0 rgba(255,255,255,.05); transition:border-color .2s ease; }
   .det-card:hover { border-color:var(--ln2); }
-  .det-head { display:flex; align-items:center; gap:8px; font-size:11.5px; font-weight:700;
+  .det-head { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700;
     letter-spacing:.07em; text-transform:uppercase; color:var(--mu); }
   /* peer cards reuse the same header look (class alias, same rules) */
-  .det-card-head { display:flex; align-items:center; gap:8px; font-size:11.5px; font-weight:700;
+  .det-card-head { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700;
     letter-spacing:.07em; text-transform:uppercase; color:var(--mu); }
   .det-card-head svg { width:26px; height:26px; padding:6px; border-radius:8px; flex:none;
     background:var(--ac-soft); border:1px solid var(--ac-b22); color:var(--ac); }
@@ -393,7 +399,7 @@
   /* main tunnel card: gold left accent so it stands apart from peer cards */
   .main-card { border-left:3px solid var(--wr); }
   .det-copy { border:1px solid var(--ln); background:var(--s2); color:var(--mu); border-radius:7px;
-    font-size:11px; font-weight:700; padding:3px 8px; cursor:pointer; transition:all .15s ease; }
+    font-size:12px; font-weight:700; padding:3px 8px; cursor:pointer; transition:all .15s ease; }
   .det-copy:hover { color:var(--tx); border-color:var(--ac); }
   .det-copy.ok { color:var(--ok); border-color:var(--ok-b50); }
   .det-head-live { display:flex; align-items:center; gap:8px; }
@@ -423,7 +429,7 @@
   .drawer-head .brand-name { font-weight:700; letter-spacing:.05em; color:var(--tx); }
   .drawer-x { margin-left:auto; border:0; background:transparent; color:var(--mu); font-size:22px; cursor:pointer; padding:4px 8px; }
   .drawer-nav { padding:12px; display:flex; flex-direction:column; gap:4px; flex:1; overflow-y:auto; }
-  .drawer-nav .nav-sec { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  .drawer-nav .nav-sec { font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
     color:var(--mu); padding:10px 12px 4px; }
   .drawer-nav .nav-item { width:100%; }
   /* per-tunnel health chips shown under the Status card */
@@ -479,7 +485,7 @@
     box-shadow:0 8px 24px rgba(2,132,199,.45); opacity:.96; }
   #login #loginBtn:active { transform:translateY(0) scale(.99); }
   #loginErr { color:#ff453a; font-size:13px; min-height:20px; margin:12px 0 0; }
-  #login .foot { margin-top:22px; color:#71717a; font-size:11.5px; letter-spacing:.02em; }
+  #login .foot { margin-top:22px; color:#71717a; font-size:12px; letter-spacing:.02em; }
   #login .foot b { color:#e4e4e7; font-weight:600; }
   .hidden { display:none !important; }
   .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
@@ -487,7 +493,7 @@
   /* Watchdog & Backup styles */
   .wd-hero-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-top:8px; }
   .wd-stat-box { background:var(--sunk); border:1px solid var(--ln); border-radius:var(--r); padding:12px; display:flex; flex-direction:column; gap:4px; }
-  .wd-stat-label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); font-weight:600; }
+  .wd-stat-label { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); font-weight:600; }
   .wd-stat-val { font-size:18px; font-weight:700; color:var(--tx); }
   .wd-stat-sub { font-size:var(--fs-small); color:var(--mu); }
   .wd-radio-group { display:flex; gap:16px; flex-wrap:wrap; margin-top:6px; }
@@ -501,7 +507,7 @@
   .wd-backup-acts { display:flex; gap:6px; flex-wrap:wrap; }
   .wd-event-log { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
   .wd-event-item { display:flex; gap:10px; align-items:flex-start; padding:8px 10px; border-radius:var(--r); background:var(--sunk); border:1px solid var(--ln); font-size:var(--fs-small); }
-  .wd-event-time { color:var(--mu); font-family:var(--font-mono); font-size:11px; flex:none; white-space:nowrap; }
+  .wd-event-time { color:var(--mu); font-family:var(--font-mono); font-size:12px; flex:none; white-space:nowrap; }
   .wd-event-detail { color:var(--tx2); flex:1; word-break:break-word; }
   @media (max-width:480px) {
     .wd-hero-grid { grid-template-columns:1fr; }
@@ -518,7 +524,7 @@
   .doc-score-circle.warning { border-color:var(--wr); color:var(--wr); }
   .doc-score-circle.critical { border-color:var(--er); color:var(--er); }
   .doc-score-num { font-size:28px; font-weight:800; line-height:1; font-family:var(--font-mono); color:var(--tx); }
-  .doc-score-total { font-size:11px; color:var(--mu); font-weight:600; margin-top:2px; }
+  .doc-score-total { font-size:12px; color:var(--mu); font-weight:600; margin-top:2px; }
   .doc-hero-meta { display:flex; flex-direction:column; gap:6px; min-width:0; }
   .doc-hero-acts { display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
   .doc-hero-acts .hashem-btn { display:inline-flex !important; align-items:center !important; justify-content:center !important; gap:8px !important; white-space:nowrap; padding:8px 16px !important; }
@@ -642,7 +648,7 @@
     overflow-y: auto;
     padding: 16px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--mu);
     display: flex;
     flex-direction: column;
@@ -831,7 +837,12 @@
   .bench-hero-card {
     padding: 24px !important;
     border-radius: 16px !important;
+    min-width: 0;
+    max-width: 100%;
   }
+  #tab-benchmark { min-width: 0; max-width: 100%; }
+  .bench-table-wrap { max-width: 100%; }
+  @media (max-width: 480px) { .bench-hero-card { padding: 16px !important; } }
   .bench-stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -868,7 +879,7 @@
   }
   #benchTable th {
     padding: 14px 18px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -921,7 +932,7 @@
     align-items: center;
     padding: 3px 8px;
     border-radius: 6px;
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.03em;
     font-family: var(--font-mono);
@@ -985,21 +996,21 @@
       </svg>
       <span class="brand-name">Hashem</span>
     </div>
-    <nav class="sidebar-nav" id="sideNav">
-      <div class="nav-sec" data-i18n="sec_overview">Overview</div>
-      <button class="nav-item on" data-tab="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span data-i18n="nav_dashboard">Dashboard</span></button>
-      <div class="nav-sec" data-i18n="sec_tunnel">Tunnel</div>
-      <button class="nav-item" data-tab="tunnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span data-i18n="nav_tunnel">Tunnel</span></button>
-      <button class="nav-item" data-tab="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span data-i18n="nav_setup">Setup</span></button>
-      <button class="nav-item" data-tab="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span data-i18n="nav_logs">Logs</span></button>
-      <div class="nav-sec" data-i18n="sec_system">System</div>
-      <button class="nav-item" data-tab="perf" id="perfNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span data-i18n="nav_perf">Performance</span></button>
-      <button class="nav-item" data-tab="watchdog" id="watchdogNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span data-i18n="nav_watchdog">Watchdog</span></button>
-      <button class="nav-item" data-tab="doctor" id="doctorNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span data-i18n="nav_doctor">Diagnostics</span></button>
-      <button class="nav-item" data-tab="benchmark" id="benchmarkNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span data-i18n="nav_benchmark">Benchmark</span></button>
-      <button class="nav-item" data-tab="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg><span data-i18n="nav_update">Update</span><span class="badge info hidden u-ml-auto" id="updBadge" >new</span></button>
-      <button class="nav-item" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg><span data-i18n="nav_settings">Settings</span></button>
-      <button class="nav-item hidden" data-tab="terminal" id="termNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span data-i18n="nav_terminal">Terminal</span><span class="term-live hidden u-ml-auto" id="termLiveDot" ></span></button>
+    <nav class="sidebar-nav" id="sideNav" role="tablist" aria-orientation="vertical" aria-label="Main navigation" data-i18n-aria="aria_main_nav">
+      <div class="nav-sec" role="presentation" data-i18n="sec_overview">Overview</div>
+      <button role="tab" aria-selected="true" aria-controls="tab-dashboard" tabindex="0" class="nav-item on" data-tab="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span data-i18n="nav_dashboard">Dashboard</span></button>
+      <div class="nav-sec" role="presentation" data-i18n="sec_tunnel">Tunnel</div>
+      <button role="tab" aria-selected="false" aria-controls="tab-tunnel" tabindex="-1" class="nav-item" data-tab="tunnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span data-i18n="nav_tunnel">Tunnel</span></button>
+      <button role="tab" aria-selected="false" aria-controls="tab-setup" tabindex="-1" class="nav-item" data-tab="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span data-i18n="nav_setup">Setup</span></button>
+      <button role="tab" aria-selected="false" aria-controls="tab-logs" tabindex="-1" class="nav-item" data-tab="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span data-i18n="nav_logs">Logs</span></button>
+      <div class="nav-sec" role="presentation" data-i18n="sec_system">System</div>
+      <button role="tab" aria-selected="false" aria-controls="tab-perf" tabindex="-1" class="nav-item" data-tab="perf" id="perfNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span data-i18n="nav_perf">Performance</span></button>
+      <button role="tab" aria-selected="false" aria-controls="tab-watchdog" tabindex="-1" class="nav-item" data-tab="watchdog" id="watchdogNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span data-i18n="nav_watchdog">Watchdog</span></button>
+      <button role="tab" aria-selected="false" aria-controls="tab-doctor" tabindex="-1" class="nav-item" data-tab="doctor" id="doctorNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span data-i18n="nav_doctor">Diagnostics</span></button>
+      <button role="tab" aria-selected="false" aria-controls="tab-benchmark" tabindex="-1" class="nav-item" data-tab="benchmark" id="benchmarkNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span data-i18n="nav_benchmark">Benchmark</span></button>
+      <button role="tab" aria-selected="false" aria-controls="tab-update" tabindex="-1" class="nav-item" data-tab="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg><span data-i18n="nav_update">Update</span><span class="badge info hidden u-ml-auto" id="updBadge" >new</span></button>
+      <button role="tab" aria-selected="false" aria-controls="tab-settings" tabindex="-1" class="nav-item" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg><span data-i18n="nav_settings">Settings</span></button>
+      <button role="tab" aria-selected="false" aria-controls="tab-terminal" tabindex="-1" class="nav-item hidden" data-tab="terminal" id="termNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span data-i18n="nav_terminal">Terminal</span><span class="term-live hidden u-ml-auto" id="termLiveDot" ></span></button>
     </nav>
     <div class="sidebar-foot">
       <button class="hashem-btn hashem-btn-secondary u-flex-1" id="themeBtn" data-i18n="theme">Theme</button>
@@ -1008,7 +1019,7 @@
   </aside>
   <div class="main">
     <header class="topbar">
-      <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+      <button class="menu-btn" id="menuBtn" aria-label="Menu" data-i18n-aria="aria_menu">☰</button>
       <div><h1>Hashem</h1><div class="sub" id="roleLine">—</div></div>
       <div class="acts">
         <button class="hashem-btn hashem-btn-ghost lang-btn" id="langToggleBtn" title="تغییر زبان / Switch Language" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:6px 12px;border:1px solid var(--ln);border-radius:8px">
@@ -1019,16 +1030,16 @@
     </header>
   <div class="drawer-ov" id="drawerOv"></div>
   <aside class="drawer" id="drawer" aria-label="Menu">
-    <div class="drawer-head"><span class="brand-name">Hashem</span><button class="drawer-x" id="drawerX" aria-label="Close">×</button></div>
-    <nav class="drawer-nav" id="drawerNav"></nav>
+    <div class="drawer-head"><span class="brand-name">Hashem</span><button class="drawer-x" id="drawerX" aria-label="Close" data-i18n-aria="aria_close">×</button></div>
+    <nav class="drawer-nav" id="drawerNav" role="tablist" aria-orientation="vertical" aria-label="Main navigation" data-i18n-aria="aria_main_nav"></nav>
     <div class="drawer-foot">
-      <button class="hashem-btn hashem-btn-secondary" id="langToggleBtnM" style="font-size:12px">🇮🇷 فارسی</button>
+      <button class="hashem-btn hashem-btn-secondary u-fs-12" id="langToggleBtnM">🇮🇷 فارسی</button>
       <button class="hashem-btn hashem-btn-secondary u-flex-1" id="themeBtnM" >Theme</button>
       <button class="hashem-btn hashem-btn-ghost" id="logoutBtnM">Logout</button>
     </div>
   </aside>
     <main class="page">
-      <section id="tab-dashboard">
+      <section id="tab-dashboard" role="tabpanel">
         <div class="dash-grid ent-dense kpi-hero" id="dashGrid">
           <div class="tunnel-card kpi">
             <div class="kpi-top"><span class="kpi-label" data-i18n="kpi_traffic">Traffic &amp; Speed</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span></div>
@@ -1112,7 +1123,7 @@
           </div>
         </div>
       </section>
-      <section id="tab-tunnel" hidden>
+      <section id="tab-tunnel" role="tabpanel" hidden>
         <div class="tunnel-card" id="tunnelStatusCard">
           <div class="tc-header"><p class="tc-title">Tunnel status</p><span class="status-indicator" id="tunnelDot"><span class="dot"></span><span id="tunnelDotTxt">—</span></span></div>
           <div id="tunnel"></div>
@@ -1143,16 +1154,16 @@
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px">
             <div>
-              <label style="font-size:11px;text-transform:uppercase;color:var(--mu);display:block;margin-bottom:4px">Target Engine</label>
-              <select class="hashem-input" id="liveEngineSelect" style="width:100%">
+              <label style="font-size:12px;text-transform:uppercase;color:var(--mu);display:block;margin-bottom:4px">Target Engine</label>
+              <select class="hashem-input u-w-full" id="liveEngineSelect">
                 <option value="frp">🚀 GRE + FRP Reverse Tunnel</option>
                 <option value="backhaul">🌐 Standalone Backhaul (Multiplexed)</option>
                 <option value="gre-backhaul">⚡ GRE + Backhaul Dual-Layer</option>
               </select>
             </div>
             <div id="liveTransportWrap">
-              <label style="font-size:11px;text-transform:uppercase;color:var(--mu);display:block;margin-bottom:4px">Transport Protocol</label>
-              <select class="hashem-input" id="liveTransportSelect" style="width:100%">
+              <label style="font-size:12px;text-transform:uppercase;color:var(--mu);display:block;margin-bottom:4px">Transport Protocol</label>
+              <select class="hashem-input u-w-full" id="liveTransportSelect">
                 <option value="tcpmux" selected>TCPMUX (Multi-stream TCP - Recommended)</option>
                 <option value="wssmux">WSSMUX (WebSocket + TLS Obfuscation)</option>
                 <option value="tcp">TCP (Standard Plain TCP)</option>
@@ -1164,11 +1175,11 @@
           </div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <button class="hashem-btn hashem-btn-primary" id="liveSwitchEngineBtn" style="padding:6px 18px">Switch Tunnel Engine Now</button>
-            <span id="liveEngineStatusTxt" style="font-size:12px;color:var(--mu)"></span>
+            <span class="u-hint-12" id="liveEngineStatusTxt"></span>
           </div>
         </div>
       </section>
-      <section id="tab-setup" hidden>
+      <section id="tab-setup" role="tabpanel" hidden>
         <div class="qs" id="setupCard">
           <div class="qs-head">
             <span class="qs-bolt"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span>
@@ -1249,8 +1260,8 @@
                 <div class="fg"><label for="jToken" data-i18n="setup_bundle_paste_lbl">Setup bundle or token (from Iran side)</label><input class="hashem-input" id="jToken" autocomplete="off" data-i18n-ph="setup_bundle_paste_ph" placeholder="paste hsh1_..., bh1_..., or gh1_... bundle"></div>
                 <div class="fg"><label for="jPorts">Reverse ports (ranges &amp; mappings allowed)</label><input class="hashem-input" id="jPorts" placeholder="auto-filled from bundle, or 443, 10000-10050"></div>
                 <div class="fg" style="margin-top:2px;">
-                  <label for="jFRPTransport" data-i18n="setup_transport" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">FRP Transport Protocol</label>
-                  <select class="hashem-input" id="jFRPTransport" style="margin-top:4px">
+                  <label class="u-label-up" for="jFRPTransport" data-i18n="setup_transport">FRP Transport Protocol</label>
+                  <select class="hashem-input u-mt-4" id="jFRPTransport">
                     <option value="tcp" selected>TCP (Standard multiplexed stream)</option>
                     <option value="kcp">KCP (UDP with ARQ — Anti-packet-loss for unstable ISPs)</option>
                     <option value="quic">QUIC (UDP QUIC — 0-RTT fast multiplexing)</option>
@@ -1259,15 +1270,15 @@
                   </select>
                 </div>
                 <div class="fg" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:12px;">
-                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+                  <label class="u-check-row">
                     <input type="checkbox" id="jEncryption">
                     <span><b>Encryption</b> (AES/TLS)</span>
                   </label>
-                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+                  <label class="u-check-row">
                     <input type="checkbox" id="jCompression">
                     <span><b>Compression</b> (Snappy)</span>
                   </label>
-                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+                  <label class="u-check-row">
                     <input type="checkbox" id="jProxyProtocol" value="v2">
                     <span><b>PROXY Protocol v2</b> (Real client IP for Xray)</span>
                   </label>
@@ -1303,7 +1314,7 @@
               <div class="qs-body u-grid-gap-10" >
                 <div class="fg"><label for="pName">Name (label for this tunnel)</label><input class="hashem-input" id="pName" placeholder="e.g. germany-1" maxlength="32"></div>
                 <div class="qs-row">
-                  <div class="fg" style="grid-column:span 2">
+                  <div class="fg u-col-span-2">
                     <label for="pEngine">Tunnel Engine</label>
                     <select class="hashem-input" id="pEngine">
                       <option value="frp" selected>🚀 GRE + FRP</option>
@@ -1311,7 +1322,7 @@
                       <option value="backhaul">🌐 Backhaul Standalone (No-GRE)</option>
                     </select>
                   </div>
-                  <div class="fg" id="wrapPeerTransport" style="grid-column:span 2">
+                  <div class="fg u-col-span-2" id="wrapPeerTransport">
                     <label for="pTransport" data-i18n="setup_transport">Transport Protocol</label>
                     <select class="hashem-input" id="pTransport">
                       <option value="tcp" selected>TCP Multiplexed (Default / استاندارد)</option>
@@ -1340,7 +1351,7 @@
           </div></div>
         </div>
       </section>
-      <section id="tab-logs" hidden>
+      <section id="tab-logs" role="tabpanel" hidden>
         <div class="tunnel-card">
           <div class="tc-header"><p class="tc-title">Logs</p>
             <label class="qs-hint u-flex-center-gap8 u-cursor-pointer" >
@@ -1378,10 +1389,10 @@
             </div>
           </div>
           <div class="qs-hint">Every failed panel action is recorded here with its code — newest last.</div>
-          <div id="errList" class="u-grid-gap-6 u-mt-8"><div class="qs-hint">—</div></div>
+          <div id="errList" class="u-grid-gap-6 u-mt-8"><div class="ent-skel" style="height:14px"></div></div>
         </div>
       </section>
-      <section id="tab-perf" hidden>
+      <section id="tab-perf" role="tabpanel" hidden>
         <!-- Status hero card -->
         <div class="tunnel-card wd-hero-card">
           <div class="tc-header">
@@ -1499,7 +1510,7 @@
               <button class="hashem-btn hashem-btn-primary" id="perfSaveTuningBtn" type="button" data-i18n="perf_save_tuning">
                 💾 Save &amp; Apply Capacity
               </button>
-              <span id="perfTuningStatus" style="font-size:12px;color:var(--mu);"></span>
+              <span class="u-hint-12" id="perfTuningStatus"></span>
             </div>
           </div>
         </div>
@@ -1600,7 +1611,7 @@
           </div>
         </div>
       </section>
-      <section id="tab-watchdog" hidden>
+      <section id="tab-watchdog" role="tabpanel" hidden>
         <!-- Status hero card -->
         <div class="tunnel-card wd-hero-card">
           <div class="tc-header">
@@ -1647,7 +1658,7 @@
             <label for="wdBotToken">Bot Token</label>
             <div class="u-flex-center-gap8">
               <input class="hashem-input u-flex-1" id="wdBotToken" type="password" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" autocomplete="off" spellcheck="false" >
-              <button type="button" class="hashem-btn hashem-btn-secondary u-btn-input-h" id="wdShowTokenBtn" title="Toggle visibility" >👁</button>
+              <button type="button" class="hashem-btn hashem-btn-secondary u-btn-input-h" id="wdShowTokenBtn" title="Toggle visibility" aria-label="Toggle visibility" data-i18n-aria="aria_toggle_visibility" >👁</button>
             </div>
           </div>
           <div class="fg">
@@ -1770,7 +1781,7 @@
         </div>
       </section>
       <!-- Tab: Diagnostics & Speed Test (Doctor) -->
-      <section id="tab-doctor" hidden>
+      <section id="tab-doctor" role="tabpanel" hidden>
         <!-- Hero score card -->
         <div class="tunnel-card">
           <div class="doc-hero">
@@ -1806,7 +1817,7 @@
         <!-- Issues and Recommendations Card (Prominent & immediately actionable) -->
         <div class="tunnel-card u-mt-14" id="docIssuesCard">
           <div class="tc-header">
-            <p class="tc-title" style="display:flex;align-items:center;gap:8px;">
+            <p class="tc-title u-flex-center-gap8">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
               <span data-i18n="doc_issues_title">Issues &amp; Recommendations</span>
             </p>
@@ -1913,12 +1924,12 @@
         </div>
       </section>
       <!-- Tab: Carrier Benchmark & Auto-Pilot -->
-      <section id="tab-benchmark" hidden>
+      <section id="tab-benchmark" role="tabpanel" hidden>
         <!-- Top Hero Leaderboard Card -->
         <div class="tunnel-card bench-hero-card" style="border:1px solid rgba(56,189,248,0.22); background:linear-gradient(180deg, rgba(15,23,42,0.85) 0%, rgba(10,15,28,0.95) 100%); box-shadow:0 12px 36px -8px rgba(0,0,0,0.55); backdrop-filter:blur(14px);">
           <div class="tc-header" style="border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:14px; margin-bottom:16px;">
             <div>
-              <div style="display:flex;align-items:center;gap:10px;">
+              <div class="u-flex-center-gap10">
                 <span class="tc-title" style="font-size:18px;font-weight:700;display:flex;align-items:center;gap:8px;" data-i18n="bench_leaderboard_title">
                   <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#38bdf8" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                   Carrier Performance Leaderboard
@@ -1938,32 +1949,32 @@
           <!-- Quick Telemetry Stats Grid -->
           <div class="bench-stats-grid">
             <div class="bench-stat-card">
-              <span class="wd-stat-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--mu); letter-spacing: 0.05em;">
+              <span class="wd-stat-label u-stat-label">
                 Recommended Carrier
               </span>
-              <div class="wd-stat-val" id="benchStatWinner" style="font-size: 17px; font-weight: 700; color: #10b981; margin: 8px 0 4px 0;">—</div>
-              <span class="wd-stat-sub" id="benchStatWinnerSub" style="font-size: 11.5px; color: var(--mu);">Top candidate</span>
+              <div class="wd-stat-val u-stat-val-ok" id="benchStatWinner">—</div>
+              <span class="wd-stat-sub u-hint-12" id="benchStatWinnerSub">Top candidate</span>
             </div>
             <div class="bench-stat-card">
-              <span class="wd-stat-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--mu); letter-spacing: 0.05em;">
+              <span class="wd-stat-label u-stat-label">
                 Active Route
               </span>
               <div class="wd-stat-val" id="benchStatActive" style="font-size: 17px; font-weight: 700; color: #38bdf8; margin: 8px 0 4px 0;">—</div>
-              <span class="wd-stat-sub" id="benchStatActiveSub" style="font-size: 11.5px; color: var(--mu);">Active route traffic</span>
+              <span class="wd-stat-sub u-hint-12" id="benchStatActiveSub">Active route traffic</span>
             </div>
             <div class="bench-stat-card">
-              <span class="wd-stat-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--mu); letter-spacing: 0.05em;">
+              <span class="wd-stat-label u-stat-label">
                 Lowest Latency (RTT)
               </span>
               <div class="wd-stat-val" id="benchStatMinRtt" style="font-size: 17px; font-weight: 700; color: var(--tx); margin: 8px 0 4px 0;">—</div>
-              <span class="wd-stat-sub" id="benchStatMinRttSub" style="font-size: 11.5px; color: var(--mu);">Best round-trip time</span>
+              <span class="wd-stat-sub u-hint-12" id="benchStatMinRttSub">Best round-trip time</span>
             </div>
             <div class="bench-stat-card">
-              <span class="wd-stat-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--mu); letter-spacing: 0.05em;">
+              <span class="wd-stat-label u-stat-label">
                 Packet Drop Rate
               </span>
-              <div class="wd-stat-val" id="benchStatLoss" style="font-size: 17px; font-weight: 700; color: #10b981; margin: 8px 0 4px 0;">0%</div>
-              <span class="wd-stat-sub" id="benchStatLossSub" style="font-size: 11.5px; color: var(--mu);">Zero loss link</span>
+              <div class="wd-stat-val u-stat-val-ok" id="benchStatLoss">0%</div>
+              <span class="wd-stat-sub u-hint-12" id="benchStatLossSub">Zero loss link</span>
             </div>
           </div>
 
@@ -1985,7 +1996,7 @@
                 </tr>
               </thead>
               <tbody id="benchTableBody">
-                <tr><td colspan="10" class="u-text-center" style="padding:36px;color:var(--mu);">Click &quot;Run Carrier Benchmark&quot; to probe carrier models.</td></tr>
+                <tr><td colspan="10"><div class="ent-skel" style="height:14px"></div></td></tr>
               </tbody>
             </table>
           </div>
@@ -1994,9 +2005,9 @@
         <!-- Secondary Controls Grid: Peer Link & Automatic Failover -->
         <div class="u-grid-2 u-gap-16 u-mt-16">
           <!-- Card 1: Peer Link Status -->
-          <div class="tunnel-card" style="border: 1px solid var(--ln); background: color-mix(in srgb, var(--bg) 80%, var(--s1));">
+          <div class="tunnel-card u-card-tint">
             <div class="tc-header">
-              <span class="tc-title" style="display:flex;align-items:center;gap:8px;">
+              <span class="tc-title u-flex-center-gap8">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 <span data-i18n="bench_peer_link_title">Inter-Panel Link (Peer)</span>
               </span>
@@ -2030,9 +2041,9 @@
           </div>
 
           <!-- Card 2: Automatic Failover Settings -->
-          <div class="tunnel-card" id="failoverCard" style="border: 1px solid var(--ln); background: color-mix(in srgb, var(--bg) 80%, var(--s1));">
+          <div class="tunnel-card u-card-tint" id="failoverCard">
             <div class="tc-header">
-              <span class="tc-title" style="display:flex;align-items:center;gap:8px;">
+              <span class="tc-title u-flex-center-gap8">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                 <span data-i18n="bench_failover_title">Automatic Failover</span>
               </span>
@@ -2096,7 +2107,7 @@
           </div>
         </div>
       </section>
-      <section id="tab-update" hidden>
+      <section id="tab-update" role="tabpanel" hidden>
         <div class="tunnel-card">
           <div class="tc-header"><p class="tc-title">Panel update</p><span class="status-indicator" id="updDot"><span class="dot"></span><span id="updDotTxt">—</span></span></div>
           <div class="ver-big" id="verCurrent">—</div>
@@ -2108,7 +2119,7 @@
           <div class="qs-hint" id="updateMsg">Press Check to see if a newer release is available.</div>
         </div>
       </section>
-      <section id="tab-settings" hidden>
+      <section id="tab-settings" role="tabpanel" hidden>
         <div class="tunnel-card">
           <div class="tc-header"><p class="tc-title">Settings</p></div>
           <div class="fg"><label for="curPass">Current panel password</label><input class="hashem-input" id="curPass" type="password" autocomplete="current-password" placeholder="••••••••••••"></div>
@@ -2142,21 +2153,21 @@
           <div id="tlsProxyBox" style="display:none; margin-top:12px; padding:12px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-input);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
               <b>Reverse Proxy Configuration (Nginx & Caddy)</b>
-              <button class="hashem-btn hashem-btn-ghost" id="tlsProxyCloseBtn" style="padding:2px 8px;">×</button>
+              <button class="hashem-btn hashem-btn-ghost" id="tlsProxyCloseBtn" aria-label="Close proxy configuration" data-i18n-aria="aria_close_proxy" style="padding:2px 8px;">×</button>
             </div>
-            <div class="qs-hint" style="margin-bottom:8px;">Copy and paste into your Nginx or Caddy server on this machine. Real client IPs and WebSocket upgrades are automatically supported.</div>
-            <div style="margin-bottom:8px;">
+            <div class="qs-hint u-mb-8">Copy and paste into your Nginx or Caddy server on this machine. Real client IPs and WebSocket upgrades are automatically supported.</div>
+            <div class="u-mb-8">
               <b>Nginx:</b>
-              <pre id="tlsNginxCode" style="font-size:11px; max-height:160px; overflow-y:auto; background:var(--bg-card); padding:8px; border-radius:4px; user-select:all;"></pre>
+              <pre id="tlsNginxCode" style="font-size:12px; max-height:160px; overflow-y:auto; background:var(--bg-card); padding:8px; border-radius:4px; user-select:all;"></pre>
             </div>
             <div>
               <b>Caddy:</b>
-              <pre id="tlsCaddyCode" style="font-size:11px; max-height:100px; overflow-y:auto; background:var(--bg-card); padding:8px; border-radius:4px; user-select:all;"></pre>
+              <pre id="tlsCaddyCode" style="font-size:12px; max-height:100px; overflow-y:auto; background:var(--bg-card); padding:8px; border-radius:4px; user-select:all;"></pre>
             </div>
           </div>
         </div>
       </section>
-      <section id="tab-terminal" hidden>
+      <section id="tab-terminal" role="tabpanel" hidden>
         <div class="tunnel-card">
           <div class="tc-header">
             <p class="tc-title">Terminal</p>
@@ -2166,25 +2177,25 @@
           <div class="term-toolbar" role="toolbar" aria-label="Terminal controls">
             <button class="hashem-btn hashem-btn-primary" id="termConnBtn">Connect</button>
             <button class="hashem-btn hashem-btn-secondary" id="termHashemBtn" title="Open the Hashem tunnel menu in this shell">hashem</button>
-            <button class="hashem-btn hashem-btn-secondary" id="termFontDown" title="Smaller font">A−</button>
-            <button class="hashem-btn hashem-btn-secondary" id="termFontUp" title="Larger font">A+</button>
+            <button class="hashem-btn hashem-btn-secondary" id="termFontDown" title="Smaller font" aria-label="Smaller font" data-i18n-aria="aria_font_smaller">A−</button>
+            <button class="hashem-btn hashem-btn-secondary" id="termFontUp" title="Larger font" aria-label="Larger font" data-i18n-aria="aria_font_larger">A+</button>
             <button class="hashem-btn hashem-btn-secondary" id="termSearchBtn" title="Search in buffer">Search</button>
             <button class="hashem-btn hashem-btn-secondary" id="termCopyBtn" title="Copy selection">Copy</button>
             <button class="hashem-btn hashem-btn-secondary" id="termClearBtn" title="Clear screen">Clear</button>
-            <button class="hashem-btn hashem-btn-secondary" id="termFullBtn" title="Fullscreen">⛶</button>
+            <button class="hashem-btn hashem-btn-secondary" id="termFullBtn" title="Fullscreen" aria-label="Fullscreen" data-i18n-aria="aria_fullscreen">⛶</button>
             <button class="hashem-btn hashem-btn-danger" id="termKillBtn" title="Kill shell">Kill</button>
           </div>
           <div class="term-search hidden" id="termSearchBar">
             <input class="hashem-input" id="termSearchInput" placeholder="Search…" autocomplete="off">
             <button class="hashem-btn hashem-btn-secondary" id="termSearchNext">Next</button>
             <button class="hashem-btn hashem-btn-secondary" id="termSearchPrev">Prev</button>
-            <button class="hashem-btn hashem-btn-ghost" id="termSearchClose">×</button>
+            <button class="hashem-btn hashem-btn-ghost" id="termSearchClose" aria-label="Close search" data-i18n-aria="aria_close_search">×</button>
           </div>
           <div id="termWrap" class="term-wrap"><div id="termBox"></div>
             <div class="term-overlay hidden" id="termOverlay"><div class="term-overlay-card"><b id="termOverlayTitle">Disconnected</b><span id="termOverlaySub" class="qs-hint">Press Connect to open a root shell on this server.</span><button class="hashem-btn hashem-btn-primary" id="termOverlayBtn">Connect</button></div></div>
           </div>
           <div class="term-keys" id="termKeys">
-            <button data-k="&#9;">Tab</button><button data-k="&#27;">Esc</button><button data-k="&#3;">Ctrl+C</button><button data-k="&#4;">Ctrl+D</button><button data-k="&#12;">Ctrl+L</button><button data-k="|">|</button><button data-k="~">~</button>
+            <button data-k="&#9;">Tab</button><button data-k="&#27;">Esc</button><button data-k="&#3;">Ctrl+C</button><button data-k="&#4;">Ctrl+D</button><button data-k="&#12;">Ctrl+L</button><button data-k="|" aria-label="Pipe character">|</button><button data-k="~" aria-label="Tilde character">~</button>
           </div>
           <div class="term-quick" role="group" aria-label="Hashem quick commands">
             <button data-q="hashem status">Status</button>
@@ -2201,16 +2212,16 @@
   <aside class="right-sidebar">
     <div class="rs-header">Live Activity Stream</div>
     <div class="rs-content" id="rsLogs">
-      <div class="rs-log-line">Waiting for logs...</div>
+      <div class="ent-skel" style="height:14px"></div>
     </div>
   </aside>
 </div>
 </div>
 <div id="toast" class="toast hidden"></div>
-<div id="entToasts" aria-live="polite"></div>
+<div id="entToasts" role="status" aria-live="polite" aria-atomic="false"></div>
 <div class="ent-modal-ov" id="entModal" hidden>
   <div class="ent-modal" role="dialog" aria-modal="true" aria-labelledby="entModalTitle">
-    <div class="ent-modal-h"><b id="entModalTitle">Confirm</b><button class="ent-x" id="entModalX" aria-label="Close">×</button></div>
+    <div class="ent-modal-h"><b id="entModalTitle">Confirm</b><button class="ent-x" id="entModalX" aria-label="Close" data-i18n-aria="aria_close">×</button></div>
     <div class="ent-modal-b"><p class="u-m-0 u-color-tx2" id="entModalBody"></p></div>
     <div class="ent-modal-f"><button class="hashem-btn hashem-btn-ghost" id="entModalNo">Cancel</button><button class="hashem-btn hashem-btn-danger" id="entModalYes">Confirm</button></div>
   </div>
@@ -2223,34 +2234,34 @@
   <div class="ent-modal" role="dialog" aria-modal="true" aria-labelledby="editPortsTitle" style="max-width:520px;width:100%">
     <div class="ent-modal-h">
       <b id="editPortsTitle">Edit Peer Tunnel</b>
-      <button class="ent-x" id="editPortsClose" aria-label="Close">&#xD7;</button>
+      <button class="ent-x" id="editPortsClose" aria-label="Close" data-i18n-aria="aria_close">&#xD7;</button>
     </div>
     <div class="ent-modal-b" style="gap:14px">
       <p class="u-m-0" style="color:var(--mu);font-size:13px" id="editPortsSub">Modify tunnel parameters, carrier protocol, or forwarded ports. Changes reload services immediately.</p>
       
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="u-grid-2col">
         <div class="fg">
-          <label for="editPeerName" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">Name / Label</label>
-          <input class="hashem-input" id="editPeerName" type="text" placeholder="e.g. Germany-01" style="margin-top:6px">
+          <label class="u-label-up" for="editPeerName">Name / Label</label>
+          <input class="hashem-input u-mt-6" id="editPeerName" type="text" placeholder="e.g. Germany-01">
         </div>
         <div class="fg">
-          <label for="editPeerRemote" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">Remote Public IP</label>
+          <label class="u-label-up" for="editPeerRemote">Remote Public IP</label>
           <input class="hashem-input" id="editPeerRemote" type="text" placeholder="e.g. 198.51.100.5" style="margin-top:6px;font-family:monospace">
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="u-grid-2col">
         <div class="fg">
-          <label for="editPeerEngine" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">Tunnel Engine</label>
-          <select class="hashem-input" id="editPeerEngine" style="margin-top:6px">
+          <label class="u-label-up" for="editPeerEngine">Tunnel Engine</label>
+          <select class="hashem-input u-mt-6" id="editPeerEngine">
             <option value="frp">🚀 GRE + FRP</option>
             <option value="gre-backhaul">⚡ GRE + Backhaul</option>
             <option value="backhaul">🌐 Backhaul (No-GRE)</option>
           </select>
         </div>
         <div class="fg" id="wrapEditTransport">
-          <label for="editPeerTransport" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">Transport Protocol</label>
-          <select class="hashem-input" id="editPeerTransport" style="margin-top:6px">
+          <label class="u-label-up" for="editPeerTransport">Transport Protocol</label>
+          <select class="hashem-input u-mt-6" id="editPeerTransport">
             <option value="tcpmux">TCPMUX</option>
             <option value="wssmux">WSSMUX</option>
             <option value="tcp">TCP</option>
@@ -2262,16 +2273,16 @@
       </div>
 
       <div class="fg" id="wrapEditCarrier">
-        <label for="editPeerCarrier" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">Carrier Mode</label>
-        <select class="hashem-input" id="editPeerCarrier" style="margin-top:6px">
+        <label class="u-label-up" for="editPeerCarrier">Carrier Mode</label>
+        <select class="hashem-input u-mt-6" id="editPeerCarrier">
           <option value="direct">Direct GRE (Raw Protocol 47 — lowest latency)</option>
           <option value="wss:8443">WSS :8443 (WebSocket over TLS Obfuscation)</option>
         </select>
       </div>
 
       <div class="fg" id="wrapEditFRPTransport">
-        <label for="editPeerFRPTransport" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">FRP Transport Protocol</label>
-        <select class="hashem-input" id="editPeerFRPTransport" style="margin-top:6px">
+        <label class="u-label-up" for="editPeerFRPTransport">FRP Transport Protocol</label>
+        <select class="hashem-input u-mt-6" id="editPeerFRPTransport">
           <option value="tcp">TCP (Standard multiplexed stream)</option>
           <option value="kcp">KCP (UDP with ARQ — Anti-packet-loss)</option>
           <option value="quic">QUIC (UDP QUIC — 0-RTT fast stream)</option>
@@ -2281,36 +2292,36 @@
       </div>
 
       <div class="fg" style="margin-top:2px;display:flex;flex-wrap:wrap;gap:12px;">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+        <label class="u-check-row">
           <input type="checkbox" id="editPeerEncryption">
           <span><b>Encryption</b> (AES/TLS)</span>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+        <label class="u-check-row">
           <input type="checkbox" id="editPeerCompression">
           <span><b>Compression</b> (Snappy)</span>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+        <label class="u-check-row">
           <input type="checkbox" id="editPeerProxyProtocol" value="v2">
           <span><b>PROXY Protocol v2</b> (Real client IP)</span>
         </label>
       </div>
 
       <div>
-        <label style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu);display:block;margin-bottom:8px">Forwarded Ports</label>
+        <label style="font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu);display:block;margin-bottom:8px">Forwarded Ports</label>
         <div id="editPortsChips" style="display:flex;flex-wrap:wrap;gap:6px;min-height:36px;padding:8px;background:var(--sunk);border:1px solid var(--ln);border-radius:10px"></div>
       </div>
 
       <div style="display:flex;gap:8px;align-items:flex-end">
         <div class="fg" style="flex:1">
-          <label for="editPortsNew" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">Add Port / Range / Mapping</label>
-          <input class="hashem-input" id="editPortsNew" type="text" placeholder="e.g. 8080, 10000-10050, 2083=8443" style="margin-top:6px">
+          <label class="u-label-up" for="editPortsNew">Add Port / Range / Mapping</label>
+          <input class="hashem-input u-mt-6" id="editPortsNew" type="text" placeholder="e.g. 8080, 10000-10050, 2083=8443">
         </div>
         <button class="hashem-btn hashem-btn-secondary" id="editPortsAddBtn" type="button" style="height:38px;padding:0 14px;font-size:13px;flex-shrink:0">&#xFF0B; Add</button>
       </div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--s2);border:1px solid var(--ln);border-radius:10px">
-        <div style="font-size:12px;color:var(--mu)">Foreign Setup Bundle for client sync:</div>
-        <button class="hashem-btn hashem-btn-ghost" id="editPeerCopyBundleBtn" type="button" style="height:28px;padding:0 10px;font-size:11.5px">&#x1F4CB; Copy Bundle</button>
+        <div class="u-hint-12">Foreign Setup Bundle for client sync:</div>
+        <button class="hashem-btn hashem-btn-ghost u-btn-28" id="editPeerCopyBundleBtn" type="button">&#x1F4CB; Copy Bundle</button>
       </div>
 
       <div id="editPortsWarn" class="warnbox hidden"></div>
@@ -2354,6 +2365,89 @@ function toastMsg(kind, title, sub) {
   box.appendChild(el);
   while (box.children.length > 4) box.firstChild.remove();
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 320); }, kind === 'err' ? 5000 : 2800);
+}
+// ---- Error surfacing: console.warn + deduplicated, rate-limited toast (language-aware) ----
+const _errSeen = new Map();
+let _errLastToast = 0;
+function reportErr(ctx, err) {
+  const msg = (err && err.message) ? err.message : String(err == null ? '' : err);
+  console.warn('[hashem] ' + ctx + ' failed:', err);
+  if (/session|expired|unauthorized/i.test(msg)) return; // login screen already handles this
+  const now = Date.now();
+  const key = ctx + '|' + msg;
+  if (now - (_errSeen.get(key) || 0) < 30000) return;   // same error: at most once / 30s
+  if (now - _errLastToast < 4000) return;                // any error toast: at most once / 4s
+  _errSeen.set(key, now); _errLastToast = now;
+  if (_errSeen.size > 50) _errSeen.delete(_errSeen.keys().next().value);
+  toastErr(tr('err_' + ctx, tr('err_generic', 'Request failed') + ': ' + ctx), msg.split('\n')[0].slice(0, 160));
+}
+// ---- Poller: pauses while the tab is hidden, exponential backoff (cap 60s) after failures ----
+// fn() resolves truthy/undefined = success, false (or throws) = failure.
+function makePoller(fn, baseMs) {
+  let fails = 0, timer = null, running = false;
+  const delay = () => Math.min(60000, baseMs * Math.pow(2, fails));
+  const schedule = () => { clearTimeout(timer); timer = setTimeout(tick, delay()); };
+  async function tick() {
+    timer = null;
+    if (document.hidden) return;                // paused; visibilitychange resumes it
+    if (running) { schedule(); return; }
+    running = true;
+    try { const ok = await fn(); fails = (ok === false) ? Math.min(fails + 1, 10) : 0; }
+    catch (e) { fails = Math.min(fails + 1, 10); console.warn('[hashem] poll error', e); }
+    finally { running = false; }
+    schedule();
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { clearTimeout(timer); fails = 0; tick(); } });
+  schedule();
+}
+// ---- Shared empty / error / loading state blocks (enterprise.css .ent-empty / .ent-skel) ----
+const ST_ICO_EMPTY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></svg>';
+const ST_ICO_ERR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
+// o: {title, msg, icon(svg html), actionKey, actionLabel, compact}
+function stateEmpty(o) {
+  return '<div class="ent-empty' + (o.compact ? ' ent-empty-sm' : '') + '" role="status"><span class="ent-empty-ic" aria-hidden="true">' + (o.icon || ST_ICO_EMPTY) + '</span>'
+    + '<b>' + esc(o.title) + '</b>' + (o.msg ? '<span>' + esc(o.msg) + '</span>' : '')
+    + (o.actionKey ? '<button type="button" class="hashem-btn hashem-btn-secondary u-btn-xs" data-state-action="' + esc(o.actionKey) + '">' + esc(o.actionLabel || tr('state_retry', 'Retry')) + '</button>' : '')
+    + '</div>';
+}
+function stateError(msg, actionKey, compact) {
+  return '<div class="ent-empty ent-error' + (compact ? ' ent-empty-sm' : '') + '" role="alert"><span class="ent-empty-ic" aria-hidden="true">' + ST_ICO_ERR + '</span>'
+    + '<b>' + esc(tr('state_error_title', 'Could not load data')) + '</b>'
+    + (msg ? '<span class="ent-err-text">' + esc(String(msg).split('\n')[0].slice(0, 200)) + '</span>' : '')
+    + (actionKey ? '<button type="button" class="hashem-btn hashem-btn-secondary u-btn-xs" data-state-action="' + esc(actionKey) + '">' + esc(tr('state_retry', 'Retry')) + '</button>' : '')
+    + '</div>';
+}
+// Retry / action buttons re-run the loader that rendered them.
+const STATE_ACTIONS = {
+  benchmark: () => loadBenchmark(), runbench: () => runBenchmarkClick(), logs: () => loadLogs(),
+  errors: () => loadErrors(), status: () => refresh(), rslogs: () => refreshRightSidebarLogs(),
+};
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('[data-state-action]');
+  if (!b) return;
+  const fn = STATE_ACTIONS[b.dataset.stateAction];
+  if (fn) { try { fn(); } catch (err) { reportErr('retry', err); } }
+});
+// ---- Modal a11y: Escape closes, Tab is trapped inside, focus returns to the opener ----
+// Call BEFORE the modal is shown/focused. Returns release() to call when it closes.
+function trapModal(ov, onClose) {
+  const opener = document.activeElement;
+  const onKey = e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); return; }
+    if (e.key !== 'Tab') return;
+    const f = Array.from(ov.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+      .filter(x => !x.disabled && x.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (!ov.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+    else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  document.addEventListener('keydown', onKey, true);
+  return function release() {
+    document.removeEventListener('keydown', onKey, true);
+    if (opener && opener.focus && document.contains(opener)) { try { opener.focus(); } catch (_) { /* opener gone: nothing to restore */ } }
+  };
 }
 let _csrfToken = '';
 function getCSRFToken() {
@@ -2406,15 +2500,14 @@ function entConfirm(title, body, confirmYes) {
     $('entModalTitle').textContent = title;
     $('entModalBody').textContent = body;
     $('entModalYes').textContent = confirmYes || 'Confirm';
+    const release = trapModal(ov, () => done(false));
     ov.hidden = false;
     $('entModalYes').focus();
     const done = v => {
       ov.hidden = true;
-      document.removeEventListener('keydown', onKey, true);
+      release();
       resolve(v);
     };
-    const onKey = e => { if (e.key === 'Escape') done(false); };
-    document.addEventListener('keydown', onKey, true);
     if (_entModalCleanup) _entModalCleanup();
     const yes = () => done(true), no = () => done(false);
     $('entModalYes').onclick = yes; $('entModalNo').onclick = no; $('entModalX').onclick = no;
@@ -2434,9 +2527,15 @@ function goTab(name) {
   if (name === 'terminal' && $('termNav').classList.contains('hidden')) return; // flag off: tab doesn't exist
   if (name === 'add-peer') { goTab('setup'); const c = $('setupAddPeerStep'); if (c && c.scrollIntoView) c.scrollIntoView({behavior: 'smooth', block: 'start'}); return; }
   ['dashboard','tunnel','setup','logs','perf','watchdog','doctor','benchmark','update','settings','terminal'].forEach(t => { const el = $('tab-'+t); if (el) el.hidden = t !== name; });
-  document.querySelectorAll('.sidebar-nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  const markTab = b => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    b.setAttribute('tabindex', on ? '0' : '-1');
+  };
+  document.querySelectorAll('.sidebar-nav [data-tab]').forEach(markTab);
   const dr = $('drawerNav');
-  if (dr) dr.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  if (dr) dr.querySelectorAll('[data-tab]').forEach(markTab);
   if (name === 'perf') { loadPerf(); loadCarrier(); }
   if (name === 'tunnel') loadCarrier();
   if (name === 'watchdog') loadWatchdog();
@@ -2475,27 +2574,63 @@ function drawerSync() {
   const src = $('updBadge');
   if (bd && src) bd.classList.toggle('hidden', src.classList.contains('hidden'));
   const cur = document.querySelector('.sidebar-nav [data-tab].on');
-  nav.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', !!cur && b.dataset.tab === cur.dataset.tab));
+  nav.querySelectorAll('[data-tab]').forEach(b => {
+    const on = !!cur && b.dataset.tab === cur.dataset.tab;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    b.setAttribute('tabindex', on ? '0' : '-1');
+  });
 }
-function drawerOpen() { drawerSync(); $('drawer').classList.add('open'); $('drawerOv').classList.add('open'); }
-function drawerClose() { $('drawer').classList.remove('open'); $('drawerOv').classList.remove('open'); }
+// Roving-tabindex keyboard nav for the tablist (Arrow Up/Down/Left/Right, Home, End).
+function tabKeyNav(e) {
+  const tab = e.target.closest && e.target.closest('[role="tab"]');
+  if (!tab) return;
+  const list = Array.from(tab.parentElement.querySelectorAll('[role="tab"]')).filter(b => !b.classList.contains('hidden') && b.offsetParent !== null);
+  const i = list.indexOf(tab);
+  if (i < 0) return;
+  const rtl = document.documentElement.dir === 'rtl';
+  let n = -1;
+  if (e.key === 'ArrowDown' || (e.key === 'ArrowRight' && !rtl) || (e.key === 'ArrowLeft' && rtl)) n = (i + 1) % list.length;
+  else if (e.key === 'ArrowUp' || (e.key === 'ArrowLeft' && !rtl) || (e.key === 'ArrowRight' && rtl)) n = (i - 1 + list.length) % list.length;
+  else if (e.key === 'Home') n = 0;
+  else if (e.key === 'End') n = list.length - 1;
+  if (n < 0) return;
+  e.preventDefault();
+  list[n].focus();
+  if (tab.closest('#drawerNav')) goTab(list[n].dataset.tab); // keep the drawer open while arrowing
+  else list[n].click(); // automatic activation: selecting follows focus
+}
+['sideNav', 'drawerNav'].forEach(id => { const n = $(id); if (n) n.addEventListener('keydown', tabKeyNav); });
+let _drawerOpener = null;
+function drawerOpen() {
+  _drawerOpener = document.activeElement;
+  drawerSync(); $('drawer').classList.add('open'); $('drawerOv').classList.add('open');
+  const cur = $('drawerNav').querySelector('[role="tab"][aria-selected="true"]') || $('drawerX');
+  if (cur) cur.focus();
+}
+function drawerClose() {
+  const wasOpen = $('drawer').classList.contains('open');
+  $('drawer').classList.remove('open'); $('drawerOv').classList.remove('open');
+  if (wasOpen && _drawerOpener && _drawerOpener.focus && document.contains(_drawerOpener)) { try { _drawerOpener.focus(); } catch (_) { /* opener gone */ } }
+  _drawerOpener = null;
+}
 $('menuBtn').onclick = drawerOpen;
 $('drawerX').onclick = drawerClose;
 $('drawerOv').onclick = drawerClose;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') drawerClose(); });
 $('themeBtnM').onclick = () => setTheme(document.body.dataset.t === 'dark' ? 'light' : 'dark');
-$('logoutBtnM').onclick = async () => { try { await api('/api/logout', {}); } catch(e){} showLogin(); };
+$('logoutBtnM').onclick = async () => { try { await api('/api/logout', {}); } catch(e){ /* logout best-effort: always fall through to login screen */ } showLogin(); };
 drawerSync();
 // theme (hashem-style: localStorage + data-t on html and body)
 function setTheme(t) {
   document.documentElement.dataset.t = t; document.body.dataset.t = t;
-  try { localStorage.setItem('gre_theme', t); } catch(e) {}
+  try { localStorage.setItem('gre_theme', t); } catch(e) { /* storage blocked (private mode): theme just won't persist */ }
   const b = $('themeBtn'); if (b) b.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
   const bm = $('themeBtnM'); if (bm) bm.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
-  try { if (typeof refreshDash === 'function') refreshDash(); } catch(e) {}
+  try { if (typeof refreshDash === 'function') refreshDash(); } catch(e) { /* dashboard not ready yet; polling repaints it */ }
 }
 $('themeBtn').onclick = () => setTheme(document.body.dataset.t === 'dark' ? 'light' : 'dark');
-try { setTheme(localStorage.getItem('gre_theme') || document.body.dataset.t || 'dark'); } catch(e) {}
+try { setTheme(localStorage.getItem('gre_theme') || document.body.dataset.t || 'dark'); } catch(e) { /* storage blocked: keep default theme */ }
 
 // i18n & Persian (Farsi) Language System
 const I18N = {
@@ -2744,7 +2879,99 @@ const I18N = {
     enabled: "Enabled",
     save: "Save",
     cancel: "Cancel",
-    close: "Close"
+    close: "Close",
+    x002: "Iran",
+    x003: "Foreign",
+    x004: "[ ON ] Auto-Switching",
+    x005: "[ OFF ] Manual Mode",
+    x006: "Stable / Zero Drops",
+    x007: "Engine",
+    x008: "Carrier & Failover",
+    x009: "Active Carrier",
+    x010: "Failover Policy",
+    x011: "Diagnostics",
+    x012: "tunnel up",
+    x013: "Open full card in Tunnel tab",
+    x014: "All diagnostic tests passed with zero bottlenecks. Connection is operating at peak performance.",
+    x015: "Recommendation: Run automated repair to resolve bottlenecks and optimize parameters.",
+    x016: "Auto-Fix Detected Issues",
+    x017: "Diagnosing… (sweep MTU & ping)",
+    x018: "Diagnostics complete",
+    x019: "Health score",
+    x020: "Diagnostics failed",
+    x021: "Run Diagnostics",
+    x022: "Apply Automated Optimizations?",
+    x023: "This will enable TCP BBR, configure MSS clamping, ensure IPv4 forwarding, tune FRP concurrency limits, and restore tunnel interface connectivity.",
+    x024: "Repair & Optimize",
+    x025: "Applying fixes…",
+    x026: "Applying…",
+    x027: "Optimizations applied",
+    x028: "System stack optimized",
+    x029: "Fix failed",
+    x030: "Quick Repair & Optimize",
+    x031: "Active route",
+    x032: "Best round-trip",
+    x033: "Zero loss link",
+    x034: "Packet drop rate",
+    x035: "Last benchmark",
+    x036: "candidates probed",
+    x037: "None",
+    x038: "No benchmark metrics yet. Click \"Run Carrier Benchmark\".",
+    x039: "Healthy",
+    x040: "Good",
+    x041: "Warning",
+    x042: "Down",
+    x043: "Raw 47",
+    x044: "ACTIVE",
+    x045: "BEST",
+    x046: "Current",
+    x047: "Switch",
+    x048: "Probing carriers...",
+    x049: "Benchmarking carriers",
+    x050: "Probing GRE, WSS, TCP, KCP, QUIC, and WS...",
+    x051: "Benchmark Complete",
+    x052: "Best Carrier",
+    x053: "Benchmark failed",
+    x054: "Applying carrier",
+    x055: "Carrier Applied",
+    x056: "Apply failed",
+    err_generic: "Request failed",
+    state_retry: "Retry",
+    state_error_title: "Could not load data",
+    rs_empty_title: "No log lines yet",
+    rs_waiting_sys: "Waiting for system logs...",
+    empty_bench_title: "No benchmark metrics yet",
+    empty_bench_msg: "Run a carrier benchmark to compare protocols.",
+    empty_peers_title: "No peer tunnels yet",
+    empty_peers_msg: "Add one from Setup → Add another foreign server.",
+    empty_logs_title: "No log lines",
+    empty_logs_msg: "Nothing to show for this service yet.",
+    empty_errors_title: "No panel errors",
+    empty_errors_msg: "Clean run — every failure will appear here with its code.",
+    aria_close: "Close",
+    aria_menu: "Menu",
+    aria_main_nav: "Main navigation",
+    aria_toggle_visibility: "Toggle visibility",
+    aria_copy: "Copy",
+    aria_edit_ports: "Edit ports",
+    aria_close_search: "Close search",
+    aria_close_proxy: "Close proxy configuration",
+    aria_font_smaller: "Smaller font",
+    aria_font_larger: "Larger font",
+    aria_fullscreen: "Fullscreen",
+    err_status: "Refresh failed",
+    err_dashboard: "Dashboard refresh failed",
+    err_carrier: "Carrier status failed",
+    err_peers: "Peers load failed",
+    err_setup: "Setup defaults failed",
+    err_logs: "Logs load failed",
+    err_errors: "Error history failed",
+    err_rslogs: "Live log stream failed",
+    err_benchmark: "Benchmark load failed",
+    err_peerlink: "Peer link status failed",
+    err_bundle: "Bundle lookup failed",
+    err_retry: "Retry failed",
+    carrier_switch_confirm: "Switch both Iran & Foreign servers to carrier \"{id}\"?"
   },
   fa: {
     nav_dashboard: "داشبورد",
@@ -2991,7 +3218,99 @@ const I18N = {
     enabled: "فعال",
     save: "ذخیره",
     cancel: "انصراف",
-    close: "بستن"
+    close: "بستن",
+    x002: "ایران",
+    x003: "خارج",
+    x004: "[ فعال ] سوییچ خودکار",
+    x005: "[ خاموش ] حالت دستی",
+    x006: "پایدار / بدون پکت‌لاس",
+    x007: "موتور تونل",
+    x008: "کریر و فیل‌اور",
+    x009: "کریر فعال",
+    x010: "سیاست سوییچ",
+    x011: "عیب‌یابی",
+    x012: "تونل فعال",
+    x013: "مشاهده کارت کامل در تب تونل",
+    x014: "تمام آزمون‌های سلامت شبکه بدون گلوگاه پاس شدند. ارتباط در بالاترین سطح کارایی قرار دارد.",
+    x015: "پیشنهاد: برای رفع خودکار گلوگاه‌ها و بهینه‌سازی دکمه مقابل را بزنید.",
+    x016: "رفع خودکار مشکلات شناسایی‌شده",
+    x017: "در حال ارزیابی… (MTU و پینگ)",
+    x018: "عیب‌یابی تکمیل شد",
+    x019: "امتیاز سلامت",
+    x020: "خطا در عیب‌یابی",
+    x021: "اجرای عیب‌یابی کامل",
+    x022: "اعمال بهینه‌سازی و تعمیر خودکار؟",
+    x023: "این عملیات الگوریتم TCP BBR را فعال کرده، MSS Clamping را در کرنل اعمال می‌کند، فورواردینگ IP را فعال، لیمیت سرویس‌های FRP را ارتقا داده و در صورت لزوم لینک تونل را بازیابی می‌کند.",
+    x024: "شروع تعمیر و بهینه‌سازی",
+    x025: "در حال اعمال تعمیر…",
+    x026: "در حال اعمال…",
+    x027: "تعمیر و بهینه‌سازی انجام شد",
+    x028: "تنظیمات شبکه و هسته سیستم بهینه‌سازی شد",
+    x029: "خطا در تعمیر",
+    x030: "تعمیر و بهینه‌سازی خودکار",
+    x031: "پروتکل فعال تونل",
+    x032: "کمترین تاخیر ثبت‌شده",
+    x033: "لینک بدون پکت‌لاس",
+    x034: "پکت‌لاس کاندیدای برتر",
+    x035: "آخرین سنجش",
+    x036: "پروتکل و کریر فعال",
+    x037: "هیچ‌وقت",
+    x038: "هنوز بنچمارکی ثبت نشده است. روی «اجرای بنچمارک پروتکل‌ها» کلیک کنید.",
+    x039: "سالم",
+    x040: "مطلوب",
+    x041: "هشدار",
+    x042: "قطع",
+    x043: "کرنل ۴۷",
+    x044: "فعال",
+    x045: "پیشنهادی",
+    x046: "فعلی",
+    x047: "سوییچ",
+    x048: "در حال سنجش پروتکل‌ها...",
+    x049: "آغاز بنچمارک پروتکل‌ها",
+    x050: "در حال ارزیابی تاخیر و پکت‌لاس ترنسپورت‌ها...",
+    x051: "بنچمارک تکمیل شد",
+    x052: "پروتکل برتر",
+    x053: "خطا در بنچمارک",
+    x054: "در حال اعمال پروتکل...",
+    x055: "پروتکل با موفقیت اعمال شد",
+    x056: "خطا در اعمال پروتکل",
+    err_generic: "درخواست ناموفق بود",
+    state_retry: "تلاش دوباره",
+    state_error_title: "بارگذاری داده ناموفق بود",
+    rs_empty_title: "هنوز لاگی نیست",
+    rs_waiting_sys: "در حال دریافت لاگ‌های سیستمی...",
+    empty_bench_title: "هنوز بنچمارکی ثبت نشده",
+    empty_bench_msg: "برای مقایسه پروتکل‌ها یک بنچمارک اجرا کنید.",
+    empty_peers_title: "هنوز تونل همتایی وجود ندارد",
+    empty_peers_msg: "از بخش راه‌اندازی یک سرور خارج دیگر اضافه کنید.",
+    empty_logs_title: "خطی برای نمایش نیست",
+    empty_logs_msg: "هنوز چیزی برای این سرویس ثبت نشده است.",
+    empty_errors_title: "بدون خطای پنل",
+    empty_errors_msg: "همه‌چیز سالم است — هر خطا همراه با کد آن اینجا ثبت می‌شود.",
+    aria_close: "بستن",
+    aria_menu: "منو",
+    aria_main_nav: "ناوبری اصلی",
+    aria_toggle_visibility: "نمایش/پنهان‌سازی",
+    aria_copy: "کپی",
+    aria_edit_ports: "ویرایش پورت‌ها",
+    aria_close_search: "بستن جستجو",
+    aria_close_proxy: "بستن پیکربندی پراکسی",
+    aria_font_smaller: "فونت کوچک‌تر",
+    aria_font_larger: "فونت بزرگ‌تر",
+    aria_fullscreen: "تمام‌صفحه",
+    err_status: "به‌روزرسانی ناموفق بود",
+    err_dashboard: "به‌روزرسانی داشبورد ناموفق بود",
+    err_carrier: "وضعیت کریر دریافت نشد",
+    err_peers: "بارگذاری همتاها ناموفق بود",
+    err_setup: "بارگذاری پیش‌فرض‌های راه‌اندازی ناموفق بود",
+    err_logs: "بارگذاری لاگ‌ها ناموفق بود",
+    err_errors: "بارگذاری تاریخچه خطاها ناموفق بود",
+    err_rslogs: "جریان زنده لاگ در دسترس نیست",
+    err_benchmark: "بارگذاری بنچمارک ناموفق بود",
+    err_peerlink: "وضعیت لینک همتا دریافت نشد",
+    err_bundle: "دریافت بسته ناموفق بود",
+    err_retry: "تلاش دوباره ناموفق بود",
+    carrier_switch_confirm: "آیا از تغییر پروتکل و سوییچ تونل به «{id}» اطمینان دارید؟"
   }
 };
 
@@ -2999,7 +3318,7 @@ let currentLang = 'en';
 
 function setLanguage(lang) {
   currentLang = lang;
-  try { localStorage.setItem('hashem_lang', lang); } catch(e) {}
+  try { localStorage.setItem('hashem_lang', lang); } catch(e) { /* storage blocked: language just won't persist */ }
   const isFa = lang === 'fa';
   document.documentElement.setAttribute('dir', isFa ? 'rtl' : 'ltr');
   document.documentElement.setAttribute('lang', lang);
@@ -3029,6 +3348,10 @@ function applyTranslations(lang) {
       }
     }
   });
+  document.querySelectorAll('[data-i18n-aria]').forEach(el => {
+    const v = dict[el.dataset.i18nAria];
+    if (v) el.setAttribute('aria-label', v);
+  });
   document.querySelectorAll('[data-i18n-ph]').forEach(el => {
     const key = el.dataset.i18nPh;
     if (dict[key]) {
@@ -3052,7 +3375,7 @@ function toggleLang() {
 
 if ($('langToggleBtn')) $('langToggleBtn').onclick = toggleLang;
 if ($('langToggleBtnM')) $('langToggleBtnM').onclick = toggleLang;
-try { setLanguage(localStorage.getItem('hashem_lang') || 'en'); } catch(e) {}
+try { setLanguage(localStorage.getItem('hashem_lang') || 'en'); } catch(e) { /* storage blocked: stay on default language */ }
 
 function dot(ok) { return `<span class="dot ${ok ? 'up' : 'down'}"></span>`; }
 // Shared detail-card icons + builder (Dashboard AND peer cards use these;
@@ -3101,7 +3424,7 @@ function armRemovePeer(peerId, name) {
   const btns = document.querySelectorAll(`[data-peer-remove="${peerId}"]`);
   btns.forEach(b => { b.classList.add('armed'); b.innerHTML = '⚠️ Confirm 5s <span class="peer-count" data-peer-n="' + peerId + '">5</span>'; });
   box.classList.remove('hidden');
-  box.innerHTML = `<div class="peer-confirm-in">Remove <b>${esc(name)} (#${peerId})</b>? GRE + frps go away; other tunnels keep running. <button class="hashem-btn hashem-btn-ghost" style="height:28px;padding:0 10px;font-size:12px" onclick="disarmRemovePeer(${peerId})">Undo</button></div>`;
+  box.innerHTML = `<div class="peer-confirm-in">Remove <b>${esc(name)} (#${peerId})</b>? GRE + frps go away; other tunnels keep running. <button class="hashem-btn hashem-btn-ghost u-btn-28" onclick="disarmRemovePeer(${peerId})">Undo</button></div>`;
   clearTimeout(peerRemoveTimers[peerId]); clearInterval(peerRemoveTimers[peerId + '_n']);
   let n = 5;
   peerRemoveTimers[peerId + '_n'] = setInterval(() => {
@@ -3139,9 +3462,9 @@ function renderPeers(peers) {
   const box = $('peerCards');
   if (!box) return;
   tunPeerCache = peers || null;
-  try { renderTunChips(window._lastLocal || null); } catch(_){}
+  try { renderTunChips(window._lastLocal || null); } catch(_){ /* chips are cosmetic; cards still render */ }
   if (!peers || !peers.length) {
-    box.innerHTML = '<div class="ent-empty" style="grid-column:1/-1"><span class="ent-empty-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span><b>No peer tunnels yet</b>Add one from Setup → Add another foreign server.</div>';
+    box.innerHTML = '<div class="u-col-full">' + stateEmpty({ title: tr('empty_peers_title', 'No peer tunnels yet'), msg: tr('empty_peers_msg', 'Add one from Setup → Add another foreign server.'), icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>' }) + '</div>';
     return;
   }
   const stBadge = (ok, label) => `<span class="badge ${ok ? 'ok' : 'err'}"><span class="dot"></span>${esc(label)}</span>`;
@@ -3154,19 +3477,19 @@ function renderPeers(peers) {
     const isBh = p.engine === 'backhaul' || (p.frps_svc && p.frps_svc.includes('backhaul') && p.no_gre);
     const isGreBh = p.engine === 'gre-backhaul' || (p.frps_svc && p.frps_svc.includes('backhaul') && !p.no_gre);
     const engBadge = isBh
-      ? `<span class="badge" style="background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3)">⚡ Backhaul</span>`
+      ? `<span class="badge u-pill-sky">⚡ Backhaul</span>`
       : (isGreBh
-         ? `<span class="badge" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3)">⚡ GRE+Backhaul</span>`
+         ? `<span class="badge u-pill-violet">⚡ GRE+Backhaul</span>`
          : `<span class="badge" style="background:rgba(234,179,8,0.15);color:#facc15;border:1px solid rgba(234,179,8,0.3)">🚀 FRP</span>`);
-    const transBadge = p.transport ? `<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--mu);font-size:11px">${esc(p.transport)}</span>` : '';
+    const transBadge = p.transport ? `<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--mu);font-size:12px">${esc(p.transport)}</span>` : '';
     const fwdPorts = p.raw_ports || (p.ports || []).join(', ') || '—';
     const greIfLabel = isBh ? 'N/A (Standalone)' : (p.gre_if || 'gre-t' + p.id);
     const svcTitle = (isBh || isGreBh) ? 'Backhaul & Traffic' : 'FRP & Traffic';
-    return `<div class="tunnel-card peer-card" id="peer-card-${p.id}" style="grid-column:1/-1;padding:16px;display:flex;flex-direction:column;gap:12px">
-      <div class="tc-header" style="flex-wrap:wrap;gap:8px">
-        <div style="display:flex;align-items:center;gap:10px">
+    return `<div class="tunnel-card peer-card u-peer-card-wide" id="peer-card-${p.id}">
+      <div class="tc-header u-flex-wrap-gap8">
+        <div class="u-flex-center-gap10">
           <span class="status-indicator ${up ? 'active' : 'offline'}"><span class="dot"></span></span>
-          <b style="font-size:16px;color:var(--tx)">${esc(nm)}</b>
+          <b class="u-fs-16-tx">${esc(nm)}</b>
           <span class="qs-hint mono">#${p.id}</span>
           ${engBadge}
           ${transBadge}
@@ -3176,9 +3499,9 @@ function renderPeers(peers) {
       <div class="det-grid">
         <div class="det-card">
           <div class="det-card-head">${ICO_SRV} <span>Foreign Server</span></div>
-          <div class="det-row"><span class="det-k">Foreign IP</span><span class="det-v mono">${esc(p.remote_pub || '—')}<button type="button" class="det-copy" data-copy="${esc(p.remote_pub || '')}" title="Copy">⧉</button></span></div>
-          <div class="det-row"><span class="det-k">Iran IP</span><span class="det-v mono">${esc(p.local_pub || '—')}<button type="button" class="det-copy" data-copy="${esc(p.local_pub || '')}" title="Copy">⧉</button></span></div>
-          <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc(fwdPorts)}<button type="button" class="det-copy" onclick="editPeerPortsClick(${p.id})" title="Edit Ports" style="margin-left:5px;cursor:pointer">✏️</button></span></div>
+          <div class="det-row"><span class="det-k">Foreign IP</span><span class="det-v mono">${esc(p.remote_pub || '—')}<button type="button" class="det-copy" data-copy="${esc(p.remote_pub || '')}" title="Copy" aria-label="Copy">⧉</button></span></div>
+          <div class="det-row"><span class="det-k">Iran IP</span><span class="det-v mono">${esc(p.local_pub || '—')}<button type="button" class="det-copy" data-copy="${esc(p.local_pub || '')}" title="Copy" aria-label="Copy">⧉</button></span></div>
+          <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc(fwdPorts)}<button type="button" class="det-copy u-ml-5" onclick="editPeerPortsClick(${p.id})" title="Edit Ports" aria-label="Edit ports">✏️</button></span></div>
         </div>
         <div class="det-card">
           <div class="det-card-head">${ICO_GRE} <span>GRE Tunnel</span></div>
@@ -3189,16 +3512,16 @@ function renderPeers(peers) {
         <div class="det-card">
           <div class="det-card-head">${(isBh || isGreBh) ? '⚡' : ICO_FRP} <span>${svcTitle}</span></div>
           <div class="det-row"><span class="det-k">Service</span><span class="det-v">${stBadge(p.frp_up, p.frps_svc || 'service')}</span></div>
-          <div class="det-row"><span class="det-k">Control Port</span><span class="det-v mono">${esc(String(p.frp_port || '—'))}<button type="button" class="det-copy" data-copy="${esc(String(p.frp_port || ''))}" title="Copy">⧉</button></span></div>
+          <div class="det-row"><span class="det-k">Control Port</span><span class="det-v mono">${esc(String(p.frp_port || '—'))}<button type="button" class="det-copy" data-copy="${esc(String(p.frp_port || ''))}" title="Copy" aria-label="Copy">⧉</button></span></div>
           <div class="det-row"><span class="det-k">Traffic</span><span class="det-v mono">${esc(traffic)}</span></div>
         </div>
       </div>
-      <div class="peer-acts" style="display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--ln);padding-top:12px">
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" data-peer-act="ping-${p.id}" onclick="peerAct('ping', ${p.id})">Ping</button>
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="editPeerPortsClick(${p.id})">✏️ Edit Peer</button>
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="showPeerToken(${p.id}, '${esc(nm)}')">📦 Bundle</button>
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" data-peer-act="restart-frps-${p.id}" onclick="peerAct('restart-frps', ${p.id})">Restart</button>
-        <button class="hashem-btn hashem-btn-danger peer-remove-btn" style="height:30px;padding:0 12px;font-size:12px" data-peer-remove="${p.id}" onclick="peerRemoveClick(${p.id}, '${esc(nm)}')">Remove</button>
+      <div class="peer-acts u-peer-acts-bar">
+        <button class="hashem-btn hashem-btn-secondary u-btn-30" data-peer-act="ping-${p.id}" onclick="peerAct('ping', ${p.id})">Ping</button>
+        <button class="hashem-btn hashem-btn-secondary u-btn-30" onclick="editPeerPortsClick(${p.id})">✏️ Edit Peer</button>
+        <button class="hashem-btn hashem-btn-secondary u-btn-30" onclick="showPeerToken(${p.id}, '${esc(nm)}')">📦 Bundle</button>
+        <button class="hashem-btn hashem-btn-secondary u-btn-30" data-peer-act="restart-frps-${p.id}" onclick="peerAct('restart-frps', ${p.id})">Restart</button>
+        <button class="hashem-btn hashem-btn-danger peer-remove-btn u-btn-30" data-peer-remove="${p.id}" onclick="peerRemoveClick(${p.id}, '${esc(nm)}')">Remove</button>
       </div>
       <div id="peer-confirm-${p.id}" class="peer-confirm warnbox hidden"></div>
     </div>`;
@@ -3232,11 +3555,11 @@ function renderTunnel(st) {
   // detail rows as a peer card so the base tunnel isn't a plain text list.
   const hasMain = !!(st.gre.exists || st.frp_up || (st.proxies || []).length);
   const mainCard = !hasMain ? '' : `
-    <div class="tunnel-card peer-card main-card" id="peer-card-main" style="grid-column:1/-1;padding:16px;display:flex;flex-direction:column;gap:12px">
-      <div class="tc-header" style="flex-wrap:wrap;gap:8px">
-        <div style="display:flex;align-items:center;gap:10px">
+    <div class="tunnel-card peer-card main-card u-peer-card-wide" id="peer-card-main">
+      <div class="tc-header u-flex-wrap-gap8">
+        <div class="u-flex-center-gap10">
           <span class="status-indicator ${up ? 'active' : 'offline'}"><span class="dot"></span></span>
-          <b style="font-size:16px;color:var(--tx)">Main tunnel</b>
+          <b class="u-fs-16-tx">Main tunnel</b>
           <span class="badge" style="border-color:color-mix(in srgb, var(--wr) 45%, transparent);color:var(--wr)"><span class="dot"></span>main</span>
           <span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${up ? 'active' : 'down'}</span>
         </div>
@@ -3245,7 +3568,7 @@ function renderTunnel(st) {
         <div class="det-card">
           <div class="det-card-head">${ICO_SRV} <span>Server</span></div>
           <div class="det-row"><span class="det-k">GRE Path</span><span class="det-v mono">${esc(st.gre.local || '?')} → ${esc(st.gre.peer_ip || st.gre_peer || '?')}</span></div>
-          <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc(((st.proxy_ports && st.proxy_ports.length) ? st.proxy_ports : (st.proxies || [])).join(', ') || '—')}<button type="button" class="det-copy" onclick="editMainPortsClick()" title="Edit Ports" style="margin-left:5px;cursor:pointer">✏️</button></span></div>
+          <div class="det-row"><span class="det-k">Forwarded</span><span class="det-v mono">${esc(((st.proxy_ports && st.proxy_ports.length) ? st.proxy_ports : (st.proxies || [])).join(', ') || '—')}<button type="button" class="det-copy u-ml-5" onclick="editMainPortsClick()" title="Edit Ports" aria-label="Edit ports">✏️</button></span></div>
         </div>
         <div class="det-card">
           <div class="det-card-head">${ICO_GRE} <span>GRE Tunnel</span></div>
@@ -3258,12 +3581,12 @@ function renderTunnel(st) {
           <div class="det-row"><span class="det-k">Port</span><span class="det-v mono">${esc(String(st.frp_port || st.bind_port || '?'))}</span></div>
         </div>
       </div>
-      <div class="peer-acts" style="display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--ln);padding-top:12px">
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('ping', 0)">Ping</button>
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="editMainPortsClick()">✏️ Edit Tunnel</button>
-        ${st.role === 'iran' ? '<button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="copyMainIranBundle()">📦 Copy Bundle</button>' : ''}
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('restart-gre', 0)">Restart GRE</button>
-        <button class="hashem-btn hashem-btn-secondary" style="height:30px;padding:0 12px;font-size:12px" onclick="peerAct('restart-frps', 0)">Restart FRP</button>
+      <div class="peer-acts u-peer-acts-bar">
+        <button class="hashem-btn hashem-btn-secondary u-btn-30" onclick="peerAct('ping', 0)">Ping</button>
+        <button class="hashem-btn hashem-btn-secondary u-btn-30" onclick="editMainPortsClick()">✏️ Edit Tunnel</button>
+        ${st.role === 'iran' ? '<button class="hashem-btn hashem-btn-secondary u-btn-30" onclick="copyMainIranBundle()">📦 Copy Bundle</button>' : ''}
+        <button class="hashem-btn hashem-btn-secondary u-btn-30" onclick="peerAct('restart-gre', 0)">Restart GRE</button>
+        <button class="hashem-btn hashem-btn-secondary u-btn-30" onclick="peerAct('restart-frps', 0)">Restart FRP</button>
       </div>
     </div>`;
   $('tunnel').innerHTML = mainCard;
@@ -3332,6 +3655,7 @@ function renderTunChips(st) {
   });
 }
 async function refresh() {
+  let ok = true;
   try {
     const s = await api('/api/status');
     // peers first: renderTunChips (called inside renderTunnel) reads the cache
@@ -3344,9 +3668,15 @@ async function refresh() {
       const ap = $('setupAddPeerStep');
       if (ap) ap.hidden = isForeign;
     }
-  } catch(e) { if (!/session|expired|unauthorized/i.test(e.message)) toastErr('refresh failed', e.message); }
+  } catch(e) {
+    reportErr('status', e);
+    const pc = $('peerCards');
+    if (pc && !pc.children.length) pc.innerHTML = stateError(e.message, 'status');
+    ok = false;
+  }
   refreshDash();
-  loadCarrier().catch(() => {});
+  loadCarrier().catch(e => reportErr('carrier', e));
+  return ok;
 }
 // peer add-form: prefill Iran IP + suggest next control port / GRE pair
 async function updatePeerHints(s) {
@@ -3359,7 +3689,7 @@ async function updatePeerHints(s) {
     if (!$('pFrpPort').value) $('pFrpPort').value = 7000 + n;
     if (!$('pLocalGre').value) $('pLocalGre').value = '10.1' + (n + 1) + '.0.2';
     if (!$('pPeerGre').value) $('pPeerGre').value = '10.1' + (n + 1) + '.0.1';
-  } catch(e) {}
+  } catch(e) { reportErr('peers', e); }
 }
 $('addPeerBtn').onclick = async () => {
   const b = $('addPeerBtn');
@@ -3706,14 +4036,14 @@ function drawChart(hist, isDown) {
     ctx.clearRect(0, 0, W, H);
 
     ctx.strokeStyle = C_GRID; ctx.lineWidth = 1;
-    ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'left';
+    ctx.fillStyle = C_AXIS; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'left';
     for (let g = 0; g <= 4; g++) {
       const y = Math.round(padT + ih * g / 4) + 0.5, val = max * (1 - g / 4);
       ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
       ctx.fillText(fmtRate(val), 4, y + 3);
     }
 
-    ctx.fillStyle = C_AXIS; ctx.font = '10.5px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = C_AXIS; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
     for (let k = 0; k < nTicks; k++) {
       const tickTime = t0 + ((t1 - t0) * k) / (nTicks - 1);
       const x = X(tickTime);
@@ -3760,7 +4090,7 @@ function drawChart(hist, isDown) {
     if (peakPt && peakPt.val > 0 && progress >= Math.min(1, Math.max(0.2, (peakPt.x - padL) / iw))) {
       const px = peakPt.x, py = peakPt.y;
       const peakTxt = 'Peak ' + fmtRate(peakPt.val);
-      ctx.font = '600 10px -apple-system, system-ui, sans-serif';
+      ctx.font = '600 12px -apple-system, system-ui, sans-serif';
       const tw = ctx.measureText(peakTxt).width;
       const tagW = Math.round(tw + 12), tagH = 17;
 
@@ -3772,7 +4102,7 @@ function drawChart(hist, isDown) {
           const tipX = (cv.offsetLeft || 0) + (parseFloat(tipEl.style.left) || 0);
           if (Math.abs(tipX - px) < tagW + 40) placeAbovePeak = false;
         }
-      } catch (_) {}
+      } catch (_) { /* tooltip overlap check is cosmetic */ }
       const placeAbove = placeAbovePeak;
       const tagY = placeAbove ? (py - 12 - tagH / 2) : (py + 12 + tagH / 2);
       let tagX = px - tagW / 2;
@@ -4102,13 +4432,13 @@ async function refreshDash() {
     const dval = v => `<span class="det-v">${esc(v ?? NA)}</span>`;
     const dmono = v => (!v || v === NA)
       ? `<span class="det-v">—</span>`
-      : `<span style="display:flex;align-items:center;gap:6px;min-width:0"><span class="det-v mono">${esc(v)}</span><button class="det-copy" data-copy="${esc(v)}" title="Copy">⧉</button></span>`;
+      : `<span style="display:flex;align-items:center;gap:6px;min-width:0"><span class="det-v mono">${esc(v)}</span><button class="det-copy" data-copy="${esc(v)}" title="Copy" aria-label="Copy">⧉</button></span>`;
     const dbadge = (txt, cls) => `<span class="det-v"><span class="badge ${cls || ''}"><span class="dot"></span>${esc(txt)}</span></span>`;
     const detCard = (icon, title, rows) =>
       `<div class="det-card"><div class="det-head"><span class="det-ico">${icon}</span>${esc(title)}</div><div class="det-rows">${rows}</div></div>`;
     const detRow = (k, cell) => `<div class="det-row"><span class="det-k">${esc(k)}</span>${cell}</div>`;
     const frpBadge = f.up ? dbadge(f.svc || tr('status_running', 'running'), 'ok') : dbadge(tr('status_down', 'down'), 'err');
-    const roleBadge = d.role === 'iran' ? dbadge('🇮🇷 ' + (currentLang === 'fa' ? 'ایران' : 'Iran'), 'ok') : d.role === 'foreign' ? dbadge('🌍 ' + (currentLang === 'fa' ? 'خارج' : 'Foreign'), '') : dval(d.role);
+    const roleBadge = d.role === 'iran' ? dbadge('🇮🇷 ' + (tr('x002', "Iran")), 'ok') : d.role === 'foreign' ? dbadge('🌍 ' + (tr('x003', "Foreign")), '') : dval(d.role);
     const bindPort = (f.port && f.port !== NA) ? String(f.port) : '';
     const proxyPorts = (f.proxy_ports || []).filter(p => p && String(p) !== bindPort);
     const isFrpc = (f.svc === 'frpc') || /foreign/i.test(d.role || '');
@@ -4117,18 +4447,18 @@ async function refreshDash() {
     const proxyList = (f.proxy_ports && f.proxy_ports.length) ? f.proxy_ports.join(', ') : ((f.proxies || []).join(', ') || '—');
     const activeEng = String(d.active_engine || 'frp').toUpperCase();
     const activeCarr = String(d.active_carrier || 'direct');
-    const failoverBadge = d.auto_failover ? dbadge(currentLang === 'fa' ? '[ فعال ] سوییچ خودکار' : '[ ON ] Auto-Switching', 'warn') : dbadge(currentLang === 'fa' ? '[ خاموش ] حالت دستی' : '[ OFF ] Manual Mode', 'dim');
+    const failoverBadge = d.auto_failover ? dbadge(tr('x004', "[ ON ] Auto-Switching"), 'warn') : dbadge(tr('x005', "[ OFF ] Manual Mode"), 'dim');
     const diagBadge = d.last_error
       ? `<span class="badge err" title="${esc(d.last_error.detail || '')}"><span class="dot"></span>${esc(d.last_error.code || 'ERR')} (${esc(String(d.last_error.time || '').slice(11, 19))})</span>`
-      : dbadge(currentLang === 'fa' ? 'پایدار / بدون پکت‌لاس' : 'Stable / Zero Drops', 'ok');
+      : dbadge(tr('x006', "Stable / Zero Drops"), 'ok');
     const ICO_BOLT = '<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
     setHTML('dashDetails',
       detCard(ICO_SRV, tr('card_server_title', 'Server & Role'), detRow(tr('lbl_public_ip', 'Public IP'), dmono(d.local_pub)) + detRow(tr('lbl_role', 'Role'), roleBadge) + detRow(tr('lbl_forwarded_ports', 'Forwarded'), dval(proxyList)))
       + detCard(ICO_GRE, tr('card_gre_title', 'GRE Tunnel'), detRow(tr('lbl_gre_local', 'Local'), dmono(g.local)) + detRow(tr('lbl_gre_peer', 'Peer'), dmono(g.peer)) + detRow(tr('lbl_gre_interface', 'Inner'), dmono(g.inner)))
-      + detCard(ICO_FRP, tr('card_frp_title', 'Tunnel Engine'), detRow(tr('lbl_frp_status', 'Status'), frpBadge) + detRow(currentLang === 'fa' ? 'موتور تونل' : 'Engine', dval(activeEng)) + detRow(portLabel, portCell)
+      + detCard(ICO_FRP, tr('card_frp_title', 'Tunnel Engine'), detRow(tr('lbl_frp_status', 'Status'), frpBadge) + detRow(tr('x007', "Engine"), dval(activeEng)) + detRow(portLabel, portCell)
         + (proxyPorts.length ? detRow(tr('lbl_tunnel_ports', 'Tunnel Ports'), `<span class="det-v">${proxyPorts.map(p => `<span class="det-v mono" style="margin-right:4px">${esc(String(p))}</span>`).join('')}</span>`) : '')
         + (u.frp_since ? detRow(tr('lbl_uptime_since', 'Since'), dval(u.frp_since)) : ''))
-      + detCard(ICO_BOLT, currentLang === 'fa' ? 'کریر و فیل‌اور' : 'Carrier & Failover', detRow(currentLang === 'fa' ? 'کریر فعال' : 'Active Carrier', dmono(activeCarr)) + detRow(currentLang === 'fa' ? 'سیاست سوییچ' : 'Failover Policy', failoverBadge) + detRow(currentLang === 'fa' ? 'عیب‌یابی' : 'Diagnostics', diagBadge))
+      + detCard(ICO_BOLT, tr('x008', "Carrier & Failover"), detRow(tr('x009', "Active Carrier"), dmono(activeCarr)) + detRow(tr('x010', "Failover Policy"), failoverBadge) + detRow(tr('x011', "Diagnostics"), diagBadge))
       + dashPeersCard(d.peers || []));
     // one-click copy for IP/port pills
     document.querySelectorAll('#dashDetails [data-copy]').forEach(b => { if (!b.dataset.cpBound) { b.dataset.cpBound = '1';
@@ -4139,7 +4469,8 @@ async function refreshDash() {
     // click-through for dashboard peer rows → jump to the full card.
     document.querySelectorAll('#dashDetails [data-goto-peer]').forEach(b => { if (!b.dataset.cpBound) { b.dataset.cpBound = '1';
       b.onclick = () => gotoPeerCard(parseInt(b.dataset.gotoPeer, 10)); }; });
-  } catch(e) { /* keep old values; N/A already default */ }
+  } catch(e) { reportErr('dashboard', e); /* keep old values; N/A already default */ return false; }
+  return true;
 }
 // Dashboard per-peer summary: one compact row per tunnel (name, status,
 // foreign IP, forwarded ports, ping) + a jump to the full card in Tunnel.
@@ -4189,7 +4520,7 @@ function drawActivityChart(hist, isDown) {
     const y = Math.round(padT + ih * g / 2) + 0.5;
     const val = Math.round(max * (1 - g / 2));
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
-    ctx.fillStyle = C_AXIS; ctx.font = '10px tabular-nums'; ctx.textAlign = 'right';
+    ctx.fillStyle = C_AXIS; ctx.font = '12px tabular-nums'; ctx.textAlign = 'right';
     ctx.fillText(String(val), padL - 8, y + 3);
   }
   
@@ -4202,7 +4533,7 @@ function drawActivityChart(hist, isDown) {
       : M + ' ' + d.getDate();
   };
   const nTicks = Math.max(2, Math.min(5, Math.floor(iw / 80)));
-  ctx.fillStyle = C_AXIS; ctx.font = '10px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillStyle = C_AXIS; ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textAlign = 'center';
   for (let k = 0; k < nTicks; k++) {
     const tickTime = t0 + (dt * k) / (nTicks - 1);
     const x = X(tickTime);
@@ -4261,8 +4592,8 @@ function dashPeersCard(peers) {
     const nm = p.name || ('peer-' + p.id);
     const pingTxt = p.ping_ok ? (p.ping_ms || 'ok') : tr('status_down', 'down');
     const pingCls = p.ping_ok ? 'ok' : 'err';
-    const statusTxt = up ? (currentLang === 'fa' ? 'تونل فعال' : 'tunnel up') : tr('status_down', 'down');
-    return `<div class="dash-peer-row" data-goto-peer="${p.id}" title="${currentLang === 'fa' ? 'مشاهده کارت کامل در تب تونل' : 'Open full card in Tunnel tab'}">`
+    const statusTxt = up ? (tr('x012', "tunnel up")) : tr('status_down', 'down');
+    return `<div class="dash-peer-row" data-goto-peer="${p.id}" title="${tr('x013', "Open full card in Tunnel tab")}">`
       + `<span class="ent-st ${up ? 'on' : 'off'}"><i></i></span>`
       + `<b style="color:var(--tx)">${esc(nm)}</b><span class="qs-hint mono">#${p.id}</span>`
       + `<span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${statusTxt}</span>`
@@ -4270,7 +4601,7 @@ function dashPeersCard(peers) {
       + `<span class="qs-hint">${esc((p.ports || []).join(', ') || '—')} · </span><span class="badge ${pingCls}"><span class="dot"></span>${esc(pingTxt)}</span>`
       + `</div>`;
   }).join('');
-  return `<div class="det-card" style="grid-column:1/-1"><div class="det-head"><span class="det-ico">${ICO_SRV}</span>${esc(tr('card_peers_title', 'Peer Tunnels'))} (${peers.length})</div><div>${rows}</div></div>`;
+  return `<div class="det-card u-col-full"><div class="det-head"><span class="det-ico">${ICO_SRV}</span>${esc(tr('card_peers_title', 'Peer Tunnels'))} (${peers.length})</div><div>${rows}</div></div>`;
 }
 // Scroll to a peer's full card (switches tab if needed).
 function gotoPeerCard(peerId) {
@@ -4338,7 +4669,7 @@ function renderIranBundleBox(bundleStr) {
       <button type="button" class="hashem-btn hashem-btn-primary" id="copyIranBundleBtn" style="padding:4px 14px;font-size:12px">📋 Copy Bundle</button>
     </div>
     <div style="font-family:var(--font-mono);font-size:12px;background:rgba(0,0,0,0.35);padding:10px 12px;border-radius:var(--r-sm);word-break:break-all;color:var(--cyan);user-select:all;border:1px solid rgba(56,189,248,0.25)">${esc(bundleStr)}</div>
-    <div style="font-size:11px;color:var(--mu);margin-top:6px">Paste this single string into the Foreign server token box to establish the tunnel and peer link automatically.</div>
+    <div style="font-size:12px;color:var(--mu);margin-top:6px">Paste this single string into the Foreign server token box to establish the tunnel and peer link automatically.</div>
   `;
   bb.classList.remove('hidden');
   const btn = $('copyIranBundleBtn');
@@ -4398,7 +4729,7 @@ async function loadSetupDefaults() {
     if (!$('fFrpPort').value) $('fFrpPort').value = d.frp_port || 7000;
     const isForeignHost = d.role_guess && /foreign|frpc/.test(d.role_guess);
     setRole(isForeignHost ? 'foreign' : 'iran');
-  } catch(e) {}
+  } catch(e) { reportErr('setup', e); }
 }
 // Iran-only apply: token is auto-generated server-side. When a tunnel exists
 // the form must be unlocked first (the lock IS the replace consent).
@@ -4868,7 +5199,7 @@ $('toggle').addEventListener('click', () => {
     draw(now); requestAnimationFrame(animate);
   })(0);
 })();
-$('logoutBtn').onclick = async () => { try { await api('/api/logout', {}); } catch(e){} showLogin(); };
+$('logoutBtn').onclick = async () => { try { await api('/api/logout', {}); } catch(e){ /* logout best-effort: always fall through to login screen */ } showLogin(); };
 $('refreshBtn').onclick = refresh;
 $('removeTunnelBtn').onclick = async () => {
   if (!await entConfirm('Remove tunnel?', 'Remove the tunnel from THIS server? GRE + FRP will be deleted; the panel stays.', 'Remove tunnel')) return;
@@ -4934,7 +5265,8 @@ function paintLogs() {
   const q = ($('logSearch').value || '').toLowerCase();
   const lvl = $('logLevel').value;
   const lines = logRaw.split('\n').filter(ln => (!q || ln.toLowerCase().includes(q)) && logLevelMatch(ln, lvl));
-  $('logs').textContent = lines.length ? lines.join('\n') : '(no lines match the filter)';
+  if (lines.length) $('logs').textContent = lines.join('\n');
+  else $('logs').innerHTML = stateEmpty({ title: tr('empty_logs_title', 'No log lines'), msg: tr('empty_logs_msg', 'Nothing to show for this service yet.'), actionKey: 'logs', compact: true });
   $('logMeta').textContent = logRaw ? `${logRaw.split('\n').length} lines from ${logSvc} · showing ${lines.length}` : '—';
   const box = $('logFindings');
   if (!logFindings.length) { box.innerHTML = '<div class="qs-hint">\u2713 no known error signatures in these lines.</div>'; }
@@ -4942,7 +5274,7 @@ function paintLogs() {
     `<div style="border:1px solid rgba(255,90,90,.35);background:rgba(255,90,90,.07);border-radius:10px;padding:10px 12px">` +
     `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="badge" style="border-color:rgba(255,90,90,.5);color:#ff8f8f"><span class="dot" style="background:#ff5f5f"></span>${esc(f.code)}${f.count > 1 ? ' ×' + f.count : ''}</span>` +
     `<b>${esc(f.msg)}</b></div>` +
-    (f.hint ? `<div class="qs-hint" style="margin-top:4px">\u21AA ${esc(f.hint)}</div>` : '') +
+    (f.hint ? `<div class="qs-hint u-mt-4">\u21AA ${esc(f.hint)}</div>` : '') +
     (f.line ? `<div class="qs-hint" style="margin-top:4px;font-family:monospace">“${esc(f.line)}”</div>` : '') +
     `</div>`).join('');
 }
@@ -4954,21 +5286,24 @@ async function loadErrors() {
     $('errList').innerHTML = evs.length ? '<div class="ent-tbl-wrap" tabindex="0"><table class="ent-tbl"><thead><tr><th>Code</th><th>Time · Endpoint</th><th>Detail</th></tr></thead><tbody>'
       + evs.slice().reverse().map(e =>
       `<tr><td><span class="badge err"><span class="dot"></span>${esc(e.code)}</span></td>` +
-      `<td class="mono" style="white-space:normal">${esc(e.time || '')}<br>${esc(e.endpoint || '')}</td>` +
-      `<td style="white-space:normal">${esc(e.detail || '')}</td></tr>`).join('') + '</tbody></table></div>'
-      : '<div class="ent-empty"><b>No panel errors</b>Clean run — every failure will appear here with its code.</div>';
-  } catch(e) { $('errList').innerHTML = '<div class="warnbox">Could not load error history: ' + esc(e.message) + '</div>'; }
+      `<td class="mono u-ws-normal">${esc(e.time || '')}<br>${esc(e.endpoint || '')}</td>` +
+      `<td class="u-ws-normal">${esc(e.detail || '')}</td></tr>`).join('') + '</tbody></table></div>'
+      : stateEmpty({ title: tr('empty_errors_title', 'No panel errors'), msg: tr('empty_errors_msg', 'Clean run — every failure will appear here with its code.'), compact: true });
+  } catch(e) { reportErr('errors', e); $('errList').innerHTML = stateError(e.message, 'errors', true); }
 }
 async function loadLogs() {
   const pre = $('logs');
-  if (!logRaw) pre.innerHTML = '<span class="qs-hint">Loading…</span>';
+  if (!logRaw) pre.innerHTML = skel(4);
   try {
     const r = await fetch(at('/api/logs?svc=' + encodeURIComponent(logSvc) + '&n=' + $('logLines').value));
     const j = await r.json();
     logRaw = j.logs || '';
     logFindings = j.findings || [];
     paintLogs();
-  } catch(e) { toastErr('logs load failed', e.message); }
+  } catch(e) {
+    reportErr('logs', e);
+    if (!logRaw) { pre.innerHTML = stateError(e.message, 'logs', true); }
+  }
 }
 function setLogSvc(svc) {
   logSvc = svc;
@@ -5004,7 +5339,7 @@ async function refreshLogPeers() {
     const h = $('logPeerHint');
     if (h) h.textContent = (s.peers || []).length ? (s.peers.length + ' peer tunnel(s) — pick one to see its frps log.') : '';
     if (!h.textContent) h.classList.add('hidden'); else h.classList.remove('hidden');
-  } catch(e) {}
+  } catch(e) { reportErr('peers', e); }
 }
 function checkPassStrength(pw) {
   if (!pw) return { score: 0, text: '', color: 'var(--mu)' };
@@ -5069,7 +5404,7 @@ async function loadVersion() {
     const rows = $('verRowsUpd'); if (rows) rows.innerHTML = '<div class="warnbox">Version check failed: ' + esc(e.message) + '</div>';
     $('updateMsg').textContent = 'Check failed — will retry. (' + e.message + ')';
     // Auto-retry once after 5s so a transient GitHub hiccup doesn't stick.
-    setTimeout(async () => { try { await api('/api/status'); loadVersion(); } catch(_){} }, 5000);
+    setTimeout(async () => { try { await api('/api/status'); loadVersion(); } catch(_){ /* panel still restarting: ignore */ } }, 5000);
   }
 }
 $('updateBtn').onclick = async () => {
@@ -5089,7 +5424,7 @@ $('updateBtn').onclick = async () => {
     const iv = setInterval(async () => {
       n++;
       try { const h = await (await fetch(at('/api/health'), {cache: 'no-store'})).json(); if (h && h.status === 'ok') { clearInterval(iv); location.reload(); } }
-      catch(_){}
+      catch(_){ /* health endpoint down while restarting: keep polling */ }
       if (n > 30) { clearInterval(iv); $('updateMsg').textContent = 'Update sent — if this page does not refresh, reload it manually in ~20s.'; }
     }, 2000);
   }
@@ -5160,7 +5495,7 @@ function termOnShow() {
   // lazy libs + fit when the tab first opens
   termLoadLibs().then(() => {
     termEnsure();
-    setTimeout(() => { try { termState.fit && termState.fit.fit(); termSendResize(); } catch(_){} }, 60);
+    setTimeout(() => { try { termState.fit && termState.fit.fit(); termSendResize(); } catch(_){ /* term.fit / ws send / close: harmless if terminal not ready */ } }, 60);
   }).catch(e => termOverlay(true, 'Terminal unavailable', e.message));
 }
 function termEnsure() {
@@ -5176,9 +5511,9 @@ function termEnsure() {
   termState.term = t;
   t.writeln('\x1b[1;36mHashem terminal\x1b[0m — press Connect for a root shell on this server.');
   t.writeln('Type \x1b[1mhashem\x1b[0m + Enter for the full tunnel menu (setup · peers · logs · update · HTTPS).');
-  try { termState.fit.fit(); } catch(_){}
+  try { termState.fit.fit(); } catch(_){ /* term.fit / ws send / close: harmless if terminal not ready */ }
 }
-function termSend(m) { try { if (termState.ws && termState.ws.readyState === 1) termState.ws.send(JSON.stringify(m)); } catch(_){} }
+function termSend(m) { try { if (termState.ws && termState.ws.readyState === 1) termState.ws.send(JSON.stringify(m)); } catch(_){ /* term.fit / ws send / close: harmless if terminal not ready */ } }
 function termSendResize() {
   const t = termState.term; if (!t) return;
   termSend({v:1, t:'resize', cols: t.cols, rows: t.rows});
@@ -5205,9 +5540,9 @@ async function termConnect() {
   termState.ws = ws;
   termSetDot('warn', 'connecting…');
   termOverlay(false);
-  ws.onopen = () => { termState.connecting = false; termSetDot('on', 'connected'); $('termMeta').textContent = 'Root shell on this server · single session · 10m idle kill · 30m cap · type hashem for the tunnel menu'; try { termState.fit.fit(); } catch(_){} termSendResize(); termState.hb = setInterval(() => termSend({v:1,t:'hb'}), 25000); termState.term && termState.term.focus(); };
+  ws.onopen = () => { termState.connecting = false; termSetDot('on', 'connected'); $('termMeta').textContent = 'Root shell on this server · single session · 10m idle kill · 30m cap · type hashem for the tunnel menu'; try { termState.fit.fit(); } catch(_){ /* term.fit / ws send / close: harmless if terminal not ready */ } termSendResize(); termState.hb = setInterval(() => termSend({v:1,t:'hb'}), 25000); termState.term && termState.term.focus(); };
   ws.onmessage = ev => {
-    let m; try { m = JSON.parse(ev.data); } catch(_) { return; }
+    let m; try { m = JSON.parse(ev.data); } catch(_) { return; /* non-JSON frame: ignore */ }
     if (m.v !== 1) return;
     if (m.t === 'out' && m.d) termB64(m.d);
     else if (m.t === 'exit') { termState.term.writeln('\r\n\x1b[1;33m[shell exited]\x1b[0m'); termDisconnect('Shell exited.'); }
@@ -5219,7 +5554,7 @@ async function termConnect() {
 function termDisconnect(note) {
   const ws = termState.ws; termState.ws = null;
   if (termState.hb) { clearInterval(termState.hb); termState.hb = null; }
-  try { ws && ws.close(); } catch(_){}
+  try { ws && ws.close(); } catch(_){ /* already closed */ }
   termSetDot('', 'disconnected');
   termOverlay(true, 'Disconnected', note || 'Press Connect to open a root shell on this server.');
 }
@@ -5242,9 +5577,9 @@ $('termKillBtn').onclick = async () => {
   termDisconnect();
 };
 $('termClearBtn').onclick = () => { termState.term && termState.term.clear(); termState.term && termState.term.focus(); };
-$('termFullBtn').onclick = () => { const w = $('termWrap'); w.classList.toggle('full'); setTimeout(() => { try { termState.fit.fit(); termSendResize(); } catch(_){} }, 60); };
-$('termFontUp').onclick = () => { termState.fontSize = Math.min(22, termState.fontSize + 1); if (termState.term) { termState.term.options.fontSize = termState.fontSize; try { termState.fit.fit(); termSendResize(); } catch(_){} } };
-$('termFontDown').onclick = () => { termState.fontSize = Math.max(10, termState.fontSize - 1); if (termState.term) { termState.term.options.fontSize = termState.fontSize; try { termState.fit.fit(); termSendResize(); } catch(_){} } };
+$('termFullBtn').onclick = () => { const w = $('termWrap'); w.classList.toggle('full'); setTimeout(() => { try { termState.fit.fit(); termSendResize(); } catch(_){ /* term.fit / ws send / close: harmless if terminal not ready */ } }, 60); };
+$('termFontUp').onclick = () => { termState.fontSize = Math.min(22, termState.fontSize + 1); if (termState.term) { termState.term.options.fontSize = termState.fontSize; try { termState.fit.fit(); termSendResize(); } catch(_){ /* term.fit / ws send / close: harmless if terminal not ready */ } } };
+$('termFontDown').onclick = () => { termState.fontSize = Math.max(10, termState.fontSize - 1); if (termState.term) { termState.term.options.fontSize = termState.fontSize; try { termState.fit.fit(); termSendResize(); } catch(_){ /* term.fit / ws send / close: harmless if terminal not ready */ } } };
 $('termCopyBtn').onclick = async () => {
   try {
     const sel = termState.term ? termState.term.getSelection() : '';
@@ -5264,7 +5599,7 @@ $('termSearchPrev').onclick = () => termDoSearch(false);
 $('termSearchInput').addEventListener('keydown', e => { if (e.key === 'Enter') termDoSearch(!e.shiftKey); if (e.key === 'Escape') $('termSearchBar').classList.add('hidden'); });
 document.querySelectorAll('#termKeys button').forEach(b => b.onclick = () => { termSend({v:1, t:'in', d: b.dataset.k}); termState.term && termState.term.focus(); });
 window.addEventListener('resize', () => {
-  if (!$('tab-terminal').hidden && termState.fit) { try { termState.fit.fit(); termSendResize(); } catch(_){} }
+  if (!$('tab-terminal').hidden && termState.fit) { try { termState.fit.fit(); termSendResize(); } catch(_){ /* term.fit / ws send / close: harmless if terminal not ready */ } }
   const c = $('trafficChart'); if (c && c._hist && !$('tab-dashboard').hidden) { drawChart(c._hist, c._isDown); drawActivityChart(c._hist, c._isDown); }
 });
 // ---------- Performance & Obfuscation (tab-perf) ----------
@@ -5599,6 +5934,7 @@ async function loadCarrier() {
     const tunCarrier = $('tunnelCarrierTxt');
     if (tunCarrier) tunCarrier.textContent = curActive.toUpperCase();
   } catch (e) {
+    reportErr('carrier', e);
     const ind = $('carrierStatusInd');
     if (ind) {
       ind.className = 'status-indicator offline';
@@ -5903,8 +6239,8 @@ async function loadWatchdog() {
               <span class="wd-backup-info">${formatBytes(b.size)} · ${esc(b.time)}</span>
             </div>
             <div class="wd-backup-acts">
-              <button class="hashem-btn hashem-btn-secondary" style="padding:4px 10px;font-size:12px" data-dl="${esc(b.name)}">Download</button>
-              <button class="hashem-btn hashem-btn-danger" style="padding:4px 10px;font-size:12px" data-rst="${esc(b.name)}">Restore</button>
+              <button class="hashem-btn hashem-btn-secondary u-btn-xs" data-dl="${esc(b.name)}">Download</button>
+              <button class="hashem-btn hashem-btn-danger u-btn-xs" data-rst="${esc(b.name)}">Restore</button>
             </div>
           `;
           bList.appendChild(item);
@@ -6369,7 +6705,7 @@ function renderDoctor(rep) {
   if (issuesCount) issuesCount.textContent = `${issues.length} issue${issues.length === 1 ? '' : 's'} detected`;
   if (issuesBox) {
     if (issues.length === 0) {
-      issuesBox.innerHTML = '<div class="qs-hint u-color-ok">✓ ' + (currentLang === 'fa' ? 'تمام آزمون‌های سلامت شبکه بدون گلوگاه پاس شدند. ارتباط در بالاترین سطح کارایی قرار دارد.' : 'All diagnostic tests passed with zero bottlenecks. Connection is operating at peak performance.') + '</div>';
+      issuesBox.innerHTML = '<div class="qs-hint u-color-ok">✓ ' + (tr('x014', "All diagnostic tests passed with zero bottlenecks. Connection is operating at peak performance.")) + '</div>';
     } else {
       let html = '';
       for (let i = 0; i < issues.length; i++) {
@@ -6384,10 +6720,10 @@ function renderDoctor(rep) {
         </div>`;
       }
       html += `<div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-        <span class="qs-hint" style="color:var(--mu);">${currentLang === 'fa' ? 'پیشنهاد: برای رفع خودکار گلوگاه‌ها و بهینه‌سازی دکمه مقابل را بزنید.' : 'Recommendation: Run automated repair to resolve bottlenecks and optimize parameters.'}</span>
+        <span class="qs-hint" style="color:var(--mu);">${tr('x015', "Recommendation: Run automated repair to resolve bottlenecks and optimize parameters.")}</span>
         <button class="hashem-btn hashem-btn-primary u-btn-sm" id="docBoxFixBtn" onclick="fixDoctor()" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-          <span data-i18n="doc_fix_box_btn">${currentLang === 'fa' ? 'رفع خودکار مشکلات شناسایی‌شده' : 'Auto-Fix Detected Issues'}</span>
+          <span data-i18n="doc_fix_box_btn">${tr('x016', "Auto-Fix Detected Issues")}</span>
         </button>
       </div>`;
       issuesBox.innerHTML = html;
@@ -6402,29 +6738,27 @@ async function runDoctor() {
   if (btn) {
     btn.disabled = true;
     btn.classList.add('doc-pulse');
-    btn.querySelector('span').textContent = currentLang === 'fa' ? 'در حال ارزیابی… (MTU و پینگ)' : 'Diagnosing… (sweep MTU & ping)';
+    btn.querySelector('span').textContent = tr('x017', "Diagnosing… (sweep MTU & ping)");
   }
   try {
     await loadDoctor(true);
-    toastOk(currentLang === 'fa' ? 'عیب‌یابی تکمیل شد' : 'Diagnostics complete', `${currentLang === 'fa' ? 'امتیاز سلامت' : 'Health score'}: ${doctorData ? doctorData.score : '—'}/100`);
+    toastOk(tr('x018', "Diagnostics complete"), `${tr('x019', "Health score")}: ${doctorData ? doctorData.score : '—'}/100`);
   } catch(e) {
-    toastErr(currentLang === 'fa' ? 'خطا در عیب‌یابی' : 'Diagnostics failed', e.message);
+    toastErr(tr('x020', "Diagnostics failed"), e.message);
   } finally {
     doctorRunning = false;
     if (btn) {
       btn.disabled = false;
       btn.classList.remove('doc-pulse');
-      btn.querySelector('span').textContent = currentLang === 'fa' ? 'اجرای عیب‌یابی کامل' : 'Run Diagnostics';
+      btn.querySelector('span').textContent = tr('x021', "Run Diagnostics");
     }
   }
 }
 
 async function fixDoctor() {
-  const confirmTitle = currentLang === 'fa' ? 'اعمال بهینه‌سازی و تعمیر خودکار؟' : 'Apply Automated Optimizations?';
-  const confirmDesc = currentLang === 'fa'
-    ? 'این عملیات الگوریتم TCP BBR را فعال کرده، MSS Clamping را در کرنل اعمال می‌کند، فورواردینگ IP را فعال، لیمیت سرویس‌های FRP را ارتقا داده و در صورت لزوم لینک تونل را بازیابی می‌کند.'
-    : 'This will enable TCP BBR, configure MSS clamping, ensure IPv4 forwarding, tune FRP concurrency limits, and restore tunnel interface connectivity.';
-  const confirmBtn = currentLang === 'fa' ? 'شروع تعمیر و بهینه‌سازی' : 'Repair & Optimize';
+  const confirmTitle = tr('x022', "Apply Automated Optimizations?");
+  const confirmDesc = tr('x023', "This will enable TCP BBR, configure MSS clamping, ensure IPv4 forwarding, tune FRP concurrency limits, and restore tunnel interface connectivity.");
+  const confirmBtn = tr('x024', "Repair & Optimize");
 
   if (!await entConfirm(confirmTitle, confirmDesc, confirmBtn)) return;
   const btn = $('docFixBtn');
@@ -6432,26 +6766,26 @@ async function fixDoctor() {
   if (btn) {
     btn.disabled = true;
     const sp = btn.querySelector('span');
-    if (sp) sp.textContent = currentLang === 'fa' ? 'در حال اعمال تعمیر…' : 'Applying fixes…';
+    if (sp) sp.textContent = tr('x025', "Applying fixes…");
   }
   if (boxBtn) {
     boxBtn.disabled = true;
     const sp = boxBtn.querySelector('span');
-    if (sp) sp.textContent = currentLang === 'fa' ? 'در حال اعمال…' : 'Applying…';
+    if (sp) sp.textContent = tr('x026', "Applying…");
   }
   try {
     const res = await api('/api/doctor', { action: 'fix' });
     const appliedList = (res && res.fix && res.fix.applied) || (res && res.applied) || [];
-    toastOk(currentLang === 'fa' ? 'تعمیر و بهینه‌سازی انجام شد' : 'Optimizations applied',
-      appliedList.length > 0 ? appliedList.join(' · ') : (currentLang === 'fa' ? 'تنظیمات شبکه و هسته سیستم بهینه‌سازی شد' : 'System stack optimized'));
+    toastOk(tr('x027', "Optimizations applied"),
+      appliedList.length > 0 ? appliedList.join(' · ') : (tr('x028', "System stack optimized")));
     if (res && res.report) renderDoctor(res.report);
     else await loadDoctor(true);
   } catch(e) {
-    toastErr(currentLang === 'fa' ? 'خطا در تعمیر' : 'Fix failed', e.message);
+    toastErr(tr('x029', "Fix failed"), e.message);
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><span data-i18n="doc_fix_btn">${currentLang === 'fa' ? 'تعمیر و بهینه‌سازی خودکار' : 'Quick Repair & Optimize'}</span>`;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><span data-i18n="doc_fix_btn">${tr('x030', "Quick Repair & Optimize")}</span>`;
     }
   }
 }
@@ -6489,9 +6823,10 @@ if ($('docIperfBtn')) $('docIperfBtn').onclick = toggleIperf;
 // light pollers: skip when the tab is in the background (background tabs
 // throttle timers anyway and would wake queuing overlapping refreshes);
 // clear the chart cache on hide so a long-hidden tab does not burst on return.
-setInterval(() => { if (document.hidden) return; if (!$('app').classList.contains('hidden')) refresh(); }, 15000);
+// Pollers (makePoller): skip while hidden, exponential backoff up to 60s on failure, immediate run on return.
+makePoller(async () => { if ($('app').classList.contains('hidden')) return true; return await refresh(); }, 15000);
 armLogFollow();
-setInterval(() => { if (document.hidden) return; if (!$('app').classList.contains('hidden') && !$('tab-dashboard').hidden) refreshDash(); }, 5000);
+makePoller(async () => { if ($('app').classList.contains('hidden') || $('tab-dashboard').hidden) return true; return await refreshDash(); }, 5000);
 document.addEventListener('visibilitychange', () => {
   const badge = $('chartLiveBadge');
   const cv = $('trafficChart');
@@ -6506,36 +6841,42 @@ document.addEventListener('visibilitychange', () => {
       cv._hist = null;
       if (cv._animId) { cancelAnimationFrame(cv._animId); cv._animId = null; }
     }
-  } else if (!$('app').classList.contains('hidden') && !$('tab-dashboard').hidden) refreshDash();
+  }
+  // resume: makePoller() re-runs refresh/refreshDash/rs-logs immediately on visibility
 });
 
 async function refreshRightSidebarLogs() {
-  if (window.innerWidth < 1200) return;
+  if (document.hidden || window.innerWidth < 1200) return true;
+  const rs = $('rsLogs');
   try {
     const s = await api('/api/logs?svc=stream&n=22');
-    const rs = $('rsLogs');
-    if (!rs) return;
+    if (!rs) return true;
     const lines = s.lines || (s.logs ? s.logs.trim().split('\n') : []);
     if (lines.length > 0) {
       rs.innerHTML = lines.map(l => {
         let tag = '';
-        if (/frps/i.test(l)) tag = '<span class="badge info" style="font-size:9px;padding:1px 4px;margin-inline-end:4px">FRPS</span>';
-        else if (/frpc/i.test(l)) tag = '<span class="badge ok" style="font-size:9px;padding:1px 4px;margin-inline-end:4px">FRPC</span>';
-        else if (/watchdog|alert/i.test(l)) tag = '<span class="badge warn" style="font-size:9px;padding:1px 4px;margin-inline-end:4px">WD</span>';
-        else if (/gre-panel|panel/i.test(l)) tag = '<span class="badge dim" style="font-size:9px;padding:1px 4px;margin-inline-end:4px">PANEL</span>';
-        else if (/gre/i.test(l)) tag = '<span class="badge" style="font-size:9px;padding:1px 4px;margin-inline-end:4px">GRE</span>';
-        
+        if (/frps/i.test(l)) tag = '<span class="badge info log-tag">FRPS</span>';
+        else if (/frpc/i.test(l)) tag = '<span class="badge ok log-tag">FRPC</span>';
+        else if (/watchdog|alert/i.test(l)) tag = '<span class="badge warn log-tag">WD</span>';
+        else if (/gre-panel|panel/i.test(l)) tag = '<span class="badge dim log-tag">PANEL</span>';
+        else if (/gre/i.test(l)) tag = '<span class="badge log-tag">GRE</span>';
+
         const timeMatch = l.match(/(\d{2}:\d{2}:\d{2})/);
-        const timeTag = timeMatch ? `<span style="color:var(--mu);margin-inline-end:4px;font-size:10px">${esc(timeMatch[1])}</span>` : '';
+        const timeTag = timeMatch ? `<span class="rs-log-time">${esc(timeMatch[1])}</span>` : '';
         const cleanMsg = l.replace(/^.*?\[\d+\]:\s*/, '').replace(/^[A-Za-z]+\s+\d+\s+\d+:\d+:\d+\s+\S+\s+\S+:\s*/, '');
-        return '<div class="rs-log-line" style="font-family:var(--font-mono);font-size:11px;line-height:1.4;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);word-break:break-all">' + timeTag + tag + esc(cleanMsg || l) + '</div>';
+        return '<div class="rs-log-line rs-log-mono">' + timeTag + tag + esc(cleanMsg || l) + '</div>';
       }).join('');
     } else {
-      rs.innerHTML = `<div style="color:var(--mu);font-size:12px;padding:12px 0;">${currentLang === 'fa' ? 'در حال دریافت لاگ‌های سیستمی...' : 'Waiting for system logs...'}</div>`;
+      rs.innerHTML = stateEmpty({ title: tr('rs_empty_title', 'No log lines yet'), msg: tr('rs_waiting_sys', 'Waiting for system logs...'), compact: true });
     }
-  } catch(e) {}
+    return true;
+  } catch(e) {
+    reportErr('rslogs', e);
+    if (rs && !rs.querySelector('.rs-log-mono')) rs.innerHTML = stateError(e.message, 'rslogs', true);
+    return false;
+  }
 }
-setInterval(refreshRightSidebarLogs, 3000);
+makePoller(refreshRightSidebarLogs, 3000);
 setTimeout(refreshRightSidebarLogs, 300);
 
 // ============================================================
@@ -6628,6 +6969,8 @@ function openEditPeer(peerId) {
   if ($('editPortsWarn')) $('editPortsWarn').classList.add('hidden');
 
   renderEditPortsChips();
+  if (_editModalRelease) _editModalRelease();
+  _editModalRelease = trapModal(modal, closeEditPorts);
   modal.hidden = false;
   if ($('editPeerName')) $('editPeerName').focus();
 }
@@ -6636,9 +6979,11 @@ function openEditPorts(peerId, peerName, currentPorts) {
   openEditPeer(peerId);
 }
 
+let _editModalRelease = null;
 function closeEditPorts() {
   const modal = $('editPortsModal');
   if (modal) modal.hidden = true;
+  if (_editModalRelease) { const r = _editModalRelease; _editModalRelease = null; r(); }
 }
 
 function renderEditPortsChips() {
@@ -6799,7 +7144,7 @@ async function copyEditPeerBundle() {
           .catch(() => toastWarn('Copy bundle', b));
         return;
       }
-    } catch(_) {}
+    } catch(e) { reportErr('bundle', e); }
   }
   toast('Save changes first to generate an updated bundle.');
 }
@@ -6831,6 +7176,9 @@ let peerData = null;
 let benchRunning = false;
 
 async function loadBenchmark(forceRun = false) {
+  let benchErr = null;
+  const _tb = $('benchTableBody');
+  if (_tb && !(benchData && benchData.metrics && benchData.metrics.length)) _tb.innerHTML = '<tr><td colspan="10">' + skel(3) + '</td></tr>';
   try {
     if (forceRun) {
       benchData = await api('/api/benchmark/run');
@@ -6838,16 +7186,20 @@ async function loadBenchmark(forceRun = false) {
       benchData = await api('/api/benchmark');
     }
   } catch (err) {
-    console.error('Failed to load benchmark:', err);
+    benchErr = err;
+    reportErr('benchmark', err);
   }
 
   try {
     peerData = await api('/api/peer/status');
   } catch (err) {
-    console.error('Failed to load peer status:', err);
+    reportErr('peerlink', err);
   }
 
   renderBenchmark(benchData, peerData);
+  if (benchErr && !(benchData && benchData.metrics && benchData.metrics.length) && _tb) {
+    _tb.innerHTML = '<tr><td colspan="10" class="u-text-center">' + stateError(benchErr.message, 'benchmark', true) + '</td></tr>';
+  }
 }
 
 function renderBenchmark(bench, peer) {
@@ -6886,19 +7238,19 @@ function renderBenchmark(bench, peer) {
     if ($('benchStatWinner')) $('benchStatWinner').textContent = winnerName;
     if ($('benchStatWinnerSub')) $('benchStatWinnerSub').textContent = winner ? `Score: ${winner.score}/100 · ${winner.avg_rtt_ms} ms` : 'Top candidate';
     if ($('benchStatActive')) $('benchStatActive').textContent = activeName;
-    if ($('benchStatActiveSub')) $('benchStatActiveSub').textContent = currentLang === 'fa' ? 'پروتکل فعال تونل' : 'Active route';
+    if ($('benchStatActiveSub')) $('benchStatActiveSub').textContent = tr('x031', "Active route");
     if ($('benchStatMinRtt')) $('benchStatMinRtt').textContent = minRtt > 0 ? `${minRtt.toFixed(1)} ms` : (winner && winner.avg_rtt_ms > 0 ? `${winner.avg_rtt_ms} ms` : '—');
-    if ($('benchStatMinRttSub')) $('benchStatMinRttSub').textContent = currentLang === 'fa' ? 'کمترین تاخیر ثبت‌شده' : 'Best round-trip';
+    if ($('benchStatMinRttSub')) $('benchStatMinRttSub').textContent = tr('x032', "Best round-trip");
     if ($('benchStatLoss')) $('benchStatLoss').textContent = winner ? `${winner.packet_loss}%` : '0%';
-    if ($('benchStatLossSub')) $('benchStatLossSub').textContent = (winner && winner.packet_loss === 0) ? (currentLang === 'fa' ? 'لینک بدون پکت‌لاس' : 'Zero loss link') : (currentLang === 'fa' ? 'پکت‌لاس کاندیدای برتر' : 'Packet drop rate');
+    if ($('benchStatLossSub')) $('benchStatLossSub').textContent = (winner && winner.packet_loss === 0) ? (tr('x033', "Zero loss link")) : (tr('x034', "Packet drop rate"));
 
     if ($('benchMetaSub')) {
-      $('benchMetaSub').textContent = `${currentLang === 'fa' ? 'آخرین سنجش' : 'Last benchmark'}: ${bench.timestamp || '—'} · ${bench.metrics.length} ${currentLang === 'fa' ? 'پروتکل و کریر فعال' : 'candidates probed'}`;
+      $('benchMetaSub').textContent = `${tr('x035', "Last benchmark")}: ${bench.timestamp || '—'} · ${bench.metrics.length} ${tr('x036', "candidates probed")}`;
     }
   }
 
   if (bench && bench.auto_pilot) {
-    if ($('autoPilotLastVal')) $('autoPilotLastVal').textContent = bench.auto_pilot.last_triggered || (currentLang === 'fa' ? 'هیچ‌وقت' : 'None');
+    if ($('autoPilotLastVal')) $('autoPilotLastVal').textContent = bench.auto_pilot.last_triggered || (tr('x037', "None"));
     if ($('autoPilotCountVal')) $('autoPilotCountVal').textContent = bench.auto_pilot.trigger_count || 0;
   }
 
@@ -6907,7 +7259,7 @@ function renderBenchmark(bench, peer) {
   if (!tbody) return;
 
   if (!bench || !bench.metrics || bench.metrics.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="u-text-center" style="padding:32px;color:var(--mu);">${currentLang === 'fa' ? 'هنوز بنچمارکی ثبت نشده است. روی «اجرای بنچمارک پروتکل‌ها» کلیک کنید.' : 'No benchmark metrics yet. Click "Run Carrier Benchmark".'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="u-text-center">${stateEmpty({ title: tr('empty_bench_title', 'No benchmark metrics yet'), msg: tr('empty_bench_msg', 'Run a carrier benchmark to compare protocols.'), actionKey: 'runbench', actionLabel: tr('bench_run_btn', 'Run Carrier Benchmark'), compact: true })}</td></tr>`;
     return;
   }
 
@@ -6920,16 +7272,16 @@ function renderBenchmark(bench, peer) {
     let statusLabel = m.status;
     if (m.status === 'healthy') {
       statusClass = 'ok';
-      statusLabel = currentLang === 'fa' ? 'سالم' : 'Healthy';
+      statusLabel = tr('x039', "Healthy");
     } else if (m.status === 'good') {
       statusClass = 'info';
-      statusLabel = currentLang === 'fa' ? 'مطلوب' : 'Good';
+      statusLabel = tr('x040', "Good");
     } else if (m.status === 'warning') {
       statusClass = 'warn';
-      statusLabel = currentLang === 'fa' ? 'هشدار' : 'Warning';
+      statusLabel = tr('x041', "Warning");
     } else if (m.status === 'critical' || m.status === 'down') {
       statusClass = 'err';
-      statusLabel = currentLang === 'fa' ? 'قطع' : 'Down';
+      statusLabel = tr('x042', "Down");
     }
 
     let lossClass = 'ok';
@@ -6942,19 +7294,19 @@ function renderBenchmark(bench, peer) {
     const cleanName = (m.name || m.id).replace(/\s*\(.*?\)/, '');
     const cleanSub = m.name && m.name.includes('(') ? m.name.match(/\((.*?)\)/)[1] : '';
 
-    const portStr = m.port > 0 ? m.port : (currentLang === 'fa' ? 'کرنل ۴۷' : 'Raw 47');
+    const portStr = m.port > 0 ? m.port : (tr('x043', "Raw 47"));
 
     // Protocol badge styling
     let protoPill = `<span class="bench-proto-pill dim">${esc(m.type.toUpperCase())}</span>`;
     const tLower = (m.type || '').toLowerCase();
     if (tLower === 'gre') {
-      protoPill = `<span class="bench-proto-pill" style="background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3)">GRE KERNEL</span>`;
+      protoPill = `<span class="bench-proto-pill u-pill-sky">GRE KERNEL</span>`;
     } else if (tLower === 'frp_tcp') {
       protoPill = `<span class="bench-proto-pill" style="background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3)">TCP MUX</span>`;
     } else if (tLower === 'frp_kcp') {
       protoPill = `<span class="bench-proto-pill" style="background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid rgba(245,158,11,0.3)">KCP ARQ</span>`;
     } else if (tLower === 'frp_quic') {
-      protoPill = `<span class="bench-proto-pill" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3)">QUIC UDP</span>`;
+      protoPill = `<span class="bench-proto-pill u-pill-violet">QUIC UDP</span>`;
     } else if (tLower === 'frp_ws') {
       protoPill = `<span class="bench-proto-pill" style="background:rgba(20,184,166,0.15);color:#2dd4bf;border:1px solid rgba(20,184,166,0.3)">WEBSOCKET</span>`;
     } else if (tLower === 'wss') {
@@ -6970,17 +7322,17 @@ function renderBenchmark(bench, peer) {
     html += `<tr class="${isActive ? 'row-active' : ''}" style="${rowBg}">
       <td style="text-align:center;width:44px;">${rankBadge}</td>
       <td>
-        <div style="display:flex;align-items:center;gap:8px;">
+        <div class="u-flex-center-gap8">
           <strong style="color:var(--tx);font-size:13.5px;">${esc(cleanName)}</strong>
-          ${isActive ? `<span class="badge ok" style="font-size:9.5px;padding:2px 6px;">${currentLang === 'fa' ? 'فعال' : 'ACTIVE'}</span>` : ''}
-          ${isWinner ? `<span class="badge info" style="font-size:9.5px;padding:2px 6px;">${currentLang === 'fa' ? 'پیشنهادی' : 'BEST'}</span>` : ''}
+          ${isActive ? `<span class="badge ok" style="font-size:12px;padding:2px 6px;">${tr('x044', "ACTIVE")}</span>` : ''}
+          ${isWinner ? `<span class="badge info" style="font-size:12px;padding:2px 6px;">${tr('x045', "BEST")}</span>` : ''}
         </div>
-        ${cleanSub ? `<div style="font-size:11px;color:var(--mu);margin-top:2px;">${esc(cleanSub)}</div>` : ''}
+        ${cleanSub ? `<div style="font-size:12px;color:var(--mu);margin-top:2px;">${esc(cleanSub)}</div>` : ''}
       </td>
       <td>${protoPill}</td>
       <td><code class="mono" style="font-size:12px;background:rgba(255,255,255,0.04);padding:3px 7px;border-radius:4px;border:1px solid rgba(255,255,255,0.05);">${portStr}</code></td>
       <td><span style="font-weight:700;font-family:var(--font-mono);font-size:13px;color:var(--tx);">${m.avg_rtt_ms > 0 ? m.avg_rtt_ms + ' ms' : '—'}</span></td>
-      <td><span class="badge ${lossClass}" style="font-size:11px;font-weight:700;">${m.packet_loss}%</span></td>
+      <td><span class="badge ${lossClass}" style="font-size:12px;font-weight:700;">${m.packet_loss}%</span></td>
       <td><span style="color:var(--mu);font-size:12px;font-family:var(--font-mono);">${m.jitter_ms > 0 ? m.jitter_ms + ' ms' : '—'}</span></td>
       <td>
         <div class="bench-score-bar-wrap">
@@ -6990,10 +7342,10 @@ function renderBenchmark(bench, peer) {
           <strong style="font-size:12px;font-family:var(--font-mono);min-width:26px;color:var(--tx);">${m.score}</strong>
         </div>
       </td>
-      <td><span class="badge ${statusClass}" style="font-size:10.5px;">${esc(statusLabel)}</span></td>
+      <td><span class="badge ${statusClass} u-fs-12">${esc(statusLabel)}</span></td>
       <td>
-        ${isActive ? `<button class="hashem-btn hashem-btn-ghost u-btn-xs" disabled style="opacity:0.65;font-weight:600;padding:5px 12px;">${currentLang === 'fa' ? 'فعلی' : 'Current'}</button>` :
-          `<button class="hashem-btn ${isWinner ? 'hashem-btn-primary' : 'hashem-btn-secondary'} u-btn-xs" style="font-weight:600;padding:5px 12px;" onclick="applyCarrierClick('${esc(m.id)}')">${currentLang === 'fa' ? 'سوییچ' : 'Switch'}</button>`}
+        ${isActive ? `<button class="hashem-btn hashem-btn-ghost u-btn-xs" disabled style="opacity:0.65;font-weight:600;padding:5px 12px;">${tr('x046', "Current")}</button>` :
+          `<button class="hashem-btn ${isWinner ? 'hashem-btn-primary' : 'hashem-btn-secondary'} u-btn-xs" style="font-weight:600;padding:5px 12px;" onclick="applyCarrierClick('${esc(m.id)}')">${tr('x047', "Switch")}</button>`}
       </td>
     </tr>`;
   });
@@ -7007,14 +7359,14 @@ async function runBenchmarkClick() {
   const btn = $('benchRunBtn');
   const txt = $('benchRunBtnTxt');
   if (btn) btn.disabled = true;
-  if (txt) txt.textContent = currentLang === 'fa' ? 'در حال سنجش پروتکل‌ها...' : 'Probing carriers...';
-  toast(currentLang === 'fa' ? 'آغاز بنچمارک پروتکل‌ها' : 'Benchmarking carriers', currentLang === 'fa' ? 'در حال ارزیابی تاخیر و پکت‌لاس ترنسپورت‌ها...' : 'Probing GRE, WSS, TCP, KCP, QUIC, and WS...');
+  if (txt) txt.textContent = tr('x048', "Probing carriers...");
+  toast(tr('x049', "Benchmarking carriers"), tr('x050', "Probing GRE, WSS, TCP, KCP, QUIC, and WS..."));
 
   try {
     await loadBenchmark(true);
-    toastOk(currentLang === 'fa' ? 'بنچمارک تکمیل شد' : 'Benchmark Complete', `${currentLang === 'fa' ? 'پروتکل برتر' : 'Best Carrier'}: ${benchData ? (benchData.best_carrier || '—') : '—'}`);
+    toastOk(tr('x051', "Benchmark Complete"), `${tr('x052', "Best Carrier")}: ${benchData ? (benchData.best_carrier || '—') : '—'}`);
   } catch (err) {
-    toastErr(currentLang === 'fa' ? 'خطا در بنچمارک' : 'Benchmark failed', err.message || err);
+    toastErr(tr('x053', "Benchmark failed"), err.message || err);
   } finally {
     benchRunning = false;
     if (btn) btn.disabled = false;
@@ -7023,17 +7375,15 @@ async function runBenchmarkClick() {
 }
 
 async function applyCarrierClick(carrierId) {
-  const confirmMsg = currentLang === 'fa'
-    ? `آیا از تغییر پروتکل و سوییچ تونل به «${carrierId}» اطمینان دارید؟`
-    : `Switch both Iran & Foreign servers to carrier "${carrierId}"?`;
+  const confirmMsg = tr('carrier_switch_confirm', 'Switch both Iran & Foreign servers to carrier "{id}"?').replace('{id}', carrierId);
   if (!confirm(confirmMsg)) return;
-  toast(currentLang === 'fa' ? 'در حال اعمال پروتکل...' : 'Applying carrier', `${carrierId}...`);
+  toast(tr('x054', "Applying carrier"), `${carrierId}...`);
   try {
     const res = await api('/api/benchmark/apply', { carrier: carrierId });
-    toastOk(currentLang === 'fa' ? 'پروتکل با موفقیت اعمال شد' : 'Carrier Applied', res.detail || `Active carrier is now ${carrierId}`);
+    toastOk(tr('x055', "Carrier Applied"), res.detail || `Active carrier is now ${carrierId}`);
     await loadBenchmark();
   } catch (err) {
-    toastErr(currentLang === 'fa' ? 'خطا در اعمال پروتکل' : 'Apply failed', err.message || err);
+    toastErr(tr('x056', "Apply failed"), err.message || err);
   }
 }
 

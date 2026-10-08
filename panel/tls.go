@@ -629,8 +629,10 @@ func startHTTPSListener() {
 		port = next
 	}
 	httpsSrv = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: panelMux,
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           panelHandler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	srvToStart := httpsSrv
 	go func(srv *http.Server) {

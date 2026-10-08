@@ -927,7 +927,7 @@ func switchTunnelEngine(targetEngine, targetTransport string) (string, error) {
 		if isIran {
 			// Write frps.toml
 			effTLS := "0"
-			if p, err := os.ReadFile("/etc/gre-panel/perf.json"); err == nil {
+			if p, err := os.ReadFile(filepath.Join(configDir, "perf.json")); err == nil {
 				var pj struct {
 					TLSEnabled bool `json:"tls_enabled"`
 				}

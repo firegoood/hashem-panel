@@ -2,7 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,6 +32,7 @@ type PeerConfig struct {
 	AutoPilotEnabled   bool    `json:"autopilot_enabled"`
 	AutoPilotExplicit  bool    `json:"autopilot_explicit,omitempty"`
 	AutoPilotThreshold float64 `json:"autopilot_threshold"` // Packet loss percentage threshold (e.g. 20.0)
+	TLSFingerprint     string  `json:"tls_fingerprint,omitempty"` // Pinned SHA-256 (hex) of the peer's leaf TLS cert (TOFU)
 }
 
 type PeerHandshakeRequest struct {
@@ -363,6 +368,9 @@ func handlePeerConfigPost(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
 			u = "http://" + u
 		}
+		if u != c.PeerURL {
+			c.TLSFingerprint = "" // new peer address: re-pin on first use
+		}
 		c.PeerURL = u
 	}
 	if req.PeerSecret != "" {
@@ -394,6 +402,41 @@ func handlePeerConfigPost(w http.ResponseWriter, r *http.Request) {
 		"status": "ok",
 		"config": c,
 	})
+}
+
+var peerPinMu sync.Mutex
+
+// peerTLSConfig returns a client TLS config that pins the peer's leaf
+// certificate by SHA-256 fingerprint (trust-on-first-use). Chain validation is
+// skipped on purpose because peers use self-signed certs; the pin replaces it.
+// If c.TLSFingerprint is empty the first seen fingerprint is stored in c and
+// persisted to peer_link.json; afterwards any mismatch is rejected.
+func peerTLSConfig(c *PeerConfig) *tls.Config {
+	return &tls.Config{
+		InsecureSkipVerify: true, // verification is done by VerifyPeerCertificate below
+		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			if len(rawCerts) == 0 {
+				return fmt.Errorf("peer presented no TLS certificate")
+			}
+			sum := sha256.Sum256(rawCerts[0])
+			got := hex.EncodeToString(sum[:])
+
+			peerPinMu.Lock()
+			defer peerPinMu.Unlock()
+			pinned := strings.ToLower(strings.TrimSpace(c.TLSFingerprint))
+			if pinned == "" {
+				c.TLSFingerprint = got
+				if err := savePeerConfig(*c); err != nil {
+					log.Printf("peer TLS pin: cannot persist fingerprint: %v", err)
+				}
+				return nil
+			}
+			if subtle.ConstantTimeCompare([]byte(pinned), []byte(got)) != 1 {
+				return fmt.Errorf("peer TLS certificate fingerprint mismatch: pinned %s, got %s (possible MITM or peer cert changed; clear tls_fingerprint to re-pin)", pinned, got)
+			}
+			return nil
+		},
+	}
 }
 
 // sendToPeer sends an HTTP request to the remote peer using dual-path fallback:
@@ -472,8 +515,9 @@ func sendToPeer(path string, method string, payload any) ([]byte, error) {
 	}
 
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: peerTLSConfig(&c),
 	}
+	defer tr.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   4 * time.Second,
 		Transport: tr,

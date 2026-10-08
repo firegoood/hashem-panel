@@ -443,8 +443,8 @@ func (m *wssCarrierManager) runServer() {
 		var cert tls.Certificate
 		var certErr error
 
-		panelCert := "/etc/gre-panel/tls/server.crt"
-		panelKey := "/etc/gre-panel/tls/server.key"
+		panelCert := tlsCertFile()
+		panelKey := tlsKeyFile()
 		if _, err := os.Stat(panelCert); err == nil {
 			cert, certErr = tls.LoadX509KeyPair(panelCert, panelKey)
 		} else {

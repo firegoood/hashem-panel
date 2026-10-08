@@ -115,7 +115,7 @@ button, a, input, select, textarea, [role="button"], [role="menuitem"] {
 }
 
 /* Utility classes for layout, spacing and typography */
-.u-foot-sub { letter-spacing: .14em; font-size: 10px; opacity: .75; }
+.u-foot-sub { letter-spacing: .14em; font-size: 12px; opacity: .75; }
 .u-ml-auto { margin-left: auto; }
 .u-flex-1 { flex: 1; }
 .u-mt-2 { margin-top: 2px; }
@@ -163,3 +163,39 @@ button, a, input, select, textarea, [role="button"], [role="menuitem"] {
 .u-color-ok { color: var(--ok); }
 .u-flex-none { flex: none; }
 
+
+/* ---- Utility classes extracted from repeated inline styles (logical props for RTL) ---- */
+.u-text-center { text-align: center; }
+.u-w-full { width: 100%; }
+.u-col-full { grid-column: 1 / -1; }
+.u-col-span-2 { grid-column: span 2; }
+.u-ws-normal { white-space: normal; }
+.u-ml-5 { margin-inline-start: 5px; cursor: pointer; }
+.u-hint-12 { font-size: 12px; color: var(--mu); }
+.u-fs-16-tx { font-size: 16px; color: var(--tx); }
+.u-flex-wrap-gap8 { flex-wrap: wrap; gap: 8px; }
+.u-grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.u-check-row { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; }
+.u-label-up { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--mu); }
+.u-label-up-block { font-size: 12px; text-transform: uppercase; color: var(--mu); display: block; margin-bottom: 4px; }
+.hashem-btn.u-btn-30 { height: 30px; padding: 0 12px; font-size: 12px; }
+.hashem-btn.u-btn-28 { height: 28px; padding: 0 10px; font-size: 12px; }
+.wd-stat-label.u-stat-label { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--mu); letter-spacing: .05em; }
+.wd-stat-val.u-stat-val-ok { font-size: 17px; font-weight: 700; color: #10b981; margin: 8px 0 4px 0; }
+.u-card-tint { border: 1px solid var(--ln); background: color-mix(in srgb, var(--bg) 80%, var(--s1)); }
+.u-peer-card-wide { grid-column: 1 / -1; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.u-peer-acts-bar { display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--ln); padding-top: 12px; }
+.badge.u-pill-sky, .bench-proto-pill.u-pill-sky { background: rgba(56,189,248,.15); color: #38bdf8; border: 1px solid rgba(56,189,248,.3); }
+.badge.u-pill-violet, .bench-proto-pill.u-pill-violet { background: rgba(168,85,247,.15); color: #c084fc; border: 1px solid rgba(168,85,247,.3); }
+/* right-sidebar live log line parts */
+.badge.log-tag { font-size: 12px; padding: 1px 4px; margin-inline-end: 4px; }
+.rs-log-line.rs-log-mono { font-family: var(--font-mono); font-size: 12px; line-height: 1.4; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.04); word-break: break-all; }
+.rs-log-time { color: var(--mu); margin-inline-end: 4px; font-size: 12px; }
+
+/* ---- Touch targets: >=44x44 CSS px for every interactive control on coarse pointers ---- */
+@media (pointer: coarse) {
+  button, [role="button"], [role="tab"], .nav-item, .hashem-btn, .det-copy, .ent-x, .drawer-x, .menu-btn, summary, select,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { min-height: 44px; min-width: 44px; }
+  .u-check-row, label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: 44px; }
+  input[type="checkbox"], input[type="radio"] { min-width: 24px; min-height: 24px; }
+}

@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed index.html fonts.css tokens.css base.css enterprise.css favicon.png xterm.js xterm-fit.js xterm-search.js xterm.css fonts/vazirmatn.woff2
@@ -288,7 +289,12 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	log.Fatal(http.Serve(ln, mux))
+	srv := &http.Server{
+		Handler:           securityMiddleware(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	log.Fatal(srv.Serve(ln))
 }
 
 func serveAsset(name, ctype string) http.HandlerFunc {

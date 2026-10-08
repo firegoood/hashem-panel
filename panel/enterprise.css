@@ -137,10 +137,10 @@ table.ent-tbl { width: 100%; border-collapse: collapse; font-size: var(--ent-tbl
   box-shadow: var(--lift); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .ent-chart-wrap { position: relative; }
-.ent-chart-axis { font-size: 11px; fill: var(--ent-chart-axis); font-family: var(--font-sans); }
+.ent-chart-axis { font-size: 12px; fill: var(--ent-chart-axis); font-family: var(--font-sans); }
 
 /* ---------- enterprise forms (denser labels) ---------- */
-.ent-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mu); }
+.ent-label { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mu); }
 .ent-req::after { content: " *"; color: var(--er); }
 .ent-help { font-size: var(--fs-small); color: var(--dim); }
 .ent-err-text { font-size: var(--fs-small); color: var(--er); }
@@ -178,3 +178,14 @@ body[data-t="light"] .ent-topo-node { background: var(--s1); }
   .term-wrap { min-height: 340px; height: 56dvh; }
   .term-keys button { padding: 10px 14px; font-size: 13px; }
 }
+
+/* ---------- shared state blocks (empty / error / loading) — helpers: stateEmpty(), stateError(), skel() ---------- */
+.ent-empty > span:not(.ent-empty-ic) { color: var(--dim); max-width: 46ch; }
+.ent-empty .hashem-btn { margin-top: 4px; }
+.ent-empty.ent-empty-sm { padding: 16px 12px; }
+.ent-empty.ent-error { border-color: var(--er-badge-b, var(--er)); background: var(--er-soft, var(--sunk)); }
+.ent-empty.ent-error .ent-empty-ic { color: var(--er); }
+.ent-empty.ent-error > b { color: var(--er); }
+pre.logs .ent-empty { white-space: normal; font-family: var(--font-sans); }
+.rs-content .ent-empty { text-align: center; }
+@media (max-width: 480px) { .ent-empty { padding: 18px 12px; } }

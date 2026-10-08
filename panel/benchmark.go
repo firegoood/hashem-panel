@@ -206,6 +206,8 @@ func probeTLS(addr string, count int, timeout time.Duration) (avgRTT, minRTT, ma
 	for i := 0; i < count; i++ {
 		start := time.Now()
 		dialer := &net.Dialer{Timeout: timeout}
+		// InsecureSkipVerify is intentional: this dial only measures handshake
+		// latency to the carrier port and never sends or trusts any data.
 		conf := &tls.Config{InsecureSkipVerify: true}
 		conn, dialErr := tls.DialWithDialer(dialer, "tcp", addr, conf)
 		if dialErr != nil {

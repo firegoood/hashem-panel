@@ -41,7 +41,7 @@ html{-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:1
   --lh-small: 1.45;
   --fw-small: 500;
 
-  --fs-caption: 0.6875rem;  /* 11px (Apple HIG minimum legible caption) */
+  --fs-caption: 0.75rem;    /* 12px (project-wide minimum) */
   --lh-caption: 1.4;
   --fw-caption: 500;
 
@@ -405,7 +405,7 @@ body[data-t="dark"], body {
   --ent-gap-lg: 16px;
   --ent-row-h: 40px;
   --ent-kpi-val: 22px;
-  --ent-tbl-head-fs: 11px;
+  --ent-tbl-head-fs: 12px;
   --ent-tbl-fs: 12.5px;
   --ent-code-fs: 12px;
   --ent-chart-grid: rgba(255,255,255,.06);
