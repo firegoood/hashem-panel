@@ -1034,8 +1034,8 @@ BUNDLE_PREFIX="hsh1_"
 BUNDLE_PREFIX_BACKHAUL="bh1_"
 BUNDLE_PREFIX_GRE_BACKHAUL="gh1_"
 
-bundle_make() { # $1=iran_pub $2=frp_port $3=iran_gre $4=foreign_gre $5=token [$6="p1 p2"] [$7="p1-p2"]
-    local IRAN_PUB=$1 FRP_PORT=$2 IRAN_GRE=$3 FOREIGN_GRE=$4 TOKEN=$5 PORTS_SP=${6:-} FOU_ARG=${7:-}
+bundle_make() { # $1=iran_pub $2=frp_port $3=iran_gre $4=foreign_gre $5=token [$6="p1 p2"] [$7="p1-p2"] [$8=transport]
+    local IRAN_PUB=$1 FRP_PORT=$2 IRAN_GRE=$3 FOREIGN_GRE=$4 TOKEN=$5 PORTS_SP=${6:-} FOU_ARG=${7:-} FRP_TRANS=${8:-}
     local PORTS_DASH=""
     if [[ -n "$PORTS_SP" ]]; then
         PORTS_DASH=$(echo "$PORTS_SP" | xargs | tr ' ' '-')
@@ -1045,10 +1045,14 @@ bundle_make() { # $1=iran_pub $2=frp_port $3=iran_gre $4=foreign_gre $5=token [$
         read -r P1 P2 <<< "$(carrier_get_fou_ports 2>/dev/null || echo '443 55555')"
         FOU_ARG="${P1}-${P2}"
     fi
+    local TR_SUFFIX=""
+    if [[ -n "$FRP_TRANS" && "$FRP_TRANS" != "tcp" ]]; then
+        TR_SUFFIX="_tr-${FRP_TRANS}"
+    fi
     if [[ -n "$PORTS_DASH" ]]; then
-        echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}_${PORTS_DASH}_fou${FOU_ARG}"
+        echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}_${PORTS_DASH}_fou${FOU_ARG}${TR_SUFFIX}"
     else
-        echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}__fou${FOU_ARG}"
+        echo "${BUNDLE_PREFIX}${IRAN_PUB}_${FRP_PORT}_${IRAN_GRE}_${FOREIGN_GRE}_${TOKEN}__fou${FOU_ARG}${TR_SUFFIX}"
     fi
 }
 
@@ -1115,11 +1119,11 @@ bundle_parse() {
         B_PORTS="${g:-}"
         return 0
     fi
-    B_ENGINE="frp"; B_IRAN_PUB=""; B_FRP_PORT=""; B_IRAN_GRE=""; B_FOREIGN_GRE=""; B_TOKEN=""; B_PORTS=""; B_FOU_P1=443; B_FOU_P2=55555
-    local rest a b c d e f g
+    B_ENGINE="frp"; B_IRAN_PUB=""; B_FRP_PORT=""; B_IRAN_GRE=""; B_FOREIGN_GRE=""; B_TOKEN=""; B_PORTS=""; B_TRANSPORT="tcp"; B_FOU_P1=443; B_FOU_P2=55555
+    local rest a b c d e f g h
     [[ "$IN" == ${BUNDLE_PREFIX}* ]] || return 1
     rest=${IN#${BUNDLE_PREFIX}}
-    IFS=_ read -r a b c d e f g <<<"$rest"
+    IFS=_ read -r a b c d e f g h <<<"$rest"
     [[ -n "$a" && -n "$b" && -n "$c" && -n "$d" && -n "$e" ]] || return 1
     is_valid_ip "$a" || return 1
     is_valid_port "$b" || return 1
@@ -1127,18 +1131,22 @@ bundle_parse() {
     is_valid_ip "$d" || return 1
     [[ ${#e} -ge 1 && ${#e} -le 128 ]] || return 1
     local CLEANED="" p
-    if [[ -n "${f:-}" && "$f" != fou* ]]; then
+    if [[ -n "${f:-}" && "$f" != fou* && "$f" != tr-* ]]; then
         for p in $(echo "$f" | tr -- '-,' '  '); do
             is_valid_port "$p" && CLEANED="$CLEANED $((10#$p))"
         done
         CLEANED=$(echo "$CLEANED" | xargs)
         [[ -n "$CLEANED" ]] || return 1
     fi
-    local FOU_RAW="${g:-}"
-    if [[ -z "$FOU_RAW" && "${f:-}" == fou* ]]; then
-        FOU_RAW="$f"
-    fi
-    if [[ -n "$FOU_RAW" && "$FOU_RAW" == fou* ]]; then
+    local FOU_RAW=""
+    for seg in "$f" "$g" "$h"; do
+        if [[ "$seg" == tr-* ]]; then
+            B_TRANSPORT="${seg#tr-}"
+        elif [[ "$seg" == fou* ]]; then
+            FOU_RAW="$seg"
+        fi
+    done
+    if [[ -n "$FOU_RAW" ]]; then
         local FP1 FP2
         IFS=- read -r FP1 FP2 <<< "${FOU_RAW#fou}"
         is_valid_port "$FP1" && B_FOU_P1=$((10#$FP1))
@@ -2292,6 +2300,27 @@ for i, sec in enumerate(sections):
             if not has_tls_enable:
                 final_hdr.append("transport.tls.enable = true")
             final_hdr.append("transport.tls.disableCustomTLSFirstByte = true")
+        import json
+        pool_cnt = ""
+        try:
+            with open("/etc/gre-panel/perf.json") as jf:
+                p_val = json.load(jf).get("frp_pool_count", 0)
+                if p_val and int(p_val) >= 2:
+                    pool_cnt = str(int(p_val))
+        except:
+            pass
+        if pool_cnt:
+            pool_updated = False
+            pool_hdr = []
+            for l in final_hdr:
+                if l.strip().startswith("transport.poolCount"):
+                    pool_hdr.append(f"transport.poolCount = {pool_cnt}")
+                    pool_updated = True
+                else:
+                    pool_hdr.append(l)
+            if not pool_updated:
+                pool_hdr.append(f"transport.poolCount = {pool_cnt}")
+            final_hdr = pool_hdr
         out_sections.append(final_hdr)
     else:
         new_sec = []
@@ -2638,6 +2667,8 @@ menu_perf() {
 setup_iran_server_noninteractive() {
     local IP_IRAN=$1 IP_FOREIGN=$2 BIND_PORT=$3 TOKEN=$4
     local LOCAL_GRE=${5:-$IRAN_GRE_IP} PEER_GRE=${6:-$FOREIGN_GRE_IP}
+    local PORTS_CLEANED="${7:-}"
+    local FRP_TRANSPORT="${8:-tcp}"
     
     log_msg "tunnel" "INFO" "Starting IRAN server setup: GRE ${IP_IRAN} <-> ${IP_FOREIGN}, FRP port: ${BIND_PORT}"
     backup_configs "pre_setup_iran"
@@ -2779,7 +2810,7 @@ EOF
     echo "=============================================================="
 
     local BUNDLE_OUT
-    BUNDLE_OUT=$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN" "$PORTS_CLEANED")
+    BUNDLE_OUT=$(bundle_make "$IP_IRAN" "$BIND_PORT" "$LOCAL_GRE" "$PEER_GRE" "$TOKEN" "$PORTS_CLEANED" "" "$FRP_TRANSPORT")
     echo -e "Setup Bundle:         ${CYAN}${BUNDLE_OUT}${NC}"
     echo -e "BUNDLE:${BUNDLE_OUT}"
 
@@ -7407,7 +7438,7 @@ EOF
 
 
 cli_setup_iran() {
-    local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" LOCAL_GRE="$IRAN_GRE_IP" PEER_GRE="$FOREIGN_GRE_IP" TOKEN="" FORCE=0 PORTS=""
+    local LOCAL_PUB="" REMOTE_PUB="" FRP_PORT="" LOCAL_GRE="$IRAN_GRE_IP" PEER_GRE="$FOREIGN_GRE_IP" TOKEN="" FORCE=0 PORTS="" FRP_TRANSPORT="tcp"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --local-pub) LOCAL_PUB="$2"; shift 2 ;;
@@ -7417,6 +7448,7 @@ cli_setup_iran() {
             --peer-gre) PEER_GRE="$2"; shift 2 ;;
             --token) TOKEN="$2"; shift 2 ;;
             --ports) PORTS="$2"; shift 2 ;;
+            --frp-transport) FRP_TRANSPORT="$2"; shift 2 ;;
             --chaff) CHAFF_PROFILE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) usage_cli; return 0 ;;
@@ -7441,7 +7473,7 @@ cli_setup_iran() {
         echo -e "${RED}[!] Tunnel already exists — pass --force to overwrite.${NC}"
         return 1
     fi
-    setup_iran_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS"
+    setup_iran_server_noninteractive "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$TOKEN" "$LOCAL_GRE" "$PEER_GRE" "$PORTS" "$FRP_TRANSPORT"
 }
 
 cli_setup_foreign() {
@@ -7497,7 +7529,10 @@ cli_setup_foreign() {
         [[ -z "$PORTS" && -n "$B_PORTS" ]] && PORTS=$B_PORTS
         carrier_set_fou_ports "$B_FOU_P1" "$B_FOU_P2" 2>/dev/null || true
         carrier_init_kernel 2>/dev/null || true
-        echo -e "${CYAN}[*] Bundle applied: Source of Truth enforced (Iran ${REMOTE_PUB}, FRP port ${FRP_PORT}).${NC}"
+        if [[ -n "$B_TRANSPORT" && "$FRP_TRANSPORT" == "tcp" ]]; then
+            FRP_TRANSPORT="$B_TRANSPORT"
+        fi
+        echo -e "${CYAN}[*] Bundle applied: Source of Truth enforced (Iran ${REMOTE_PUB}, FRP port ${FRP_PORT}, transport ${FRP_TRANSPORT}).${NC}"
     fi
     # --bundle replaces --token as the required secret
     [[ -z "$TOKEN" && -n "$BUNDLE" ]] && TOKEN=$B_TOKEN

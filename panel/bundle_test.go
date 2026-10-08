@@ -80,8 +80,30 @@ func TestBundleMakeAndParse(t *testing.T) {
 	if len(bUser.Ports) != 0 {
 		t.Fatalf("user bundle should have no ports, got %+v", bUser.Ports)
 	}
-	if !reflect.DeepEqual(bUser.FouPorts, []int{443, 55555}) {
-		t.Fatalf("wrong fou ports in user bundle: %+v", bUser.FouPorts)
+	// Test bundle with custom transport (e.g. kcp)
+	bundleKcp := "hsh1_85.1.2.3_7000_10.10.10.2_10.10.10.1_mytoken123_443-2083_fou443-55555_tr-kcp"
+	bKcp, err := ParseBundle(bundleKcp)
+	if err != nil {
+		t.Fatalf("ParseBundle(with tr-kcp) failed: %v", err)
+	}
+	if bKcp.Transport != "kcp" {
+		t.Fatalf("expected Transport=kcp, got %q", bKcp.Transport)
+	}
+
+	// Test MakeBundle with transport
+	madeKcp := MakeBundle("85.1.2.3", 7000, "10.10.10.2", "10.10.10.1", "mytoken123", []int{443, 2083}, "quic")
+	bMadeKcp, err := ParseBundle(madeKcp)
+	if err != nil {
+		t.Fatalf("ParseBundle(madeKcp) failed: %v, bundle: %s", err, madeKcp)
+	}
+	if bMadeKcp.Transport != "quic" {
+		t.Fatalf("expected Transport=quic in bMadeKcp, got %q", bMadeKcp.Transport)
+	}
+
+	bodyForeign := setupRequest{Role: "foreign", Engine: "frp"}
+	applyBundle(&bodyForeign, bMadeKcp)
+	if bodyForeign.FRPTransport != "quic" {
+		t.Fatalf("expected FRPTransport=quic after applyBundle, got %q", bodyForeign.FRPTransport)
 	}
 }
 

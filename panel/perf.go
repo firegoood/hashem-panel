@@ -21,8 +21,10 @@ type perfConfig struct {
 	DPIEnabled       bool   `json:"dpi_enabled"`
 	DPIRate          string `json:"dpi_rate"`
 	DPIBurst         int    `json:"dpi_burst"`
+	FRPPoolCount     int    `json:"frp_pool_count"`
 	FRPMaxPool       int    `json:"frp_max_pool"`
 	AutoTune         bool   `json:"auto_tune"`
+	TuningProfile    string `json:"tuning_profile"`
 }
 
 type perfStatusResponse struct {
@@ -32,9 +34,11 @@ type perfStatusResponse struct {
 	ChaffProfile     string          `json:"chaff_profile"`
 	DPIEnabled       bool            `json:"dpi_enabled"`
 	DPIRate          string          `json:"dpi_rate"`
-	DPIBurst         int    `json:"dpi_burst"`
-	FRPMaxPool       int    `json:"frp_max_pool"`
-	AutoTune         bool   `json:"auto_tune"`
+	DPIBurst         int             `json:"dpi_burst"`
+	FRPPoolCount     int             `json:"frp_pool_count"`
+	FRPMaxPool       int             `json:"frp_max_pool"`
+	AutoTune         bool            `json:"auto_tune"`
+	TuningProfile    string          `json:"tuning_profile"`
 	InSync           bool            `json:"in_sync"`
 	SyncDetails      string          `json:"sync_details"`
 	Role             string          `json:"role"`
@@ -52,8 +56,10 @@ type perfPostRequest struct {
 	DPIEnabled       *bool   `json:"dpi_enabled,omitempty"`
 	DPIRate          *string `json:"dpi_rate,omitempty"`
 	DPIBurst         *int    `json:"dpi_burst,omitempty"`
+	FRPPoolCount     *int    `json:"frp_pool_count,omitempty"`
 	FRPMaxPool       *int    `json:"frp_max_pool,omitempty"`
 	AutoTune         *bool   `json:"auto_tune,omitempty"`
+	TuningProfile    *string `json:"tuning_profile,omitempty"`
 }
 
 func perfConfigPath() string {
@@ -69,8 +75,10 @@ func defaultPerfConfig() perfConfig {
 		DPIEnabled:       false,
 		DPIRate:          "60/sec",
 		DPIBurst:         120,
-		FRPMaxPool:       100,
+		FRPPoolCount:     20,
+		FRPMaxPool:       60,
 		AutoTune:         false,
+		TuningProfile:    "standard",
 	}
 }
 
@@ -88,8 +96,10 @@ func loadPerfConfig() perfConfig {
 		DPIEnabled       *bool   `json:"dpi_enabled"`
 		DPIRate          *string `json:"dpi_rate"`
 		DPIBurst         *int    `json:"dpi_burst"`
+		FRPPoolCount     *int    `json:"frp_pool_count"`
 		FRPMaxPool       *int    `json:"frp_max_pool"`
 		AutoTune         *bool   `json:"auto_tune"`
+		TuningProfile    *string `json:"tuning_profile"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return def
@@ -119,11 +129,17 @@ func loadPerfConfig() perfConfig {
 	if raw.DPIBurst != nil && *raw.DPIBurst > 0 {
 		c.DPIBurst = *raw.DPIBurst
 	}
+	if raw.FRPPoolCount != nil && *raw.FRPPoolCount >= 2 {
+		c.FRPPoolCount = *raw.FRPPoolCount
+	}
 	if raw.FRPMaxPool != nil && *raw.FRPMaxPool >= 10 {
 		c.FRPMaxPool = *raw.FRPMaxPool
 	}
 	if raw.AutoTune != nil {
 		c.AutoTune = *raw.AutoTune
+	}
+	if raw.TuningProfile != nil && strings.TrimSpace(*raw.TuningProfile) != "" {
+		c.TuningProfile = strings.TrimSpace(*raw.TuningProfile)
 	}
 	return c
 }
@@ -252,6 +268,10 @@ func handlePerfGet(w http.ResponseWriter, r *http.Request) {
 		DPIEnabled:       c.DPIEnabled,
 		DPIRate:          c.DPIRate,
 		DPIBurst:         c.DPIBurst,
+		FRPPoolCount:     c.FRPPoolCount,
+		FRPMaxPool:       c.FRPMaxPool,
+		AutoTune:         c.AutoTune,
+		TuningProfile:    c.TuningProfile,
 		InSync:           inSync,
 		SyncDetails:      details,
 		Role:             role,
@@ -297,12 +317,50 @@ func handlePerfPost(w http.ResponseWriter, r *http.Request) {
 		if body.DPIBurst != nil && *body.DPIBurst > 0 {
 			c.DPIBurst = *body.DPIBurst
 		}
+		if body.FRPPoolCount != nil && *body.FRPPoolCount >= 2 {
+			c.FRPPoolCount = *body.FRPPoolCount
+		}
+		if body.FRPMaxPool != nil && *body.FRPMaxPool >= 10 {
+			c.FRPMaxPool = *body.FRPMaxPool
+		}
+		if body.AutoTune != nil {
+			c.AutoTune = *body.AutoTune
+		}
+		if body.TuningProfile != nil {
+			c.TuningProfile = *body.TuningProfile
+		}
 		if err := savePerfConfig(c); err != nil {
 			writeAPIError(w, r, "E-PERF-02", "failed to save config: "+err.Error())
 			return
 		}
 		recordError("E-PERF-00", "perf", "Performance settings updated")
 		writeJSON(w, map[string]string{"status": "ok", "detail": "Settings updated in perf.json"})
+
+	case "set-tuning":
+		if body.FRPPoolCount != nil && *body.FRPPoolCount >= 2 {
+			c.FRPPoolCount = *body.FRPPoolCount
+		}
+		if body.FRPMaxPool != nil && *body.FRPMaxPool >= 10 {
+			c.FRPMaxPool = *body.FRPMaxPool
+		}
+		if body.AutoTune != nil {
+			c.AutoTune = *body.AutoTune
+		}
+		if body.TuningProfile != nil {
+			c.TuningProfile = *body.TuningProfile
+		}
+		if err := savePerfConfig(c); err != nil {
+			writeAPIError(w, r, "E-PERF-02", "failed to save config: "+err.Error())
+			return
+		}
+		out, err := runPerfCmd("perf", "apply")
+		if err != nil {
+			recordError("E-PERF-03", "perf", "Apply failed: "+out)
+			writeAPIError(w, r, "E-PERF-03", out)
+			return
+		}
+		recordError("E-PERF-00", "perf", "FRP capacity tuning updated and applied")
+		writeJSON(w, map[string]string{"status": "ok", "detail": "Capacity tuning applied successfully"})
 
 	case "apply":
 		if body.ProxyEncryption != nil {

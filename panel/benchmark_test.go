@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -69,8 +70,8 @@ func TestBenchmarkExecutionAndEndpoints(t *testing.T) {
 		t.Fatalf("expected a best carrier to be recommended")
 	}
 
-	// Verify metrics include direct and wss
-	hasDirect, hasWSS := false, false
+	// Verify metrics include direct, wss, and frp transports
+	hasDirect, hasWSS, hasFRP := false, false, false
 	for _, m := range rep.Metrics {
 		if m.ID == "direct" {
 			hasDirect = true
@@ -78,9 +79,12 @@ func TestBenchmarkExecutionAndEndpoints(t *testing.T) {
 		if m.Type == "wss" {
 			hasWSS = true
 		}
+		if strings.HasPrefix(m.ID, "frp:") || m.Type == "frp_tcp" || m.Type == "frp_kcp" {
+			hasFRP = true
+		}
 	}
-	if !hasDirect || !hasWSS {
-		t.Errorf("missing standard candidate types: direct=%v, wss=%v", hasDirect, hasWSS)
+	if !hasDirect || !hasWSS || !hasFRP {
+		t.Errorf("missing standard candidate types: direct=%v, wss=%v, frp=%v", hasDirect, hasWSS, hasFRP)
 	}
 
 	// 2. GET /api/benchmark

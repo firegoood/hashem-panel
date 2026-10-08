@@ -681,6 +681,9 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 				"--token", token,
 				"--ports", strings.Join(strs, ","),
 			}
+			if b.FRPTransport != "" && b.FRPTransport != "tcp" {
+				args = append(args, "--frp-transport", b.FRPTransport)
+			}
 		case "iran":
 			token = randomToken(32)
 			args = []string{"setup-iran",
@@ -691,6 +694,13 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 			}
 			if len(rawPorts) > 0 {
 				args = append(args, "--ports", strings.Join(rawPorts, ","))
+			}
+			frpTrans := b.FRPTransport
+			if frpTrans == "" && b.Transport != "" && b.Transport != "tcpmux" {
+				frpTrans = b.Transport
+			}
+			if frpTrans != "" && frpTrans != "tcp" {
+				args = append(args, "--frp-transport", frpTrans)
 			}
 		default:
 			strs := make([]string, len(ports))
@@ -754,7 +764,11 @@ func runInstaller(b setupRequest, ports []int, rawPorts []string) (string, strin
 		case "gre-backhaul":
 			bundleStr = MakeGreBackhaulBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, b.Transport, token, rawPorts)
 		default:
-			bundleStr = MakeBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, token, ports)
+			trans := b.FRPTransport
+			if trans == "" && b.Transport != "" && b.Transport != "tcpmux" {
+				trans = b.Transport
+			}
+			bundleStr = MakeBundle(b.LocalPub, b.FrpPort, b.LocalGre, b.PeerGre, token, ports, trans)
 		}
 	}
 
@@ -817,7 +831,7 @@ func handlePeersGet(w http.ResponseWriter, r *http.Request) {
 			// old hashem.sh prints token only: rebuild the bundle from the
 			// registry record (live Iran pub + port fill the rest).
 			if p := findPeer(id); p != nil {
-				resp["bundle"] = MakeBundle(p.LocalPub, p.FrpPort, p.LocalGre, p.PeerGre, resp["token"], p.Ports)
+				resp["bundle"] = MakeBundle(p.LocalPub, p.FrpPort, p.LocalGre, p.PeerGre, resp["token"], p.Ports, p.FRPTransport)
 			}
 		}
 		writeJSON(w, resp)
@@ -1519,7 +1533,7 @@ func generatePeerBundle(peer *peerRecord, req peerPatchRequest) string {
 	if peer.LocalGre == "" || peer.PeerGre == "" {
 		return ""
 	}
-	return MakeBundle(localPub, peer.FrpPort, peer.LocalGre, peer.PeerGre, token, ports)
+	return MakeBundle(localPub, peer.FrpPort, peer.LocalGre, peer.PeerGre, token, ports, peer.FRPTransport)
 }
 
 func generateMainBundle(req peerPatchRequest, legacyPeer *peerRecord) string {
@@ -1602,7 +1616,13 @@ func generateMainBundle(req peerPatchRequest, legacyPeer *peerRecord) string {
 	if engine == "gre-backhaul" {
 		return MakeGreBackhaulBundle(iranPub, frpPort, iranGre, foreignGre, transport, token, rawPorts)
 	}
-	return MakeBundle(iranPub, frpPort, iranGre, foreignGre, token, ports)
+	frpTrans := ""
+	if req.FRPTransport != "" {
+		frpTrans = req.FRPTransport
+	} else if legacyPeer != nil {
+		frpTrans = legacyPeer.FRPTransport
+	}
+	return MakeBundle(iranPub, frpPort, iranGre, foreignGre, token, ports, frpTrans)
 }
 
 func applyPeerCarrierDirect(greIf string, carrier string) error {
@@ -2020,7 +2040,7 @@ type setupBundle struct {
 
 // MakeBundle builds the single foreign-setup string. Ports may be empty
 // (base setup-iran omits them); when present they join with '-'.
-func MakeBundle(iranPub string, frpPort int, iranGre, foreignGre, token string, ports []int) string {
+func MakeBundle(iranPub string, frpPort int, iranGre, foreignGre, token string, ports []int, transport ...string) string {
 	cfg := loadCarrierConfig()
 	p1, p2 := cfg.FOUPort1, cfg.FOUPort2
 	if p1 <= 0 {
@@ -2039,10 +2059,14 @@ func MakeBundle(iranPub string, frpPort int, iranGre, foreignGre, token string, 
 		portsPart = strings.Join(strs, "-")
 	}
 	fouPart := fmt.Sprintf("fou%d-%d", p1, p2)
+	transPart := ""
+	if len(transport) > 0 && transport[0] != "" && transport[0] != "tcp" {
+		transPart = "_tr-" + transport[0]
+	}
 	if portsPart != "" {
-		s += "_" + portsPart + "_" + fouPart
+		s += "_" + portsPart + "_" + fouPart + transPart
 	} else {
-		s += "__" + fouPart
+		s += "__" + fouPart + transPart
 	}
 	return s
 }
@@ -2178,8 +2202,8 @@ func ParseBundle(s string) (setupBundle, error) {
 	}
 	rest := strings.TrimPrefix(s, bundlePrefix)
 	parts := strings.Split(rest, "_")
-	if len(parts) < 5 || len(parts) > 7 {
-		return b, fmt.Errorf("bundle must have 5, 6, or 7 underscore parts (got %d)", len(parts))
+	if len(parts) < 5 || len(parts) > 8 {
+		return b, fmt.Errorf("bundle must have between 5 and 8 underscore parts (got %d)", len(parts))
 	}
 	iranPub, portS, iranGre, foreignGre, token := parts[0], parts[1], parts[2], parts[3], parts[4]
 	if net.ParseIP(iranPub) == nil || !isV4(iranPub) {
@@ -2198,13 +2222,15 @@ func ParseBundle(s string) (setupBundle, error) {
 	if len(token) == 0 || len(token) > 128 {
 		return b, fmt.Errorf("bad token in bundle (length 1-128)")
 	}
-	b = setupBundle{Engine: "frp", IranPub: iranPub, FrpPort: port, IranGre: iranGre, ForeignGre: foreignGre, Token: token}
+	b = setupBundle{Engine: "frp", Transport: "tcp", IranPub: iranPub, FrpPort: port, IranGre: iranGre, ForeignGre: foreignGre, Token: token}
 	for i := 5; i < len(parts); i++ {
 		p := parts[i]
 		if p == "" {
 			continue
 		}
-		if strings.HasPrefix(p, "fou") {
+		if strings.HasPrefix(p, "tr-") {
+			b.Transport = strings.TrimPrefix(p, "tr-")
+		} else if strings.HasPrefix(p, "fou") {
 			fouRaw := strings.TrimPrefix(p, "fou")
 			for _, portStr := range strings.Split(fouRaw, "-") {
 				if fp, err := strconv.Atoi(portStr); err == nil && fp >= 1 && fp <= 65535 {
@@ -2253,6 +2279,9 @@ func applyBundle(body *setupRequest, b setupBundle) {
 	}
 	if b.Transport != "" {
 		body.Transport = b.Transport
+		if b.Engine == "frp" {
+			body.FRPTransport = b.Transport
+		}
 	}
 	body.RemotePub = b.IranPub
 	body.FrpPort = b.FrpPort

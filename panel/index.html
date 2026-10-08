@@ -643,17 +643,59 @@
     color: var(--mu);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     line-height: 1.4;
   }
   .rs-log-line {
-    border-bottom: 1px solid rgba(255,255,255,0.03);
-    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    padding-bottom: 6px;
     word-break: break-all;
   }
   .rs-log-line:last-child { border-bottom: none; }
   @media (max-width: 1200px) {
     .right-sidebar { display: none; }
+  }
+
+  /* RTL / Persian Styles */
+  body.is-rtl {
+    font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Tahoma, sans-serif;
+    direction: rtl;
+    text-align: right;
+  }
+  body.is-rtl .right-sidebar {
+    border-left: none;
+    border-right: 1px solid var(--ln);
+  }
+  body.is-rtl .sidebar {
+    border-right: none;
+    border-left: 1px solid var(--ln);
+  }
+  body.is-rtl .sidebar-nav .nav-item {
+    justify-content: flex-start !important;
+    padding-left: 14px !important;
+    padding-right: 20px !important;
+  }
+  body.is-rtl .sidebar-nav .nav-item:hover {
+    transform: translateX(-4px);
+  }
+  body.is-rtl .rs-header {
+    text-align: right;
+    letter-spacing: 0;
+  }
+  body.is-rtl .trow {
+    flex-direction: row-reverse;
+  }
+  body.is-rtl .hashem-input,
+  body.is-rtl select.hashem-input {
+    text-align: right;
+  }
+  body.is-rtl input[type="number"].hashem-input,
+  body.is-rtl input[type="password"].hashem-input,
+  body.is-rtl input[inputmode="decimal"].hashem-input,
+  body.is-rtl input[inputmode="numeric"].hashem-input,
+  body.is-rtl .is-ltr-input {
+    direction: ltr;
+    text-align: left;
   }
 
   /* Sidebar Nav enhancements */
@@ -1027,7 +1069,7 @@
         <div class="qs" id="setupCard">
           <div class="qs-head">
             <span class="qs-bolt"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span>
-            <div class="qs-titles"><b>Quick setup — GRE + FRP tunnel</b><span>Two servers, one tunnel. Answer on this machine; the Iran side gives you a token to paste on the Foreign side.</span></div>
+            <div class="qs-titles"><b data-i18n="setup_title">Quick setup — GRE + FRP tunnel</b><span data-i18n="setup_sub">Two servers, one tunnel. Answer on this machine; the Iran side gives you a token to paste on the Foreign side.</span></div>
           </div>
           <div class="qs-diagram" aria-hidden="true">
             <span class="qs-node-box">Users</span><span>→</span>
@@ -1036,76 +1078,75 @@
             <span class="qs-node-box on">Foreign<b>the service runs here</b></span>
           </div>
           <div class="qs-step"><span class="qs-num">1</span><div class="qs-body">
-            <label class="qs-label">Which server am I on right now?</label>
+            <label class="qs-label" data-i18n="setup_step1">Which server am I on right now?</label>
             <div class="qs-seg" role="group" aria-label="Server role">
-              <button id="roleIran" aria-pressed="true">Iran — users connect here</button>
-              <button id="roleForeign" aria-pressed="false">Foreign — service runs here</button>
+              <button id="roleIran" aria-pressed="true" data-i18n="setup_role_iran">Iran — users connect here</button>
+              <button id="roleForeign" aria-pressed="false" data-i18n="setup_role_foreign">Foreign — service runs here</button>
             </div>
             <input type="hidden" id="sRole" value="iran">
             <div class="qs-hint">Pick one. Iran always listens; Foreign always dials.</div>
           </div></div>
           <div id="iranWrap">
             <div class="qs-step"><span class="qs-num">2</span><div class="qs-body">
-              <label class="qs-label">Tunnel Engine</label>
+              <label class="qs-label" data-i18n="setup_step2_engine">Tunnel Engine</label>
               <div class="qs-seg" role="group" aria-label="Tunnel Engine" id="iranEngineSeg">
-                <button type="button" id="engGreFrp" aria-pressed="true">🚀 GRE + FRP</button>
-                <button type="button" id="engGreBh" aria-pressed="false">⚡ GRE + Backhaul</button>
-                <button type="button" id="engBh" aria-pressed="false">🌐 Backhaul (No-GRE)</button>
+                <button type="button" id="engGreFrp" aria-pressed="true" data-i18n="setup_eng_frp">🚀 GRE + FRP</button>
+                <button type="button" id="engGreBh" aria-pressed="false" data-i18n="setup_eng_grebh">⚡ GRE + Backhaul</button>
+                <button type="button" id="engBh" aria-pressed="false" data-i18n="setup_eng_bh">🌐 Backhaul (No-GRE)</button>
               </div>
               <input type="hidden" id="sEngine" value="frp">
               <div class="qs-hint" id="engHint">High-stability Linux GRE kernel tunnel paired with FRP reverse proxy.</div>
             </div></div>
             <div class="qs-step"><span class="qs-num">3</span><div class="qs-body">
-              <label class="qs-label">Connection Parameters</label>
+              <label class="qs-label" data-i18n="setup_step3_params">Connection Parameters</label>
               <fieldset id="iranFields">
                 <div class="qs-row">
-                  <div class="fg"><label for="sLocalPub">Iran public IP (auto, editable)</label><input class="hashem-input" id="sLocalPub" inputmode="decimal"></div>
-                  <div class="fg"><label for="sRemotePub">Remote public IP (the other server)</label><input class="hashem-input" id="sRemotePub" inputmode="decimal" placeholder="e.g. 203.0.113.10"></div>
-                  <div class="fg" id="wrapLocalGre"><label for="sLocalGre">Local GRE IP</label><input class="hashem-input" id="sLocalGre" inputmode="decimal"></div>
-                  <div class="fg" id="wrapPeerGre"><label for="sPeerGre">Peer GRE IP</label><input class="hashem-input" id="sPeerGre" inputmode="decimal"></div>
-                  <div class="fg"><label for="sFrpPort" id="lblControlPort">Control / Bind port</label><input class="hashem-input" id="sFrpPort" inputmode="numeric"></div>
-                  <div class="fg hidden" id="wrapTransport">
-                    <label for="sTransport">Transport Protocol</label>
+                  <div class="fg"><label for="sLocalPub" data-i18n="setup_local_pub">Iran public IP (auto, editable)</label><input class="hashem-input" id="sLocalPub" inputmode="decimal"></div>
+                  <div class="fg"><label for="sRemotePub" data-i18n="setup_remote_pub">Remote public IP (the other server)</label><input class="hashem-input" id="sRemotePub" inputmode="decimal" placeholder="e.g. 203.0.113.10"></div>
+                  <div class="fg" id="wrapLocalGre"><label for="sLocalGre" data-i18n="setup_local_gre">Local GRE IP</label><input class="hashem-input" id="sLocalGre" inputmode="decimal"></div>
+                  <div class="fg" id="wrapPeerGre"><label for="sPeerGre" data-i18n="setup_peer_gre">Peer GRE IP</label><input class="hashem-input" id="sPeerGre" inputmode="decimal"></div>
+                  <div class="fg"><label for="sFrpPort" id="lblControlPort" data-i18n="setup_ctrl_port">Control / Bind port</label><input class="hashem-input" id="sFrpPort" inputmode="numeric"></div>
+                  <div class="fg" id="wrapTransport">
+                    <label for="sTransport" data-i18n="setup_transport">Transport Protocol</label>
                     <select class="hashem-input" id="sTransport">
-                      <option value="tcpmux" selected>TCPMUX (Multi-stream TCP - Recommended)</option>
-                      <option value="wssmux">WSSMUX (WebSocket + TLS Obfuscation)</option>
-                      <option value="tcp">TCP (Standard Plain TCP)</option>
-                      <option value="ws">WS (Plain WebSocket)</option>
-                      <option value="wsmux">WSMUX (Multiplexed WebSocket)</option>
-                      <option value="wss">WSS (TLS WebSocket)</option>
+                      <option value="tcp" selected>TCP Multiplexed (Default / استاندارد)</option>
+                      <option value="kcp">KCP ARQ UDP (Anti-Loss / ضد پکت‌لاس)</option>
+                      <option value="quic">QUIC UDP Stream (High-Speed / پرسرعت)</option>
+                      <option value="websocket">WebSocket (HTTP Upgrade / عبور اختلال)</option>
+                      <option value="wss">WSS TLS (Obfuscated / پوشش امنیتی کامل)</option>
                     </select>
                   </div>
                   <div class="fg hidden" id="wrapIranPorts">
-                    <label for="sIranPorts">Forwarded Ports (single, ranges, mappings)</label>
+                    <label for="sIranPorts" data-i18n="setup_forward_ports">Forwarded Ports (single, ranges, mappings)</label>
                     <input class="hashem-input" id="sIranPorts" placeholder="e.g. 443, 10000-10050, 2083=8443">
                   </div>
                 </div>
               </fieldset>
             </div></div>
             <div class="qs-step"><span class="qs-num">4</span><div class="qs-body">
-              <label class="qs-label">Token &amp; apply</label>
+              <label class="qs-label" data-i18n="setup_step4_token">Token &amp; apply</label>
               <div id="iranBox"><div class="qs-hint">Token is auto-generated. After setup, copy the bundle below to the Foreign side — one paste fills everything there.</div></div>
               <div id="setupLockWarn" class="warnbox hidden"></div>
               <div id="setupWarn" class="warnbox hidden"></div>
               <div id="setupToken" class="tokenbox hidden"></div>
               <div id="setupBundle" class="tokenbox hidden"></div>
               <div class="qs-actions">
-                <button class="hashem-btn hashem-btn-primary" id="setupBtn">Apply setup</button>
-                <button class="hashem-btn hashem-btn-secondary hidden" id="setupUnlockBtn">Unlock to replace</button>
+                <button class="hashem-btn hashem-btn-primary" id="setupBtn" data-i18n="setup_apply_btn">Apply setup</button>
+                <button class="hashem-btn hashem-btn-secondary hidden" id="setupUnlockBtn" data-i18n="setup_unlock_btn">Unlock to replace</button>
                 <button class="hashem-btn hashem-btn-primary hidden" id="setupAddBtn">Add another server instead</button>
-                <button class="hashem-btn hashem-btn-secondary hidden" id="setupRelockBtn">Keep locked</button>
+                <button class="hashem-btn hashem-btn-secondary hidden" id="setupRelockBtn" data-i18n="setup_relock_btn">Keep locked</button>
               </div>
               <pre id="setupOut" class="logs hidden"></pre>
             </div></div>
           </div>
           <div id="foreignWrap" hidden>
             <div class="qs-step"><span class="qs-num">2</span><div class="qs-body">
-              <label class="qs-label">Connect this server to Iran</label>
+              <label class="qs-label" data-i18n="setup_foreign_step2">Connect this server to Iran</label>
               <div class="u-grid-gap-10">
-                <div class="fg"><label for="jToken">Setup bundle or token (from Iran side)</label><input class="hashem-input" id="jToken" autocomplete="off" placeholder="paste hsh1_..., bh1_..., or gh1_... bundle"></div>
+                <div class="fg"><label for="jToken" data-i18n="setup_bundle_paste_lbl">Setup bundle or token (from Iran side)</label><input class="hashem-input" id="jToken" autocomplete="off" data-i18n-ph="setup_bundle_paste_ph" placeholder="paste hsh1_..., bh1_..., or gh1_... bundle"></div>
                 <div class="fg"><label for="jPorts">Reverse ports (ranges &amp; mappings allowed)</label><input class="hashem-input" id="jPorts" placeholder="auto-filled from bundle, or 443, 10000-10050"></div>
                 <div class="fg" style="margin-top:2px;">
-                  <label for="jFRPTransport" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">FRP Transport Protocol</label>
+                  <label for="jFRPTransport" data-i18n="setup_transport" style="font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mu)">FRP Transport Protocol</label>
                   <select class="hashem-input" id="jFRPTransport" style="margin-top:4px">
                     <option value="tcp" selected>TCP (Standard multiplexed stream)</option>
                     <option value="kcp">KCP (UDP with ARQ — Anti-packet-loss for unstable ISPs)</option>
@@ -1131,7 +1172,7 @@
                 <div class="qs-hint" id="joinBundleHint">Paste any bundle (hsh1_, bh1_, gh1_) → all fields auto-fill. A legacy token works too.</div>
                 <div id="joinWarn" class="warnbox hidden"></div>
                 <div class="qs-actions">
-                  <button class="hashem-btn hashem-btn-primary" id="joinBtn">Connect to Iran</button>
+                  <button class="hashem-btn hashem-btn-primary" id="joinBtn" data-i18n="setup_join_btn">Connect to Iran</button>
                 </div>
                 <pre id="joinOut" class="logs hidden"></pre>
               </div>
@@ -1167,15 +1208,14 @@
                       <option value="backhaul">🌐 Backhaul Standalone (No-GRE)</option>
                     </select>
                   </div>
-                  <div class="fg hidden" id="wrapPeerTransport" style="grid-column:span 2">
-                    <label for="pTransport">Transport Protocol</label>
+                  <div class="fg" id="wrapPeerTransport" style="grid-column:span 2">
+                    <label for="pTransport" data-i18n="setup_transport">Transport Protocol</label>
                     <select class="hashem-input" id="pTransport">
-                      <option value="tcpmux" selected>TCPMUX (Multi-stream TCP)</option>
-                      <option value="wssmux">WSSMUX (WebSocket TLS Obfuscation)</option>
-                      <option value="tcp">TCP (Standard Plain TCP)</option>
-                      <option value="ws">WS (Plain WebSocket)</option>
-                      <option value="wsmux">WSMUX (Multiplexed WebSocket)</option>
-                      <option value="wss">WSS (TLS WebSocket)</option>
+                      <option value="tcp" selected>TCP Multiplexed (Default / استاندارد)</option>
+                      <option value="kcp">KCP ARQ UDP (Anti-Loss / ضد پکت‌لاس)</option>
+                      <option value="quic">QUIC UDP Stream (High-Speed / پرسرعت)</option>
+                      <option value="websocket">WebSocket (HTTP Upgrade / عبور اختلال)</option>
+                      <option value="wss">WSS TLS (Obfuscated / پوشش امنیتی کامل)</option>
                     </select>
                   </div>
                   <div class="fg"><label for="pRemotePub">Foreign public IP</label><input class="hashem-input" id="pRemotePub" inputmode="decimal" placeholder="e.g. 203.0.113.10"></div>
@@ -1312,27 +1352,51 @@
 
         
         <!-- Tunnel Tuning Card -->
-        <div class="tunnel-card">
+        <div class="tunnel-card" id="capacityTuningCard">
           <div class="tc-header">
-            <p class="tc-title">Capacity &amp; Tuning (FRP)</p>
-            <span class="badge" id="perfAutoTuneBadge">Smart Mode</span>
+            <div>
+              <p class="tc-title" data-i18n="perf_cap_title">Capacity &amp; Tuning (FRP)</p>
+              <div class="qs-hint" data-i18n="perf_cap_sub">Adapt FRP multiplexing capacity dynamically based on server RAM and active connections.</div>
+            </div>
+            <span class="badge ok" id="perfAutoTuneBadge">Smart Auto</span>
           </div>
-          <div class="qs-hint">Adapt FRP multiplexing capacity based on server RAM and active connections.</div>
           <div class="wd-grid u-mt-12">
             <div class="form-row">
               <label class="sw-wrap">
-                <input type="checkbox" id="perfAutoTune">
+                <input type="checkbox" id="perfAutoTune" checked>
                 <span class="sw-slider"></span>
               </label>
               <div>
-                <p>Auto-Adaptation</p>
-                <div class="tc-sub">Automatically scale FRP capacity dynamically. (Recommended)</div>
+                <p style="font-weight:600;margin:0 0 2px" data-i18n="perf_auto_mode">Auto-Adaptation (Dynamic Scaling)</p>
+                <div class="tc-sub" data-i18n="perf_auto_sub">Automatically scale FRP capacity dynamically. (Recommended)</div>
               </div>
             </div>
             <div class="fg">
-              <label for="perfMaxPool">FRP Max Pool Count</label>
-              <input type="number" id="perfMaxPool" class="hashem-input" min="10" max="5000">
-              <div class="tc-sub">Higher = More capacity, more RAM usage.</div>
+              <label data-i18n="perf_profile_label">Tuning Profile Preset</label>
+              <div class="qs-seg" role="group" id="tuningProfileSeg">
+                <button type="button" id="profStd" data-prof="standard" aria-pressed="true">Standard (20/60)</button>
+                <button type="button" id="profHigh" data-prof="high" aria-pressed="false">High-Load (50/150)</button>
+                <button type="button" id="profExt" data-prof="extreme" aria-pressed="false">Extreme (100/500)</button>
+                <button type="button" id="profCustom" data-prof="custom" aria-pressed="false">Custom</button>
+              </div>
+            </div>
+            <div class="qs-row u-mt-8">
+              <div class="fg">
+                <label for="perfPoolCount" data-i18n="perf_pool_count">Client Pool Count (frpc)</label>
+                <input type="number" id="perfPoolCount" class="hashem-input" min="2" max="500" value="20">
+                <div class="tc-sub" data-i18n="perf_pool_sub">Active connection multiplex pool on foreign spokes.</div>
+              </div>
+              <div class="fg">
+                <label for="perfMaxPool" data-i18n="perf_max_pool">Max Pool Count (frps)</label>
+                <input type="number" id="perfMaxPool" class="hashem-input" min="10" max="2000" value="60">
+                <div class="tc-sub" data-i18n="perf_max_sub">Server-side maximum work connection headroom.</div>
+              </div>
+            </div>
+            <div class="qs-actions u-mt-12" style="display:flex;gap:12px;align-items:center;">
+              <button class="hashem-btn hashem-btn-primary" id="perfSaveTuningBtn" type="button" data-i18n="perf_save_tuning">
+                💾 Save &amp; Apply Capacity
+              </button>
+              <span id="perfTuningStatus" style="font-size:12px;color:var(--mu);"></span>
             </div>
           </div>
         </div>
@@ -1751,13 +1815,13 @@
             <div class="tc-header">
               <span class="tc-title">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                Inter-Panel Link (Peer)
+                <span data-i18n="bench_peer_link_title">Inter-Panel Link (Peer)</span>
               </span>
               <span class="badge dim" id="peerLinkBadge">Checking...</span>
             </div>
-            <div class="qs-hint" id="peerLinkSub">Master/Worker dual-path synchronization with remote panel.</div>
+            <div class="qs-hint" id="peerLinkSub" data-i18n="bench_peer_link_sub">Master/Worker dual-path synchronization with remote panel.</div>
             <div class="trow u-mt-8">
-              <span class="k">Role</span>
+              <span class="k" data-i18n="lbl_role">Role</span>
               <span class="v" id="peerRoleVal">—</span>
             </div>
             <div class="trow">
@@ -1777,8 +1841,8 @@
               <span class="v" id="peerLastSyncVal">—</span>
             </div>
             <div class="qs-actions u-mt-12">
-              <button class="hashem-btn hashem-btn-secondary u-btn-xs" id="peerTestBtn">Test Connection</button>
-              <button class="hashem-btn hashem-btn-ghost u-btn-xs" id="peerConfigBtn">Configure Link</button>
+              <button class="hashem-btn hashem-btn-secondary u-btn-xs" id="peerTestBtn" data-i18n="bench_peer_test_btn">Test Connection</button>
+              <button class="hashem-btn hashem-btn-ghost u-btn-xs" id="peerConfigBtn" data-i18n="bench_peer_cfg_btn">Configure Link</button>
             </div>
           </div>
 
@@ -1787,19 +1851,19 @@
             <div class="tc-header">
               <span class="tc-title">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                Automatic Failover
+                <span data-i18n="bench_failover_title">Automatic Failover</span>
               </span>
               <span class="badge dim" id="autoPilotBadge">[ OFF ] Manual Mode</span>
             </div>
-            <div class="qs-hint">Strictly <b>OFF by default</b>. When OFF, the tunnel never switches automatically. Switching only occurs when explicitly initiated by the operator.</div>
+            <div class="qs-hint" data-i18n="bench_failover_sub">Strictly <b>OFF by default</b>. When OFF, the tunnel never switches automatically. Switching only occurs when explicitly initiated by the operator.</div>
             <div class="fg u-mt-12">
               <label class="u-flex-center-wrap10">
                 <input type="checkbox" id="autoPilotToggle" style="width:16px;height:16px;accent-color:var(--ac);">
-                <span style="font-weight:600">Enable Automatic Failover (Auto-Switching)</span>
+                <span style="font-weight:600" data-i18n="bench_failover_toggle">Enable Automatic Failover (Auto-Switching)</span>
               </label>
             </div>
             <div class="fg u-mt-8">
-              <label for="autoPilotThresholdInput">Packet Loss Trigger Threshold (%)</label>
+              <label for="autoPilotThresholdInput" data-i18n="bench_failover_threshold">Packet Loss Trigger Threshold (%)</label>
               <input class="hashem-input" id="autoPilotThresholdInput" type="number" min="5" max="90" value="20" style="max-width:140px;">
               <span class="ent-help">Only applies when Automatic Failover is turned ON. If active carrier packet loss exceeds this rate, auto-switches to the best carrier.</span>
             </div>
@@ -1812,7 +1876,7 @@
               <span class="v" id="autoPilotCountVal">0</span>
             </div>
             <div class="qs-actions u-mt-12">
-              <button class="hashem-btn hashem-btn-primary u-btn-xs" id="autoPilotSaveBtn">Save Failover Policy</button>
+              <button class="hashem-btn hashem-btn-primary u-btn-xs" id="autoPilotSaveBtn" data-i18n="bench_failover_save">Save Failover Policy</button>
             </div>
           </div>
         </div>
@@ -1821,13 +1885,13 @@
         <div class="tunnel-card">
           <div class="tc-header">
             <div>
-              <p class="tc-title">Carrier Performance Leaderboard</p>
+              <p class="tc-title" data-i18n="bench_leaderboard_title">Carrier Performance Leaderboard</p>
               <div class="qs-hint" id="benchMetaSub">Last benchmark: — · Probed carrier modes</div>
             </div>
             <div class="qs-actions">
               <button class="hashem-btn hashem-btn-primary" id="benchRunBtn">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                <span id="benchRunBtnTxt">Run Carrier Benchmark</span>
+                <span id="benchRunBtnTxt" data-i18n="bench_run_btn">Run Carrier Benchmark</span>
               </button>
             </div>
           </div>
@@ -1837,15 +1901,15 @@
             <table class="hashem-table" id="benchTable">
               <thead>
                 <tr>
-                  <th>Rank &amp; Carrier</th>
-                  <th>Transport</th>
-                  <th>Port</th>
-                  <th>Latency (RTT)</th>
-                  <th>Packet Loss</th>
-                  <th>Jitter</th>
-                  <th>Quality Score</th>
-                  <th>Status</th>
-                  <th>Action</th>
+                  <th data-i18n="bench_tbl_rank">Rank &amp; Carrier</th>
+                  <th data-i18n="bench_tbl_trans">Transport</th>
+                  <th data-i18n="bench_tbl_port">Port</th>
+                  <th data-i18n="bench_tbl_rtt">Latency (RTT)</th>
+                  <th data-i18n="bench_tbl_loss">Packet Loss</th>
+                  <th data-i18n="bench_tbl_jitter">Jitter</th>
+                  <th data-i18n="bench_tbl_score">Quality Score</th>
+                  <th data-i18n="bench_tbl_status">Status</th>
+                  <th data-i18n="bench_tbl_action">Action</th>
                 </tr>
               </thead>
               <tbody id="benchTableBody">
@@ -2323,6 +2387,122 @@ const I18N = {
     chart_activity_sub: "Active concurrent connections and session stream over time",
     download: "Download",
     upload: "Upload",
+
+    // General
+    status_active: "Active",
+    status_down: "Down",
+    status_healthy: "Healthy",
+    status_connected: "Connected",
+    status_disconnected: "Disconnected",
+    status_unreachable: "Unreachable",
+    status_running: "Running",
+    status_stopped: "Stopped",
+    status_error: "Error",
+    actions: "Actions",
+    confirm: "Confirm",
+    apply: "Apply",
+    copy: "Copy",
+    copied: "Copied!",
+    remove: "Remove",
+    restart: "Restart",
+    ping: "Ping",
+    bundle: "Bundle",
+    show_bundle: "Show Bundle",
+    copy_bundle: "Copy Bundle",
+    test: "Test",
+    switch: "Switch",
+    current: "Current",
+    loading: "Loading…",
+    save_settings: "Save Settings",
+
+    // Dashboard Details & Cards
+    card_server_title: "Server & Role",
+    card_gre_title: "GRE Kernel Tunnel",
+    card_frp_title: "FRP Relay & Traffic",
+    card_peers_title: "Peer Tunnels",
+    lbl_public_ip: "Public IP",
+    lbl_role: "Role",
+    lbl_forwarded_ports: "Forwarded Ports",
+    lbl_gre_local: "Local GRE IP",
+    lbl_gre_peer: "Peer GRE IP",
+    lbl_gre_interface: "Interface",
+    lbl_frp_status: "Status",
+    lbl_control_port: "Control Port",
+    lbl_bind_port: "Bind Port",
+    lbl_tunnel_ports: "Tunnel Ports",
+    lbl_uptime_since: "Active Since",
+    lbl_peer_name: "Name",
+    lbl_peer_id: "ID",
+    lbl_peer_foreign_ip: "Foreign IP",
+    lbl_peer_ports: "Ports",
+    lbl_peer_latency: "Ping Latency",
+
+    // Tunnel Tab
+    tun_title: "Tunnel Topology & Status",
+    tun_sub: "Live link metrics, peer inventory, and interface health",
+    tun_main_card: "Main Link (Hub / Spoke 1)",
+    tun_add_peer_btn: "+ Connect Another Server",
+    tun_view_bundle_btn: "📦 View Setup Bundle",
+
+    // Setup Tab
+    setup_title: "Quick setup — GRE + FRP tunnel",
+    setup_sub: "Two servers, one tunnel. Answer on this machine; the Iran side gives you a token to paste on the Foreign side.",
+    setup_step1: "1. Which server am I on right now?",
+    setup_role_iran: "Iran — users connect here",
+    setup_role_foreign: "Foreign — service runs here",
+    setup_step2_engine: "2. Tunnel Engine",
+    setup_eng_frp: "🚀 GRE + FRP",
+    setup_eng_grebh: "⚡ GRE + Backhaul",
+    setup_eng_bh: "🌐 Backhaul (No-GRE)",
+    setup_step3_params: "3. Connection Parameters",
+    setup_local_pub: "Iran public IP (auto, editable)",
+    setup_remote_pub: "Remote public IP (the other server)",
+    setup_local_gre: "Local GRE IP",
+    setup_peer_gre: "Peer GRE IP",
+    setup_ctrl_port: "Control / Bind port",
+    setup_transport: "Transport Protocol",
+    setup_forward_ports: "Forwarded Ports (single, ranges, mappings)",
+    setup_step4_token: "4. Token & apply",
+    setup_apply_btn: "Apply setup",
+    setup_unlock_btn: "Unlock to replace",
+    setup_relock_btn: "Keep locked",
+    setup_bundle_title: "📦 Setup Bundle (Copy to Foreign server)",
+    setup_foreign_step2: "2. Join tunnel (from Iran bundle)",
+    setup_bundle_paste_lbl: "Setup bundle or token (from Iran side)",
+    setup_bundle_paste_ph: "paste hsh1_..., bh1_..., or gh1_... bundle",
+    setup_join_btn: "Connect to Iran",
+    setup_foreign_step3: "3. Advanced (optional)",
+    setup_add_peer_title: "➕ Connect another foreign server",
+    setup_peer_name_lbl: "Name (label for this tunnel)",
+    setup_add_tunnel_btn: "Add tunnel",
+
+    // Performance & Tuning Tab
+    perf_overview_title: "Performance & DPI Shield Overview",
+    perf_overview_sub: "Wire-speed throughput tuning, traffic obfuscation, and active probing defense",
+    perf_status_sync: "Sync Status",
+    perf_status_crypto: "Crypto / Obfuscation",
+    perf_status_chaff: "Traffic Chaff",
+    perf_status_dpi: "DPI Shield",
+    perf_cap_title: "Capacity & Tuning (FRP)",
+    perf_cap_sub: "Adapt FRP multiplexing capacity based on server RAM and active connections.",
+    perf_auto_mode: "Auto-Adaptation (Dynamic Scaling)",
+    perf_auto_sub: "Automatically scale FRP capacity dynamically. (Recommended)",
+    perf_profile_label: "Tuning Profile Preset",
+    perf_pool_count: "Client Pool Count (frpc)",
+    perf_pool_sub: "Active connection multiplex pool on foreign spokes.",
+    perf_max_pool: "Max Pool Count (frps)",
+    perf_max_sub: "Server-side maximum work connection headroom.",
+    perf_save_tuning: "💾 Save & Apply Capacity",
+    perf_chaff_title: "Traffic Chaff & DPI Shield",
+    perf_chaff_sub: "Anti-censorship and flood defense. Chaff fills idle timing gaps with randomized ping packets.",
+    perf_chaff_label: "Chaff Profile",
+    perf_chaff_update_btn: "Update Chaff",
+    perf_dpi_label: "DPI Flood Shield",
+    perf_dpi_toggle_btn: "Toggle DPI Shield",
+    perf_carrier_title: "Carrier & UDP Encapsulation (FOU)",
+    perf_carrier_save: "Save Mode",
+
+    // Watchdog
     wd_title: "Tunnel Watchdog",
     wd_hint: "Monitors GRE ping and FRP service every 1 minute. Sends Telegram alerts and optional auto-restart after consecutive failures.",
     wd_autorestart_label: "Auto-Restart on Failure",
@@ -2348,6 +2528,60 @@ const I18N = {
     wd_backup_sched: "Backup Schedule",
     wd_backup_save: "Save Schedule",
     wd_events_title: "Watchdog Event Log",
+
+    // Benchmark Tab
+    bench_title: "Carrier Benchmark & Auto-Pilot",
+    bench_peer_link_title: "Inter-Panel Link (Peer)",
+    bench_peer_link_sub: "Master/Worker dual-path synchronization with remote panel.",
+    bench_peer_test_btn: "Test Connection",
+    bench_peer_cfg_btn: "Configure Link",
+    bench_failover_title: "Automatic Failover",
+    bench_failover_sub: "Strictly OFF by default. When OFF, the tunnel never switches automatically.",
+    bench_failover_toggle: "Enable Automatic Failover (Auto-Switching)",
+    bench_failover_threshold: "Packet Loss Trigger Threshold (%)",
+    bench_failover_save: "Save Failover Policy",
+    bench_leaderboard_title: "Carrier Performance Leaderboard",
+    bench_run_btn: "Run Carrier Benchmark",
+    bench_tbl_rank: "Rank & Carrier",
+    bench_tbl_trans: "Transport",
+    bench_tbl_port: "Port",
+    bench_tbl_rtt: "Latency (RTT)",
+    bench_tbl_loss: "Packet Loss",
+    bench_tbl_jitter: "Jitter",
+    bench_tbl_score: "Quality Score",
+    bench_tbl_status: "Status",
+    bench_tbl_action: "Action",
+
+    // Diagnostics / Doctor Tab
+    doc_title: "Network Doctor & Diagnostic Suite",
+    doc_sub: "Automated end-to-end path tests, MTU probe, socket exhaustion check, and routing health",
+    doc_run_btn: "Run Full Diagnostics",
+
+    // Logs Tab
+    logs_title: "System & Tunnel Service Logs",
+    logs_sub: "Real-time journal logs for FRP services, GRE interfaces, and watchdog events",
+    logs_svc_label: "Service",
+    logs_lines_label: "Lines",
+    logs_refresh_btn: "Refresh Logs",
+    logs_copy_btn: "Copy Logs",
+
+    // Settings & Update Tab
+    settings_title: "Panel Security & Password",
+    settings_cur_pass: "Current panel password",
+    settings_new_pass: "New panel password",
+    settings_change_btn: "Change Password",
+    update_title: "Panel update",
+    update_current: "Installed version",
+    update_check_btn: "Check for updates",
+
+    // Terminal Tab
+    term_title: "Interactive Web Console (PTY)",
+    term_connect: "Connect Terminal",
+    term_clear: "Clear Screen",
+
+    // Right Sidebar & Modals
+    rs_header: "Live Activity Stream",
+    rs_waiting: "Waiting for logs...",
     edit_tunnel_title: "Edit Tunnel",
     edit_tunnel_sub: "Modify tunnel parameters, carrier protocol, or forwarded ports. Changes apply immediately.",
     carrier_title: "Carrier Selection / Policy",
@@ -2393,6 +2627,122 @@ const I18N = {
     chart_activity_sub: "تعداد کانکشن‌های فعال همزمان و استریم سشن‌ها",
     download: "دانلود",
     upload: "آپلود",
+
+    // General
+    status_active: "فعال",
+    status_down: "قطع",
+    status_healthy: "سالم",
+    status_connected: "متصل",
+    status_disconnected: "قطع شده",
+    status_unreachable: "غیرقابل دسترس",
+    status_running: "در حال اجرا",
+    status_stopped: "متوقف شده",
+    status_error: "خطا",
+    actions: "عملیات",
+    confirm: "تایید",
+    apply: "اعمال",
+    copy: "کپی",
+    copied: "کپی شد!",
+    remove: "حذف",
+    restart: "راه‌اندازی مجدد",
+    ping: "پینگ",
+    bundle: "باندل",
+    show_bundle: "نمایش باندل",
+    copy_bundle: "کپی باندل",
+    test: "تست",
+    switch: "سوییچ",
+    current: "فعلی",
+    loading: "در حال بارگذاری…",
+    save_settings: "ذخیره تنظیمات",
+
+    // Dashboard Details & Cards
+    card_server_title: "مشخصات سرور و نقش",
+    card_gre_title: "تونل کرنلی GRE",
+    card_frp_title: "رله FRP و ترافیک",
+    card_peers_title: "لیست تونل‌های پیر (Peers)",
+    lbl_public_ip: "آی‌پی عمومی",
+    lbl_role: "نقش سرور",
+    lbl_forwarded_ports: "پورت‌های فوروارد شده",
+    lbl_gre_local: "آی‌پی محلی GRE",
+    lbl_gre_peer: "آی‌پی مقصد GRE",
+    lbl_gre_interface: "اینترفیس شبکه",
+    lbl_frp_status: "وضعیت FRP",
+    lbl_control_port: "پورت کنترل",
+    lbl_bind_port: "پورت بایند",
+    lbl_tunnel_ports: "پورت‌های معکوس",
+    lbl_uptime_since: "زمان فعالیت",
+    lbl_peer_name: "نام سرور",
+    lbl_peer_id: "شناسه",
+    lbl_peer_foreign_ip: "آی‌پی سرور خارج",
+    lbl_peer_ports: "پورت‌ها",
+    lbl_peer_latency: "تاخیر (پینگ)",
+
+    // Tunnel Tab
+    tun_title: "توپولوژی و وضعیت تونل‌ها",
+    tun_sub: "متریک‌های زنده لینک، وضعیت ارتباط پیرها و سلامت اینترفیس‌ها",
+    tun_main_card: "لینک اصلی (هاب ایران / سرور ۱)",
+    tun_add_peer_btn: "+ اتصال سرور جدید خارج",
+    tun_view_bundle_btn: "📦 مشاهده رشته باندل ستاپ",
+
+    // Setup Tab
+    setup_title: "راه‌اندازی سریع — تونل GRE + FRP",
+    setup_sub: "دو سرور، یک تونل پایدار. ابتدا مشخصات را روی سرور ایران ثبت کنید و سپس رشته باندل تولیدشده را در سرور خارج وارد نمایید.",
+    setup_step1: "۱. هم‌اکنون روی کدام سرور هستید؟",
+    setup_role_iran: "سرور ایران — کاربران به این سرور وصل می‌شوند",
+    setup_role_foreign: "سرور خارج — سرویس‌ها و فیلترشکن اینجا اجرا می‌شوند",
+    setup_step2_engine: "۲. انتخاب موتور تونل",
+    setup_eng_frp: "🚀 تونل GRE + FRP",
+    setup_eng_grebh: "⚡ تونل GRE + Backhaul",
+    setup_eng_bh: "🌐 تونل مستقیم Backhaul (بدون GRE)",
+    setup_step3_params: "۳. پارامترهای اتصال",
+    setup_local_pub: "آی‌پی عمومی ایران (خودکار / قابل ویرایش)",
+    setup_remote_pub: "آی‌پی عمومی سرور خارج",
+    setup_local_gre: "آی‌پی داخلی ایران (Local GRE)",
+    setup_peer_gre: "آی‌پی داخلی خارج (Peer GRE)",
+    setup_ctrl_port: "پورت بایند / کنترل FRP",
+    setup_transport: "پروتکل انتقالی (Transport Protocol)",
+    setup_forward_ports: "پورت‌های فوروارد شده (تکی، بازه، یا نگاشت)",
+    setup_step4_token: "۴. توکن امنیتی و اعمال",
+    setup_apply_btn: "اعمال و راه‌اندازی تونل",
+    setup_unlock_btn: "باز کردن قفل جهت جایگزینی",
+    setup_relock_btn: "قفل بماند",
+    setup_bundle_title: "📦 رشته باندل ستاپ (جهت درج در سرور خارج)",
+    setup_foreign_step2: "۲. اتصال به ایران (با استفاده از باندل)",
+    setup_bundle_paste_lbl: "رشته باندل یا توکن راه‌اندازی (دریافتی از ایران)",
+    setup_bundle_paste_ph: "رشته باندل hsh1_...، bh1_... یا gh1_... را اینجا قرار دهید",
+    setup_join_btn: "اتصال و برقراری تونل با ایران",
+    setup_foreign_step3: "۳. تنظیمات دستی پیشرفته (اختیاری)",
+    setup_add_peer_title: "➕ اتصال یک سرور خارجی دیگر (بدون قطع تونل قبلی)",
+    setup_peer_name_lbl: "نام یا برچسب سرور جدید",
+    setup_add_tunnel_btn: "افزودن و اتصال تونل جدید",
+
+    // Performance & Tuning Tab
+    perf_overview_title: "نمای کلی عملکرد، تیونینگ و سپر DPI",
+    perf_overview_sub: "بهینه‌سازی نرخ ترافیک عبوری، پکت‌های فریبنده Chaff و مسدودسازی اسکنرهای فعال",
+    perf_status_sync: "وضعیت همگام‌سازی",
+    perf_status_crypto: "رمزنگاری و مبهم‌سازی",
+    perf_status_chaff: "پکت‌های فریبنده Chaff",
+    perf_status_dpi: "سپر ضد اسکنر DPI",
+    perf_cap_title: "ظرفیت و تیونینگ پویا (FRP Capacity)",
+    perf_cap_sub: "تنظیم هوشمند استریم‌های Multiplexing بر اساس حافظه RAM و تعداد اتصالات همزمان کاربران.",
+    perf_auto_mode: "تنظیم خودکار و هوشمند (Dynamic Scaling)",
+    perf_auto_sub: "محاسبه و تنظیم خودکار Pool بر اساس اتصالات زنده و رم آزاد سرور (پیشنهادی)",
+    perf_profile_label: "پروفایل‌های آماده تیونینگ",
+    perf_pool_count: "تعداد استخرهای کلاینت (frpc Pool Count)",
+    perf_pool_sub: "تعداد استخرهای اتصال مالتی‌پلکس در سرورهای خارج.",
+    perf_max_pool: "حداکثر سقف استخر سرور (frps Max Pool)",
+    perf_max_sub: "سقف کانکشن‌های فعال کار در سرور ایران جهت پاسخگویی به بار سنگین.",
+    perf_save_tuning: "💾 ذخیره و اعمال ظرفیت",
+    perf_chaff_title: "پکت‌های فریبنده Chaff و سپر محافظتی DPI",
+    perf_chaff_sub: "پوشش الگوهای رفتاری ترافیک و پر کردن فواصل زمانی با پینگ‌های تصادفی رمزنگاری‌شده.",
+    perf_chaff_label: "پروفایل چف (Chaff Profile)",
+    perf_chaff_update_btn: "بروزرسانی Chaff",
+    perf_dpi_label: "سپر مقابله با حملات اسکن DPI",
+    perf_dpi_toggle_btn: "تغییر وضعیت سپر DPI",
+    perf_carrier_title: "مدیریت کریرها و کپسوله‌سازی UDP (FOU)",
+    perf_carrier_save: "ذخیره حالت کریر",
+
+    // Watchdog
     wd_title: "دیده‌بان سلامت تونل (Watchdog)",
     wd_hint: "بررسی خودکار پینگ GRE و وضعیت سرویس‌ها در هر ۱ دقیقه. ارسال هشدارهای آنی تلگرام و ری‌استارت اختیاری در صورت قطعی مکرر.",
     wd_autorestart_label: "ری‌استارت خودکار در صورت قطعی",
@@ -2418,6 +2768,60 @@ const I18N = {
     wd_backup_sched: "زمان‌بندی پشتیبان‌گیری",
     wd_backup_save: "ذخیره زمان‌بندی",
     wd_events_title: "لاگ وقایع دیده‌بان",
+
+    // Benchmark Tab
+    bench_title: "بنچمارک کیفیت مسیر و سوییچ هوشمند",
+    bench_peer_link_title: "ارتباط میان‌پنلی دوطرفه (Peer Link)",
+    bench_peer_link_sub: "همگام‌سازی لحظه‌ای وضعیت بین سرور ایران (Master) و سرور خارج (Worker).",
+    bench_peer_test_btn: "تست اتصال ارتباطی",
+    bench_peer_cfg_btn: "پیکربندی لینک ارتباطی",
+    bench_failover_title: "سوییچ خودکار در زمان اختلال (Failover)",
+    bench_failover_sub: "پیش‌فرض خاموش. تا زمانی که اپراتور تایید نکند، سوییچ خودکار رخ نمی‌دهد.",
+    bench_failover_toggle: "فعال‌سازی سوییچ خودکار مسیر (Auto-Switching)",
+    bench_failover_threshold: "آستانه پکت‌لاس جهت سوییچ (%)",
+    bench_failover_save: "ذخیره سیاست فیل‌اور",
+    bench_leaderboard_title: "جدول لیدربورد و کیفیت پروتکل‌ها",
+    bench_run_btn: "اجرای بنچمارک پروتکل‌ها",
+    bench_tbl_rank: "رتبه و پروتکل",
+    bench_tbl_trans: "ترنسپورت",
+    bench_tbl_port: "پورت",
+    bench_tbl_rtt: "تاخیر رفت‌وبرگشت (RTT)",
+    bench_tbl_loss: "درصد پکت‌لاس",
+    bench_tbl_jitter: "نوسان (Jitter)",
+    bench_tbl_score: "امتیاز کیفیت",
+    bench_tbl_status: "وضعیت",
+    bench_tbl_action: "عملیات / سوییچ",
+
+    // Diagnostics / Doctor Tab
+    doc_title: "پزشک شبکه و عیب‌یابی جامع تونل",
+    doc_sub: "تست‌های خودکار پکت‌های MTU، بررسی جدول روتینگ، ماژول‌های کرنل و باز بودن پورت‌ها",
+    doc_run_btn: "اجرای عیب‌یابی کامل",
+
+    // Logs Tab
+    logs_title: "لاگ‌ها و گزارش‌های سیستمی",
+    logs_sub: "مشاهده بلادرنگ وقایع سرویس‌های FRP، اینترفیس‌های GRE و رویدادهای دیده‌بان",
+    logs_svc_label: "سرویس هدف",
+    logs_lines_label: "تعداد خطوط",
+    logs_refresh_btn: "بازخوانی لاگ‌ها",
+    logs_copy_btn: "کپی لاگ‌ها",
+
+    // Settings & Update Tab
+    settings_title: "امنیت پنل و تغییر رمز عبور",
+    settings_cur_pass: "رمز عبور فعلی پنل",
+    settings_new_pass: "رمز عبور جدید پنل",
+    settings_change_btn: "تغییر و ذخیره رمز عبور",
+    update_title: "بروزرسانی پنل و هسته‌های ارتباطی",
+    update_current: "نسخه نصب‌شده فعلی",
+    update_check_btn: "بررسی نسخه‌های جدید",
+
+    // Terminal Tab
+    term_title: "کنسول وب ترمینال لینوکس (PTY)",
+    term_connect: "اتصال به ترمینال",
+    term_clear: "پاک کردن صفحه",
+
+    // Right Sidebar & Modals
+    rs_header: "جریان زنده وقایع و لاگ‌ها",
+    rs_waiting: "در انتظار دریافت لاگ‌های سیستمی...",
     edit_tunnel_title: "ویرایش مشخصات تونل",
     edit_tunnel_sub: "تغییر پارامترها، پروتکل کریر یا پورت‌های فوروارد شده. تغییرات بلافاصله اعمال می‌شوند.",
     carrier_title: "انتخاب و مدیریت کریر (Carrier)",
@@ -2466,6 +2870,16 @@ function applyTranslations(lang) {
       }
     }
   });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+    const key = el.dataset.i18nPh;
+    if (dict[key]) {
+      el.placeholder = dict[key];
+    }
+  });
+  const rsH = document.querySelector('.rs-header');
+  if (rsH && dict.rs_header) {
+    rsH.textContent = dict.rs_header;
+  }
   if (typeof drawerSync === 'function') drawerSync();
 }
 
@@ -2793,11 +3207,12 @@ $('addPeerBtn').onclick = async () => {
   $('peerWarn').classList.add('hidden');
   try {
     const pEng = $('pEngine') ? $('pEngine').value : 'frp';
-    const pTrans = ($('pTransport') && !$('wrapPeerTransport').classList.contains('hidden')) ? $('pTransport').value : 'tcpmux';
+    const pTrans = $('pTransport') ? $('pTransport').value : 'tcp';
     const body = {
       role: 'add-peer',
       engine: pEng,
       transport: pTrans,
+      frp_transport: pEng === 'frp' ? pTrans : '',
       name: $('pName').value.trim(),
       local_public: $('pLocalPub').value.trim(),
       remote_public: $('pRemotePub').value.trim(),
@@ -3529,28 +3944,29 @@ async function refreshDash() {
     const detCard = (icon, title, rows) =>
       `<div class="det-card"><div class="det-head"><span class="det-ico">${icon}</span>${esc(title)}</div><div class="det-rows">${rows}</div></div>`;
     const detRow = (k, cell) => `<div class="det-row"><span class="det-k">${esc(k)}</span>${cell}</div>`;
-    const frpBadge = f.up ? dbadge(f.svc || 'running', 'ok') : dbadge('down', 'err');
-    const roleBadge = d.role === 'iran' ? dbadge('🇮🇷 Iran', 'ok') : d.role === 'foreign' ? dbadge('🌍 Foreign', '') : dval(d.role);
+    const t = (k, fb) => (I18N[currentLang] && I18N[currentLang][k]) ? I18N[currentLang][k] : fb;
+    const frpBadge = f.up ? dbadge(f.svc || t('status_running', 'running'), 'ok') : dbadge(t('status_down', 'down'), 'err');
+    const roleBadge = d.role === 'iran' ? dbadge('🇮🇷 ' + (currentLang === 'fa' ? 'ایران' : 'Iran'), 'ok') : d.role === 'foreign' ? dbadge('🌍 ' + (currentLang === 'fa' ? 'خارج' : 'Foreign'), '') : dval(d.role);
     const bindPort = (f.port && f.port !== NA) ? String(f.port) : '';
     const proxyPorts = (f.proxy_ports || []).filter(p => p && String(p) !== bindPort);
     const isFrpc = (f.svc === 'frpc') || /foreign/i.test(d.role || '');
-    const portLabel = isFrpc ? 'Server Port' : 'Bind Port';
+    const portLabel = isFrpc ? t('lbl_control_port', 'Server Port') : t('lbl_bind_port', 'Bind Port');
     const portCell = bindPort ? dmono(bindPort) : dval('—');
     const proxyList = (f.proxy_ports && f.proxy_ports.length) ? f.proxy_ports.join(', ') : ((f.proxies || []).join(', ') || '—');
     const activeEng = String(d.active_engine || 'frp').toUpperCase();
     const activeCarr = String(d.active_carrier || 'direct');
-    const failoverBadge = d.auto_failover ? dbadge('[ ON ] Auto-Switching', 'warn') : dbadge('[ OFF ] Manual Mode', 'dim');
+    const failoverBadge = d.auto_failover ? dbadge(currentLang === 'fa' ? '[ فعال ] سوییچ خودکار' : '[ ON ] Auto-Switching', 'warn') : dbadge(currentLang === 'fa' ? '[ خاموش ] حالت دستی' : '[ OFF ] Manual Mode', 'dim');
     const diagBadge = d.last_error
       ? `<span class="badge err" title="${esc(d.last_error.detail || '')}"><span class="dot"></span>${esc(d.last_error.code || 'ERR')} (${esc(String(d.last_error.time || '').slice(11, 19))})</span>`
-      : dbadge('Stable / Zero Drops', 'ok');
+      : dbadge(currentLang === 'fa' ? 'پایدار / بدون پکت‌لاس' : 'Stable / Zero Drops', 'ok');
     const ICO_BOLT = '<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
     setHTML('dashDetails',
-      detCard(ICO_SRV, 'Server & Role', detRow('Public IP', dmono(d.local_pub)) + detRow('Role', roleBadge) + detRow('Forwarded', dval(proxyList)))
-      + detCard(ICO_GRE, 'GRE Tunnel', detRow('Local', dmono(g.local)) + detRow('Peer', dmono(g.peer)) + detRow('Inner', dmono(g.inner)))
-      + detCard(ICO_FRP, 'Tunnel Engine', detRow('Status', frpBadge) + detRow('Engine', dval(activeEng)) + detRow(portLabel, portCell)
-        + (proxyPorts.length ? detRow('Tunnel Ports', `<span class="det-v">${proxyPorts.map(p => `<span class="det-v mono" style="margin-right:4px">${esc(String(p))}</span>`).join('')}</span>`) : '')
-        + (u.frp_since ? detRow('Since', dval(u.frp_since)) : ''))
-      + detCard(ICO_BOLT, 'Carrier & Failover', detRow('Active Carrier', dmono(activeCarr)) + detRow('Failover Policy', failoverBadge) + detRow('Diagnostics', diagBadge))
+      detCard(ICO_SRV, t('card_server_title', 'Server & Role'), detRow(t('lbl_public_ip', 'Public IP'), dmono(d.local_pub)) + detRow(t('lbl_role', 'Role'), roleBadge) + detRow(t('lbl_forwarded_ports', 'Forwarded'), dval(proxyList)))
+      + detCard(ICO_GRE, t('card_gre_title', 'GRE Tunnel'), detRow(t('lbl_gre_local', 'Local'), dmono(g.local)) + detRow(t('lbl_gre_peer', 'Peer'), dmono(g.peer)) + detRow(t('lbl_gre_interface', 'Inner'), dmono(g.inner)))
+      + detCard(ICO_FRP, t('card_frp_title', 'Tunnel Engine'), detRow(t('lbl_frp_status', 'Status'), frpBadge) + detRow(currentLang === 'fa' ? 'موتور تونل' : 'Engine', dval(activeEng)) + detRow(portLabel, portCell)
+        + (proxyPorts.length ? detRow(t('lbl_tunnel_ports', 'Tunnel Ports'), `<span class="det-v">${proxyPorts.map(p => `<span class="det-v mono" style="margin-right:4px">${esc(String(p))}</span>`).join('')}</span>`) : '')
+        + (u.frp_since ? detRow(t('lbl_uptime_since', 'Since'), dval(u.frp_since)) : ''))
+      + detCard(ICO_BOLT, currentLang === 'fa' ? 'کریر و فیل‌اور' : 'Carrier & Failover', detRow(currentLang === 'fa' ? 'کریر فعال' : 'Active Carrier', dmono(activeCarr)) + detRow(currentLang === 'fa' ? 'سیاست سوییچ' : 'Failover Policy', failoverBadge) + detRow(currentLang === 'fa' ? 'عیب‌یابی' : 'Diagnostics', diagBadge))
       + dashPeersCard(d.peers || []));
     // one-click copy for IP/port pills
     document.querySelectorAll('#dashDetails [data-copy]').forEach(b => { if (!b.dataset.cpBound) { b.dataset.cpBound = '1';
@@ -3678,20 +4094,22 @@ function drawActivityChart(hist, isDown) {
 
 function dashPeersCard(peers) {
   if (!peers || !peers.length) return '';
+  const t = (k, fb) => (I18N[currentLang] && I18N[currentLang][k]) ? I18N[currentLang][k] : fb;
   const rows = peers.map(p => {
     const up = !!(p.gre_up || p.frp_up);
     const nm = p.name || ('peer-' + p.id);
-    const pingTxt = p.ping_ok ? (p.ping_ms || 'ok') : 'down';
+    const pingTxt = p.ping_ok ? (p.ping_ms || 'ok') : t('status_down', 'down');
     const pingCls = p.ping_ok ? 'ok' : 'err';
-    return `<div class="dash-peer-row" data-goto-peer="${p.id}" title="Open full card in Tunnel tab">`
+    const statusTxt = up ? (currentLang === 'fa' ? 'تونل فعال' : 'tunnel up') : t('status_down', 'down');
+    return `<div class="dash-peer-row" data-goto-peer="${p.id}" title="${currentLang === 'fa' ? 'مشاهده کارت کامل در تب تونل' : 'Open full card in Tunnel tab'}">`
       + `<span class="ent-st ${up ? 'on' : 'off'}"><i></i></span>`
       + `<b style="color:var(--tx)">${esc(nm)}</b><span class="qs-hint mono">#${p.id}</span>`
-      + `<span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${up ? 'tunnel up' : 'down'}</span>`
+      + `<span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${statusTxt}</span>`
       + `<span class="det-v mono">${esc(p.remote_pub || '—')}</span>`
       + `<span class="qs-hint">${esc((p.ports || []).join(', ') || '—')} · </span><span class="badge ${pingCls}"><span class="dot"></span>${esc(pingTxt)}</span>`
       + `</div>`;
   }).join('');
-  return `<div class="det-card" style="grid-column:1/-1"><div class="det-head"><span class="det-ico">${ICO_SRV}</span>Peer Tunnels (${peers.length})</div><div>${rows}</div></div>`;
+  return `<div class="det-card" style="grid-column:1/-1"><div class="det-head"><span class="det-ico">${ICO_SRV}</span>${esc(t('card_peers_title', 'Peer Tunnels'))} (${peers.length})</div><div>${rows}</div></div>`;
 }
 // Scroll to a peer's full card (switches tab if needed).
 function gotoPeerCard(peerId) {
@@ -3807,7 +4225,7 @@ async function loadSetupDefaults() {
     setupUnlocked = false;
     if (d.bundle) {
       window._currentIranBundle = d.bundle;
-      renderIranBundleBox(d.bundle);
+      // Keep bundle cached for on-demand actions; do not auto-display box on initial view
     }
     if (!$('sLocalPub').value) $('sLocalPub').value = d.local_public || '';
     if (!$('fLocalPub').value) $('fLocalPub').value = d.local_public || '';
@@ -3833,10 +4251,12 @@ async function doSetup() {
   $('setupToken').classList.add('hidden');
   $('setupWarn').classList.add('hidden');
   try {
+    const selTrans = $('sTransport') ? $('sTransport').value : 'tcp';
     const body = {
       role: 'iran',
       engine: $('sEngine') ? $('sEngine').value : 'frp',
-      transport: ($('sTransport') && !$('wrapTransport').classList.contains('hidden')) ? $('sTransport').value : 'tcpmux',
+      transport: selTrans,
+      frp_transport: ($('sEngine') && $('sEngine').value === 'frp') ? selTrans : '',
       local_public: $('sLocalPub').value.trim(),
       remote_public: $('sRemotePub').value.trim(),
       local_gre: $('sLocalGre') ? $('sLocalGre').value.trim() : '',
@@ -3888,6 +4308,34 @@ async function doSetup() {
 }
 $('setupBtn').onclick = () => doSetup();
 
+function updateTransportSelect(selId, eng) {
+  const el = $(selId);
+  if (!el) return;
+  const cur = el.value;
+  if (eng === 'frp') {
+    el.innerHTML = `
+      <option value="tcp">TCP Multiplexed (Default / استاندارد)</option>
+      <option value="kcp">KCP ARQ UDP (Anti-Loss / ضد پکت‌لاس)</option>
+      <option value="quic">QUIC UDP Stream (High-Speed / پرسرعت)</option>
+      <option value="websocket">WebSocket (HTTP Upgrade / عبور اختلال)</option>
+      <option value="wss">WSS TLS (Obfuscated / پوشش امنیتی کامل)</option>
+    `;
+    if (['tcp', 'kcp', 'quic', 'websocket', 'wss'].includes(cur)) el.value = cur;
+    else el.value = 'tcp';
+  } else {
+    el.innerHTML = `
+      <option value="tcpmux">TCPMUX (Multi-stream TCP - Recommended)</option>
+      <option value="wssmux">WSSMUX (WebSocket + TLS Obfuscation)</option>
+      <option value="tcp">TCP (Standard Plain TCP)</option>
+      <option value="ws">WS (Plain WebSocket)</option>
+      <option value="wsmux">WSMUX (Multiplexed WebSocket)</option>
+      <option value="wss">WSS (TLS WebSocket)</option>
+    `;
+    if (['tcpmux', 'wssmux', 'tcp', 'ws', 'wsmux', 'wss'].includes(cur)) el.value = cur;
+    else el.value = 'tcpmux';
+  }
+}
+
 function setIranEngine(eng) {
   const isBh = eng === 'backhaul';
   const isGreBh = eng === 'gre-backhaul';
@@ -3897,7 +4345,8 @@ function setIranEngine(eng) {
   if ($('engBh')) $('engBh').setAttribute('aria-pressed', isBh);
   if ($('wrapLocalGre')) $('wrapLocalGre').classList.toggle('hidden', isBh);
   if ($('wrapPeerGre')) $('wrapPeerGre').classList.toggle('hidden', isBh);
-  if ($('wrapTransport')) $('wrapTransport').classList.toggle('hidden', eng === 'frp');
+  if ($('wrapTransport')) $('wrapTransport').classList.remove('hidden');
+  updateTransportSelect('sTransport', eng);
   if ($('wrapIranPorts')) $('wrapIranPorts').classList.toggle('hidden', eng === 'frp');
   if ($('engHint')) {
     if (eng === 'frp') {
@@ -3917,7 +4366,8 @@ if ($('pEngine')) {
   $('pEngine').addEventListener('change', () => {
     const v = $('pEngine').value;
     const isBh = v === 'backhaul';
-    if ($('wrapPeerTransport')) $('wrapPeerTransport').classList.toggle('hidden', v === 'frp');
+    if ($('wrapPeerTransport')) $('wrapPeerTransport').classList.remove('hidden');
+    updateTransportSelect('pTransport', v);
     if ($('wrapPeerLocalGre')) $('wrapPeerLocalGre').classList.toggle('hidden', isBh);
     if ($('wrapPeerPeerGre')) $('wrapPeerPeerGre').classList.toggle('hidden', isBh);
   });
@@ -4719,9 +5169,100 @@ async function loadPerf() {
     if ($('perfDpiRateBadge')) {
       $('perfDpiRateBadge').textContent = `Rate: ${s.dpi_rate || '300/min'} · Burst: ${s.dpi_burst || 100}`;
     }
+
+    // Capacity & Tuning
+    if ($('perfAutoTune')) $('perfAutoTune').checked = !!s.auto_tune;
+    if ($('perfPoolCount')) $('perfPoolCount').value = s.frp_pool_count || 20;
+    if ($('perfMaxPool')) $('perfMaxPool').value = s.frp_max_pool || 60;
+    updateTuningUI(!!s.auto_tune, s.tuning_profile || 'standard');
   } catch (e) {
     toastErr('performance error', e.message);
   }
+}
+
+function updateTuningUI(isAuto, prof) {
+  const badge = $('perfAutoTuneBadge');
+  if (badge) {
+    badge.className = 'badge ' + (isAuto ? 'ok' : 'info');
+    badge.textContent = isAuto ? 'Smart Auto' : 'Manual Tuning';
+  }
+  const poolIn = $('perfPoolCount');
+  const maxIn = $('perfMaxPool');
+  if (poolIn && maxIn) {
+    poolIn.disabled = isAuto;
+    maxIn.disabled = isAuto;
+  }
+  const seg = $('tuningProfileSeg');
+  if (seg) {
+    seg.querySelectorAll('button').forEach(btn => {
+      const p = btn.dataset.prof;
+      btn.setAttribute('aria-pressed', p === prof ? 'true' : 'false');
+    });
+  }
+}
+
+if ($('tuningProfileSeg')) {
+  $('tuningProfileSeg').querySelectorAll('button').forEach(btn => {
+    btn.onclick = () => {
+      const p = btn.dataset.prof;
+      if ($('perfAutoTune')) {
+        $('perfAutoTune').checked = false;
+      }
+      if (p === 'standard') {
+        if ($('perfPoolCount')) $('perfPoolCount').value = 20;
+        if ($('perfMaxPool')) $('perfMaxPool').value = 60;
+      } else if (p === 'high') {
+        if ($('perfPoolCount')) $('perfPoolCount').value = 50;
+        if ($('perfMaxPool')) $('perfMaxPool').value = 150;
+      } else if (p === 'extreme') {
+        if ($('perfPoolCount')) $('perfPoolCount').value = 100;
+        if ($('perfMaxPool')) $('perfMaxPool').value = 500;
+      }
+      updateTuningUI(false, p);
+    };
+  });
+}
+
+if ($('perfAutoTune')) {
+  $('perfAutoTune').onchange = () => {
+    const isAuto = $('perfAutoTune').checked;
+    updateTuningUI(isAuto, isAuto ? 'auto' : 'custom');
+  };
+}
+
+if ($('perfSaveTuningBtn')) {
+  $('perfSaveTuningBtn').onclick = async () => {
+    const btn = $('perfSaveTuningBtn');
+    btn.disabled = true;
+    const isAuto = $('perfAutoTune') ? $('perfAutoTune').checked : false;
+    const pool = parseInt($('perfPoolCount') ? $('perfPoolCount').value : 20, 10) || 20;
+    const maxPool = parseInt($('perfMaxPool') ? $('perfMaxPool').value : 60, 10) || 60;
+    let prof = 'custom';
+    if (isAuto) prof = 'auto';
+    else if (pool === 20 && maxPool === 60) prof = 'standard';
+    else if (pool === 50 && maxPool === 150) prof = 'high';
+    else if (pool === 100 && maxPool === 500) prof = 'extreme';
+
+    try {
+      const res = await api('/api/perf', {
+        action: 'set-tuning',
+        auto_tune: isAuto,
+        frp_pool_count: pool,
+        frp_max_pool: maxPool,
+        tuning_profile: prof,
+      });
+      toastOk('Capacity Updated', res.detail || 'FRP scaling settings saved and applied.');
+      if ($('perfTuningStatus')) {
+        $('perfTuningStatus').textContent = '✓ Saved & Applied';
+        setTimeout(() => { if ($('perfTuningStatus')) $('perfTuningStatus').textContent = ''; }, 3000);
+      }
+      await loadPerf();
+    } catch (e) {
+      toastErr('Tuning error', e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  };
 }
 
 async function doPerfApply(btnEl) {
@@ -5781,32 +6322,31 @@ document.addEventListener('visibilitychange', () => {
 async function refreshRightSidebarLogs() {
   if (window.innerWidth < 1200) return;
   try {
-    const s = await api('/api/logs?n=15');
-    if (s.lines) {
-      const rs = $('rsLogs');
-      if (rs) {
-        rs.innerHTML = s.lines.map(l => '<div class="rs-log-line">' + esc(l) + '</div>').join('');
-      }
+    const s = await api('/api/logs?svc=stream&n=22');
+    const rs = $('rsLogs');
+    if (!rs) return;
+    const lines = s.lines || (s.logs ? s.logs.trim().split('\n') : []);
+    if (lines.length > 0) {
+      rs.innerHTML = lines.map(l => {
+        let tag = '';
+        if (/frps/i.test(l)) tag = '<span class="badge info" style="font-size:9px;padding:1px 4px;margin-inline-end:4px">FRPS</span>';
+        else if (/frpc/i.test(l)) tag = '<span class="badge ok" style="font-size:9px;padding:1px 4px;margin-inline-end:4px">FRPC</span>';
+        else if (/watchdog|alert/i.test(l)) tag = '<span class="badge warn" style="font-size:9px;padding:1px 4px;margin-inline-end:4px">WD</span>';
+        else if (/gre-panel|panel/i.test(l)) tag = '<span class="badge dim" style="font-size:9px;padding:1px 4px;margin-inline-end:4px">PANEL</span>';
+        else if (/gre/i.test(l)) tag = '<span class="badge" style="font-size:9px;padding:1px 4px;margin-inline-end:4px">GRE</span>';
+        
+        const timeMatch = l.match(/(\d{2}:\d{2}:\d{2})/);
+        const timeTag = timeMatch ? `<span style="color:var(--mu);margin-inline-end:4px;font-size:10px">${esc(timeMatch[1])}</span>` : '';
+        const cleanMsg = l.replace(/^.*?\[\d+\]:\s*/, '').replace(/^[A-Za-z]+\s+\d+\s+\d+:\d+:\d+\s+\S+\s+\S+:\s*/, '');
+        return '<div class="rs-log-line" style="font-family:var(--font-mono);font-size:11px;line-height:1.4;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);word-break:break-all">' + timeTag + tag + esc(cleanMsg || l) + '</div>';
+      }).join('');
+    } else {
+      rs.innerHTML = `<div style="color:var(--mu);font-size:12px;padding:12px 0;">${currentLang === 'fa' ? 'در حال دریافت لاگ‌های سیستمی...' : 'Waiting for system logs...'}</div>`;
     }
   } catch(e) {}
 }
-setInterval(refreshRightSidebarLogs, 4000);
-setTimeout(refreshRightSidebarLogs, 500);
-
-async function refreshRightSidebarLogs() {
-  if (window.innerWidth < 1200) return;
-  try {
-    const s = await api('/api/logs?n=15');
-    if (s.lines) {
-      const rs = $('rsLogs');
-      if (rs) {
-        rs.innerHTML = s.lines.map(l => '<div class="rs-log-line">' + esc(l) + '</div>').join('');
-      }
-    }
-  } catch(e) {}
-}
-setInterval(refreshRightSidebarLogs, 4000);
-setTimeout(refreshRightSidebarLogs, 500);
+setInterval(refreshRightSidebarLogs, 3000);
+setTimeout(refreshRightSidebarLogs, 300);
 
 // ============================================================
 // Edit Peer / Edit Tunnel Modal
@@ -6188,8 +6728,8 @@ function renderBenchmark(bench, peer) {
           <strong style="color:var(--mu);min-width:16px;">#${rank}</strong>
           <div>
             <strong>${esc(m.name)}</strong>
-            ${isActive ? '<span class="badge ok" style="margin-left:6px;font-size:10px;">ACTIVE</span>' : ''}
-            ${isWinner ? '<span class="badge info" style="margin-left:6px;font-size:10px;">RECOMMENDED</span>' : ''}
+            ${isActive ? `<span class="badge ok" style="margin-left:6px;font-size:10px;">${currentLang === 'fa' ? 'فعال' : 'ACTIVE'}</span>` : ''}
+            ${isWinner ? `<span class="badge info" style="margin-left:6px;font-size:10px;">${currentLang === 'fa' ? 'پیشنهادی' : 'RECOMMENDED'}</span>` : ''}
           </div>
         </div>
       </td>
@@ -6208,8 +6748,8 @@ function renderBenchmark(bench, peer) {
       </td>
       <td><span class="badge ${statusClass}">${esc(m.status)}</span></td>
       <td>
-        ${isActive ? '<button class="hashem-btn hashem-btn-ghost u-btn-xs" disabled style="opacity:0.6;">Current</button>' :
-          `<button class="hashem-btn ${isWinner ? 'hashem-btn-primary' : 'hashem-btn-secondary'} u-btn-xs" onclick="applyCarrierClick('${esc(m.id)}')">Switch</button>`}
+        ${isActive ? `<button class="hashem-btn hashem-btn-ghost u-btn-xs" disabled style="opacity:0.6;">${currentLang === 'fa' ? 'فعلی' : 'Current'}</button>` :
+          `<button class="hashem-btn ${isWinner ? 'hashem-btn-primary' : 'hashem-btn-secondary'} u-btn-xs" onclick="applyCarrierClick('${esc(m.id)}')">${currentLang === 'fa' ? 'سوییچ' : 'Switch'}</button>`}
       </td>
     </tr>`;
   });

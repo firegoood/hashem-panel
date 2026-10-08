@@ -5,6 +5,7 @@ package main
 // installer (single source of truth, same as the CLI/menu path).
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -30,16 +31,51 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+func splitLogLines(text string) []string {
+	var res []string
+	for _, l := range strings.Split(strings.TrimSpace(text), "\n") {
+		trimmed := strings.TrimSpace(l)
+		if trimmed != "" {
+			res = append(res, trimmed)
+		}
+	}
+	return res
+}
+
 func handleLogs(w http.ResponseWriter, r *http.Request) {
 	svc := r.URL.Query().Get("svc")
 	n := r.URL.Query().Get("n")
 	lines := 100
-	if v, err := strconv.Atoi(n); err == nil && v >= 10 && v <= 1000 {
+	if v, err := strconv.Atoi(n); err == nil && v >= 5 && v <= 1000 {
 		lines = v
 	}
+
+	// Stream / All activity mode for right sidebar
+	if svc == "" || svc == "stream" || svc == "all" {
+		units := []string{"frps", "frpc", "gre-panel", "hashem-watchdog"}
+		var args []string
+		for _, u := range units {
+			args = append(args, "-u", u)
+		}
+		args = append(args, "-n", strconv.Itoa(lines), "--no-pager")
+		if _, err := exec.LookPath("journalctl"); err == nil {
+			out, err := exec.Command("journalctl", args...).CombinedOutput()
+			if err == nil && len(bytes.TrimSpace(out)) > 0 {
+				raw := string(out)
+				writeJSON(w, map[string]any{"logs": raw, "lines": splitLogLines(raw), "svc": "stream", "findings": summarizeLogs(raw)})
+				return
+			}
+		}
+		// Fallback to whichever default service exists
+		svc = "frps"
+		if _, err := os.Stat("/etc/frp/frpc.toml"); err == nil {
+			svc = "frpc"
+		}
+	}
+
 	// allowed units: legacy frps/frpc, per-peer frps-N, GRE units, panel itself
 	allowed := map[string]bool{"frps": true, "frpc": true, "gre-panel": true,
-		"gre-tunnel": true, "gre-tunnel.service": true,
+		"gre-tunnel": true, "gre-tunnel.service": true, "hashem-watchdog": true,
 		"backhaul": true, "backhaul-server": true, "backhaul-client": true}
 	if !allowed[svc] {
 		if strings.HasPrefix(svc, "frps-") || strings.HasPrefix(svc, "gre-t") || strings.HasPrefix(svc, "backhaul-") {
@@ -54,24 +90,24 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	unit := svc
-	if !strings.HasSuffix(unit, ".service") && unit != "gre-panel" {
-		// journalctl accepts short names for frps/frpc too, keep as-is
-	}
 	if _, err := exec.LookPath("journalctl"); err == nil {
 		out, err := exec.Command("journalctl", "-u", unit, "-n", strconv.Itoa(lines), "--no-pager").CombinedOutput()
 		if err == nil {
-			writeJSON(w, map[string]any{"logs": string(out), "svc": svc, "findings": summarizeLogs(string(out))})
+			raw := string(out)
+			writeJSON(w, map[string]any{"logs": raw, "lines": splitLogLines(raw), "svc": svc, "findings": summarizeLogs(raw)})
 			return
 		}
 	}
 	// fallback: log files
 	for _, q := range []string{"/var/log/" + svc + ".log", "/root/" + svc + ".log"} {
 		if data, err := os.ReadFile(q); err == nil {
-			writeJSON(w, map[string]any{"logs": string(data), "svc": svc, "findings": summarizeLogs(string(data))})
+			raw := string(data)
+			writeJSON(w, map[string]any{"logs": raw, "lines": splitLogLines(raw), "svc": svc, "findings": summarizeLogs(raw)})
 			return
 		}
 	}
-	writeJSON(w, map[string]any{"logs": "(no logs available — is " + svc + " installed?)", "svc": svc, "findings": []logFinding{}})
+	noLog := "(no logs available — is " + svc + " installed?)"
+	writeJSON(w, map[string]any{"logs": noLog, "lines": []string{noLog}, "svc": svc, "findings": []logFinding{}})
 }
 
 // actions: restart frps/frpc/gre, ping peer, optimize/restore network tuning, switch engine.

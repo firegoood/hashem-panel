@@ -341,10 +341,50 @@ func runHashemCarrierCmd(args ...string) ([]byte, error) {
 	return nil, fmt.Errorf("hashem script not found")
 }
 
+func updateFrpcTransport(proto string) error {
+	frpcPath := "/etc/frp/frpc.toml"
+	data, err := os.ReadFile(frpcPath)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	found := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "transport.protocol") {
+			lines[i] = fmt.Sprintf("transport.protocol = %q", proto)
+			found = true
+			break
+		}
+	}
+	if !found {
+		var newLines []string
+		inserted := false
+		for _, l := range lines {
+			if strings.HasPrefix(strings.TrimSpace(l), "[[proxies]]") && !inserted {
+				newLines = append(newLines, fmt.Sprintf("transport.protocol = %q", proto), "")
+				inserted = true
+			}
+			newLines = append(newLines, l)
+		}
+		if !inserted {
+			newLines = append(newLines, fmt.Sprintf("transport.protocol = %q", proto))
+		}
+		lines = newLines
+	}
+	if err := os.WriteFile(frpcPath, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+		return err
+	}
+	if _, err := exec.LookPath("systemctl"); err == nil {
+		_ = exec.Command("systemctl", "restart", "frpc").Run()
+	}
+	return nil
+}
+
 func applyCarrierMode(t string) (string, error) {
 	cfg := loadCarrierConfig()
 	t = strings.TrimSpace(t)
-	if t != "direct" && !strings.HasPrefix(t, "fou:") && !strings.HasPrefix(t, "wss") {
+	if t != "direct" && !strings.HasPrefix(t, "fou:") && !strings.HasPrefix(t, "wss") && !strings.HasPrefix(t, "frp:") && !strings.HasPrefix(t, "backhaul:") {
 		t = cfg.ActiveCarrier
 	}
 	cfg.ActiveCarrier = t
@@ -359,6 +399,14 @@ func applyCarrierMode(t string) (string, error) {
 		_ = stopWSSCarrier()
 	}
 	_ = saveCarrierConfig(cfg)
+	if strings.HasPrefix(t, "frp:") {
+		proto := strings.TrimPrefix(t, "frp:")
+		if proto == "ws" {
+			proto = "websocket"
+		}
+		_ = updateFrpcTransport(proto)
+		return "switched to " + t, nil
+	}
 	out, err := runHashemCarrierCmd("set", t)
 	return string(out), err
 }
