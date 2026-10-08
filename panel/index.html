@@ -20,6 +20,12 @@
     document.documentElement.dataset.t = t;
     document.addEventListener('DOMContentLoaded', function () { document.body.dataset.t = t; });
   } catch (e) { /* storage blocked: keep default dark theme */ }
+  /* Accent preset + Live Activity Stream visibility before first paint (no flash). */
+  try {
+    var a = localStorage.getItem('hashem_accent');
+    if (a && /^[a-z]+$/.test(a)) document.documentElement.dataset.acc = a;
+    document.documentElement.dataset.rs = localStorage.getItem('hashem_rs_hidden') === '1' ? '0' : '1';
+  } catch (e) { /* storage blocked: defaults */ }
   /* Language/direction before first paint (same key setLanguage() persists) so RTL never flashes LTR. */
   try {
     var l = localStorage.getItem('hashem_lang') || 'en';
@@ -1358,6 +1364,10 @@
               <input type="checkbox" id="logFollow" checked class="u-accent-ac"> Live
             </label>
           </div>
+          <div class="rs-restore" id="rsRestoreRow">
+            <div><b data-i18n="rs_header">Live Activity Stream</b><div class="qs-hint" id="rsRestoreHint" data-i18n="rs_restore_hint">Side panel with the latest events. Wide screens (1200px+) only.</div></div>
+            <button type="button" class="hashem-btn hashem-btn-secondary u-btn-xs" id="rsToggleBtn" aria-pressed="true">Hide</button>
+          </div>
           <div class="qs-seg u-flex-wrap" role="group" aria-label="Service" id="logSvcSeg" >
             <button data-log="frps" aria-pressed="true">frps</button>
             <button data-log="frpc" aria-pressed="false">frpc</button>
@@ -2128,6 +2138,16 @@
           <div id="passStrengthMeter" style="font-size:12px; margin-top:6px; margin-bottom:8px; color:var(--mu);"></div>
           <div><button class="hashem-btn hashem-btn-primary" id="savePass">Change password</button></div>
         </div>
+        <div class="tunnel-card" id="appearanceCard">
+          <div class="tc-header"><p class="tc-title" data-i18n="appear_title">Appearance</p></div>
+          <div class="qs-hint" data-i18n="appear_hint">Pick an accent colour. Every preset is contrast-checked for both dark and light themes.</div>
+          <div class="acc-grid" id="accGrid" role="radiogroup" aria-label="Accent colour" data-i18n-aria="appear_aria"></div>
+        </div>
+        <div class="tunnel-card">
+          <div class="tc-header"><p class="tc-title" data-i18n="sup_card_title">Support Hashem</p></div>
+          <div class="qs-hint" data-i18n="sup_card_hint">Hashem is free. If it helps you, you can support its development any time.</div>
+          <div class="qs-actions"><a class="hashem-btn hashem-btn-secondary" id="supSettingsLink" href="https://www.pdnczone.ir" target="_blank" rel="noopener noreferrer" data-i18n="sup_donate">Donate</a></div>
+        </div>
         <div class="tunnel-card">
           <div class="tc-header"><p class="tc-title">Interactive terminal</p><span class="status-indicator" id="termFlagDot"><span class="dot"></span><span id="termFlagTxt">—</span></span></div>
           <div class="qs-hint">Root shell in the browser over WebSocket + PTY — same login session, single shell at a time, auto-killed after 10 idle minutes (30 min cap). Enable only after testing; toggle is the rollback switch.</div>
@@ -2210,7 +2230,7 @@
     </main>
   </div>
   <aside class="right-sidebar">
-    <div class="rs-header">Live Activity Stream</div>
+    <div class="rs-header"><span class="rs-title" data-i18n="rs_header">Live Activity Stream</span><button type="button" class="rs-x" id="rsClose" aria-label="Hide live activity stream" data-i18n-aria="rs_hide_aria" title="Hide">&#215;</button></div>
     <div class="rs-content" id="rsLogs">
       <div class="ent-skel" style="height:14px"></div>
     </div>
@@ -2219,6 +2239,18 @@
 </div>
 <div id="toast" class="toast hidden"></div>
 <div id="entToasts" role="status" aria-live="polite" aria-atomic="false"></div>
+<div class="sup-card" id="supCard" role="dialog" aria-labelledby="supTitle" aria-describedby="supBody" hidden>
+  <button type="button" class="sup-x" id="supX" aria-label="Close" data-i18n-aria="aria_close">&#215;</button>
+  <div class="sup-head">
+    <span class="sup-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.7 4.8 6.3 4.8c2 0 3.4 1 4.2 2.3L12 9l1.5-1.9c.8-1.3 2.2-2.3 4.2-2.3 3.6 0 5.4 3.6 3.9 7C19.5 16.4 12 21 12 21z"/></svg></span>
+    <div class="sup-txt"><b id="supTitle" data-i18n="sup_title">Enjoying a stable tunnel?</b><p id="supBody" data-i18n="sup_body">Hashem is free and built by one developer. If it keeps your connection alive, a small donation helps keep it improving.</p></div>
+  </div>
+  <div class="sup-acts">
+    <a class="hashem-btn hashem-btn-primary" id="supGo" href="https://www.pdnczone.ir" target="_blank" rel="noopener noreferrer" data-i18n="sup_donate">Donate</a>
+    <button type="button" class="hashem-btn hashem-btn-secondary" id="supLater" data-i18n="sup_later">Maybe later</button>
+  </div>
+  <button type="button" class="sup-link" id="supSnooze" data-i18n="sup_snooze">Don't remind me for 30 days</button>
+</div>
 <div class="ent-modal-ov" id="entModal" hidden>
   <div class="ent-modal" role="dialog" aria-modal="true" aria-labelledby="entModalTitle">
     <div class="ent-modal-h"><b id="entModalTitle">Confirm</b><button class="ent-x" id="entModalX" aria-label="Close" data-i18n-aria="aria_close">×</button></div>
@@ -2868,6 +2900,23 @@ const I18N = {
     login_pass_ph: "Password",
     login_signin: "Sign in",
     rs_header: "Live Activity Stream",
+    rs_hide_aria: "Hide live activity stream",
+    rs_hidden_toast: "Live Activity Stream hidden",
+    rs_hidden_sub: "Bring it back from Logs → Live Activity Stream",
+    rs_restore_hint: "Side panel with the latest events. Wide screens (1200px+) only.",
+    rs_btn_hide: "Hide",
+    rs_btn_show: "Show",
+    sup_title: "Enjoying a stable tunnel?",
+    sup_body: "Hashem is free and built by one developer. If it keeps your connection alive, a small donation helps keep it improving.",
+    sup_donate: "Donate",
+    sup_later: "Maybe later",
+    sup_snooze: "Don't remind me for 30 days",
+    sup_card_title: "Support Hashem",
+    sup_card_hint: "Hashem is free. If it helps you, you can support its development any time.",
+    appear_title: "Appearance",
+    appear_hint: "Pick an accent colour. Every preset is contrast-checked for both dark and light themes.",
+    appear_aria: "Accent colour",
+    acc_blue: "Blue", acc_indigo: "Indigo", acc_violet: "Violet", acc_rose: "Rose", acc_emerald: "Emerald", acc_teal: "Teal", acc_orange: "Orange",
     rs_waiting: "Waiting for logs...",
     edit_tunnel_title: "Edit Tunnel",
     edit_tunnel_sub: "Modify tunnel parameters, carrier protocol, or forwarded ports. Changes apply immediately.",
@@ -3207,6 +3256,23 @@ const I18N = {
     login_pass_ph: "رمز عبور",
     login_signin: "ورود به پنل",
     rs_header: "جریان زنده وقایع و لاگ‌ها",
+    rs_hide_aria: "بستن جریان زنده وقایع",
+    rs_hidden_toast: "جریان زنده وقایع بسته شد",
+    rs_hidden_sub: "از بخش لاگ‌ها ← جریان زنده وقایع دوباره بازش کنید",
+    rs_restore_hint: "پنل کناری با آخرین رویدادها. فقط روی صفحه‌های عریض (۱۲۰۰ پیکسل به بالا).",
+    rs_btn_hide: "بستن",
+    rs_btn_show: "نمایش",
+    sup_title: "تونل‌تان پایدار است؟",
+    sup_body: "هاشم رایگان است و با دست یک توسعه‌دهنده ساخته شده. اگر اتصال شما را سرپا نگه داشته، با یک دونیت کوچک به ادامه‌ی توسعه‌اش کمک کنید.",
+    sup_donate: "دونیت",
+    sup_later: "بعداً",
+    sup_snooze: "۳۰ روز یادآوری نکن",
+    sup_card_title: "حمایت از هاشم",
+    sup_card_hint: "هاشم رایگان است. اگر برایتان مفید بوده، هر زمان می‌توانید از توسعه‌اش حمایت کنید.",
+    appear_title: "ظاهر پنل",
+    appear_hint: "رنگ اصلی را انتخاب کنید. همه‌ی رنگ‌ها برای تم تیره و روشن از نظر کنتراست بررسی شده‌اند.",
+    appear_aria: "رنگ اصلی",
+    acc_blue: "آبی", acc_indigo: "نیلی", acc_violet: "بنفش", acc_rose: "صورتی", acc_emerald: "زمردی", acc_teal: "فیروزه‌ای", acc_orange: "نارنجی",
     rs_waiting: "در انتظار دریافت لاگ‌های سیستمی...",
     edit_tunnel_title: "ویرایش مشخصات تونل",
     edit_tunnel_sub: "تغییر پارامترها، پروتکل کریر یا پورت‌های فوروارد شده. تغییرات بلافاصله اعمال می‌شوند.",
@@ -3358,10 +3424,8 @@ function applyTranslations(lang) {
       el.placeholder = dict[key];
     }
   });
-  const rsH = document.querySelector('.rs-header');
-  if (rsH && dict.rs_header) {
-    rsH.textContent = dict.rs_header;
-  }
+  if (typeof rsSync === 'function') rsSync();
+  if (typeof accRender === 'function') accRender();
   if (typeof drawerSync === 'function') drawerSync();
 }
 
@@ -3663,6 +3727,7 @@ async function refresh() {
     renderTunnel(s.local);
     renderPeers(s.peers);
     updatePeerHints(s);
+    if (typeof supObserve === 'function') supObserve(s);
     if (s.local) {
       const isForeign = /foreign/i.test(s.local.role || '') || (s.local.frp_svc === 'frpc');
       const ap = $('setupAddPeerStep');
@@ -6846,7 +6911,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 async function refreshRightSidebarLogs() {
-  if (document.hidden || window.innerWidth < 1200) return true;
+  if (document.hidden || window.innerWidth < 1200 || rsIsHidden()) return true;
   const rs = $('rsLogs');
   try {
     const s = await api('/api/logs?svc=stream&n=22');
@@ -6878,6 +6943,113 @@ async function refreshRightSidebarLogs() {
 }
 makePoller(refreshRightSidebarLogs, 3000);
 setTimeout(refreshRightSidebarLogs, 300);
+
+// ============================================================
+// Live Activity Stream: closable, restorable from Logs
+// ============================================================
+function rsIsHidden() { return document.documentElement.dataset.rs === '0'; }
+function rsSync() {
+  const hid = rsIsHidden();
+  const b = $('rsToggleBtn');
+  if (b) { b.textContent = tr(hid ? 'rs_btn_show' : 'rs_btn_hide', hid ? 'Show' : 'Hide'); b.setAttribute('aria-pressed', hid ? 'false' : 'true'); }
+}
+function rsSet(hidden, silent) {
+  document.documentElement.dataset.rs = hidden ? '0' : '1';
+  try { localStorage.setItem('hashem_rs_hidden', hidden ? '1' : '0'); } catch (e) { /* storage blocked: choice lasts this session */ }
+  rsSync();
+  if (hidden && !silent) toastOk(tr('rs_hidden_toast', 'Live Activity Stream hidden'), tr('rs_hidden_sub', 'Bring it back from Logs \u2192 Live Activity Stream'));
+  if (!hidden) refreshRightSidebarLogs();
+}
+$('rsClose').onclick = () => rsSet(true);
+$('rsToggleBtn').onclick = () => rsSet(!rsIsHidden(), true);
+rsSync();
+
+// ============================================================
+// Accent presets (contrast-checked; see enterprise.css)
+// ============================================================
+const ACCENTS = [
+  ['blue', 'hsl(217 91% 60%)'], ['indigo', 'hsl(243 75% 62%)'], ['violet', 'hsl(265 83% 60%)'], ['rose', 'hsl(341 75% 50%)'],
+  ['emerald', 'hsl(160 84% 36%)'], ['teal', 'hsl(178 80% 34%)'], ['orange', 'hsl(22 90% 46%)'],
+];
+function accCurrent() { return document.documentElement.dataset.acc || 'blue'; }
+function accSet(name) {
+  if (name === 'blue') delete document.documentElement.dataset.acc; else document.documentElement.dataset.acc = name;
+  try { if (name === 'blue') localStorage.removeItem('hashem_accent'); else localStorage.setItem('hashem_accent', name); } catch (e) { /* storage blocked: choice lasts this session */ }
+  accRender();
+  try { if (typeof refreshDash === 'function') refreshDash(); } catch (e) { /* dashboard repaints on its next poll */ }
+}
+function accRender() {
+  const g = $('accGrid'); if (!g) return;
+  const cur = accCurrent();
+  g.innerHTML = ACCENTS.map(([n, c]) => {
+    const label = tr('acc_' + n, n);
+    return '<button type="button" role="radio" class="acc-sw" data-acc="' + n + '" aria-checked="' + (n === cur) + '" aria-label="' + esc(label) + '" title="' + esc(label) + '" style="--sw:' + c + '"><span class="acc-dot"></span><span class="acc-name">' + esc(label) + '</span></button>';
+  }).join('');
+}
+$('accGrid').addEventListener('click', e => { const b = e.target.closest('.acc-sw'); if (b) accSet(b.dataset.acc); });
+$('accGrid').addEventListener('keydown', e => {
+  if (!/^Arrow(Left|Right|Up|Down)$/.test(e.key)) return;
+  const names = ACCENTS.map(a => a[0]); const rtl = document.documentElement.dir === 'rtl';
+  const fwd = (e.key === 'ArrowRight') !== rtl && e.key !== 'ArrowLeft' || e.key === 'ArrowDown';
+  const i = names.indexOf(accCurrent()); const n = (i + (fwd ? 1 : -1) + names.length) % names.length;
+  e.preventDefault(); accSet(names[n]);
+  const nb = $('accGrid').querySelector('[data-acc="' + names[n] + '"]'); if (nb) nb.focus();
+});
+accRender();
+
+// ============================================================
+// Support (donate) nudge: rare, calm, and coordinated by the server.
+// Shown only after the tunnel has been healthy for SUP_DELAY_MS while the
+// user is actively on a visible panel tab. The server's claim() hands the
+// popup to exactly one tab/device per window (7 days) so it cannot spam.
+// ============================================================
+const SUP_DELAY_MS = 30000;
+const SUP = { since: 0, shown: false, busy: false };
+function supHealthy(s) {
+  const L = (s && s.local) || {}; const g = L.gre || {};
+  const localOk = !!L.frp_up && (g.exists ? !!L.ping_ok : /foreign/i.test(L.role || ''));
+  const peerOk = ((s && s.peers) || []).some(p => p.frp_up && p.ping_ok);
+  return localOk || peerOk;
+}
+function supObserve(s) {
+  if (supHealthy(s)) { if (!SUP.since) SUP.since = Date.now(); } else SUP.since = 0;
+}
+function supBlocked() {
+  if (document.hidden || $('app').classList.contains('hidden')) return true;
+  if (document.querySelector('.ent-modal-ov:not([hidden])')) return true;
+  if ($('drawer') && $('drawer').classList.contains('open')) return true;
+  if ($('tab-terminal') && !$('tab-terminal').hidden) return true;      // never interrupt a shell
+  const a = document.activeElement;
+  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;    // never interrupt typing
+  return false;
+}
+async function supTick() {
+  if (SUP.shown || SUP.busy || !SUP.since || Date.now() - SUP.since < SUP_DELAY_MS || supBlocked()) return;
+  SUP.busy = true;
+  try {
+    const r = await api('/api/support', { action: 'claim' });
+    if (r && r.show) supShow();
+  } catch (e) { /* offline or logged out: stay quiet, retry later */ }
+  finally { SUP.busy = false; }
+}
+function supShow() {
+  const c = $('supCard'); SUP.shown = true;
+  c.hidden = false; document.body.classList.add('sup-open'); c.classList.remove('out'); void c.offsetWidth; c.classList.add('in');
+  document.body.style.setProperty('--sup-h', c.offsetHeight + 'px');
+  if (window.ResizeObserver && !c._ro) { c._ro = new ResizeObserver(() => document.body.style.setProperty('--sup-h', c.offsetHeight + 'px')); c._ro.observe(c); }
+}
+function supHide(action) {
+  const c = $('supCard'); if (c.hidden) return;
+  c.classList.remove('in'); c.classList.add('out');
+  setTimeout(() => { c.hidden = true; c.classList.remove('out'); document.body.classList.remove('sup-open'); }, 220);
+  if (action) api('/api/support', { action }).catch(e => reportErr('support', e));
+}
+$('supX').onclick = () => supHide('close');
+$('supLater').onclick = () => supHide('close');
+$('supSnooze').onclick = () => supHide('snooze');
+$('supGo').addEventListener('click', () => { supHide('donate'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('supCard').hidden && !document.querySelector('.ent-modal-ov:not([hidden])')) supHide('close'); });
+setInterval(supTick, 5000);
 
 // ============================================================
 // Edit Peer / Edit Tunnel Modal

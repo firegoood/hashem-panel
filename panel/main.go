@@ -246,6 +246,8 @@ func main() {
 	mux.HandleFunc("POST "+base+"/api/perf", requireAuth(requireCSRF(handlePerfPost)))
 	mux.HandleFunc("GET "+base+"/api/carrier", requireAuth(handleCarrierGet))
 	mux.HandleFunc("POST "+base+"/api/carrier", requireAuth(requireCSRF(handleCarrierPost)))
+	mux.HandleFunc("GET "+base+"/api/support", requireAuth(handleSupport))
+	mux.HandleFunc("POST "+base+"/api/support", requireAuth(requireCSRF(handleSupport)))
 	mux.HandleFunc("GET "+base+"/api/doctor", requireAuth(handleDoctorGet))
 	mux.HandleFunc("POST "+base+"/api/doctor", requireAuth(requireCSRF(handleDoctorPost)))
 
@@ -353,6 +355,10 @@ func serveIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := strings.ReplaceAll(string(data), "__BASE_PATH__", "/"+cfg.BasePath)
+	// Cache-bust first-party CSS per build: assets are served with a 24h cache.
+	for _, f := range []string{"tokens.css", "base.css", "enterprise.css"} {
+		page = strings.ReplaceAll(page, `href="`+f+`"`, `href="`+f+`?v=`+panelVersion+`"`)
+	}
 	body := []byte(page)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && len(body) > 1024 {

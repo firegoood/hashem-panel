@@ -92,6 +92,8 @@ var errCatalog = map[string]errInfo{
 	"E-FRP-08": {0, "connection tracking table full (packet dropped)", "Kernel nf_conntrack_max limit reached under high concurrent connections. Run Optimize in Tunnel tab."},
 	"E-FRP-09": {0, "yamux stream capacity / buffer overflow", "High stream contention on single TCP mux. Increase poolCount in frpc."},
 	"E-SYS-01": {0, "host tool unavailable", "journalctl/systemctl/ip missing on this host."},
+	"E-SUPPORT-01": {400, "bad support request (invalid JSON)", "Reload the page and try again."},
+	"E-SUPPORT-02": {400, "unknown support action", "Use claim, close, snooze or donate."},
 	// terminal (Phase 3)
 	"E-TERM-00": {0, "terminal command audit", "Informational: redacted command line from the terminal session."},
 	"E-TERM-01": {500, "cannot start shell", "bash/sh missing or PTY unavailable on this host."},
