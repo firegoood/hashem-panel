@@ -2772,7 +2772,8 @@ EOF
         dpi_shield_on >/dev/null 2>&1 || true
     fi
     tune_apply >/dev/null 2>&1 || true
-    watchdog_on >/dev/null 2>&1 || true
+    install_watchdog_units >/dev/null 2>&1 || true
+    init_watchdog_json >/dev/null 2>&1 || true
 
     # 3. Web Panel
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
@@ -2996,7 +2997,8 @@ EOF
         dpi_shield_on >/dev/null 2>&1 || true
     fi
     tune_apply >/dev/null 2>&1 || true
-    watchdog_on >/dev/null 2>&1 || true
+    install_watchdog_units >/dev/null 2>&1 || true
+    init_watchdog_json >/dev/null 2>&1 || true
 
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
         echo -e "${CYAN}[*] Skipping panel install (called from panel or flag).${NC}"
@@ -3103,7 +3105,8 @@ setup_backhaul_iran_server_noninteractive() {
     fi
 
     tune_apply >/dev/null 2>&1 || true
-    watchdog_on >/dev/null 2>&1 || true
+    install_watchdog_units >/dev/null 2>&1 || true
+    init_watchdog_json >/dev/null 2>&1 || true
 
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
         echo -e "${CYAN}[*] Skipping panel install (called from panel or flag).${NC}"
@@ -3187,7 +3190,8 @@ setup_backhaul_foreign_server_noninteractive() {
     fi
 
     tune_apply >/dev/null 2>&1 || true
-    watchdog_on >/dev/null 2>&1 || true
+    install_watchdog_units >/dev/null 2>&1 || true
+    init_watchdog_json >/dev/null 2>&1 || true
 
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
         echo -e "${CYAN}[*] Skipping panel install (called from panel or flag).${NC}"
@@ -3285,7 +3289,8 @@ setup_gre_backhaul_iran_server_noninteractive() {
         dpi_shield_on >/dev/null 2>&1 || true
     fi
     tune_apply >/dev/null 2>&1 || true
-    watchdog_on >/dev/null 2>&1 || true
+    install_watchdog_units >/dev/null 2>&1 || true
+    init_watchdog_json >/dev/null 2>&1 || true
 
     # 3. Web Panel
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
@@ -3407,7 +3412,8 @@ setup_gre_backhaul_foreign_server_noninteractive() {
         dpi_shield_on >/dev/null 2>&1 || true
     fi
     tune_apply >/dev/null 2>&1 || true
-    watchdog_on >/dev/null 2>&1 || true
+    install_watchdog_units >/dev/null 2>&1 || true
+    init_watchdog_json >/dev/null 2>&1 || true
 
     if [[ "${GRE_SKIP_PANEL:-0}" == "1" ]]; then
         echo -e "${CYAN}[*] Skipping panel install (called from panel or flag).${NC}"
@@ -5627,7 +5633,7 @@ init_watchdog_json() {
     if [[ ! -f "$WATCHDOG_FILE" ]]; then
         cat << 'EOF' > "$WATCHDOG_FILE"
 {
-  "enabled": true,
+  "enabled": false,
   "interval_sec": 60,
   "fail_threshold": 2,
   "auto_restart": false,

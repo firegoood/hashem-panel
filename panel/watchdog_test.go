@@ -171,3 +171,20 @@ func TestWatchdogAPIEndpoints(t *testing.T) {
 		t.Fatalf("unexpected downloaded content: %s", rr.Body.String())
 	}
 }
+
+func TestWatchdogDefaultDisabled(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "wd-default-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldConfigDir := configDir
+	configDir = tmpDir
+	defer func() { configDir = oldConfigDir }()
+
+	def := loadWatchdogConfig()
+	if def.Enabled {
+		t.Fatalf("expected watchdog to be disabled by default, got enabled=true")
+	}
+}

@@ -592,15 +592,32 @@ func applyDoctorFixes() map[string]any {
 		if err := addCmd.Run(); err == nil {
 			fixes = append(fixes, "Inserted TCPMSS clamp-to-pmtu rule into iptables")
 		}
+	} else {
+		fixes = append(fixes, "TCPMSS clamp-to-pmtu rule verified active")
 	}
 
-	// 3. Ensure IP Forwarding
+	// 3. Ensure IP Forwarding & socket sysctls
 	_ = exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
+	_ = exec.Command("sysctl", "-w", "net.core.somaxconn=65535").Run()
+	_ = exec.Command("sysctl", "-w", "net.ipv4.tcp_tw_reuse=1").Run()
+	fixes = append(fixes, "Enabled IPv4 packet forwarding & tuned socket limits (somaxconn=65535, tw_reuse=1)")
 
 	// 4. Ensure FRP services have high-concurrency limits (LimitNOFILE 1M)
 	ensureFRPServiceUnits("frps")
 	ensureFRPServiceUnits("frpc")
-	fixes = append(fixes, "Verified FRP systemd services have LimitNOFILE=1048576 & Restart=always")
+	fixes = append(fixes, "Configured FRP systemd service limits (LimitNOFILE=1048576, LimitNPROC=512000, Restart=always)")
+
+	// 5. Interface & routing health check
+	st := localStatus()
+	if !st.Gre.Exists {
+		if err := exec.Command("systemctl", "restart", "gre-tunnel").Run(); err == nil {
+			fixes = append(fixes, "Restarted gre-tunnel service to bring interface UP")
+		}
+	} else if !st.PingOK && st.Gre.PeerIP != "" {
+		if err := exec.Command("systemctl", "restart", "gre-tunnel").Run(); err == nil {
+			fixes = append(fixes, "Refreshed gre-tunnel routing and interface link")
+		}
+	}
 
 	return map[string]any{
 		"applied": fixes,

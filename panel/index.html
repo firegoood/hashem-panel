@@ -521,6 +521,9 @@
   .doc-score-total { font-size:11px; color:var(--mu); font-weight:600; margin-top:2px; }
   .doc-hero-meta { display:flex; flex-direction:column; gap:6px; min-width:0; }
   .doc-hero-acts { display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+  .doc-hero-acts .hashem-btn { display:inline-flex !important; align-items:center !important; justify-content:center !important; gap:8px !important; white-space:nowrap; padding:8px 16px !important; }
+  html[dir="rtl"] .doc-hero-acts { align-items:flex-start; }
+  html[dir="rtl"] .doc-hero-acts .hashem-btn { flex-direction:row-reverse; }
   .doc-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px; margin-top:14px; }
   .doc-card { background:var(--s2); border:1px solid var(--ln); border-radius:var(--r-md); padding:16px; display:flex; flex-direction:column; gap:12px; }
   .doc-card-head { display:flex; justify-content:space-between; align-items:center; }
@@ -1786,17 +1789,31 @@
             <div class="doc-hero-acts">
               <button class="hashem-btn hashem-btn-primary" id="docRunBtn">
                 <svg viewBox="0 0 24 24" width="16" height="16"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-                <span>Run Diagnostics</span>
+                <span data-i18n="doc_run_btn">Run Diagnostics</span>
               </button>
-              <button class="hashem-btn hashem-btn-secondary hidden" id="docFixBtn">
-                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                <span>Fix All Issues</span>
+              <button class="hashem-btn hashem-btn-secondary" id="docFixBtn" style="border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.1);color:#34d399;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                <span data-i18n="doc_fix_btn">Quick Repair &amp; Optimize</span>
               </button>
               <button class="hashem-btn hashem-btn-ghost u-btn-xs" id="docIperfBtn">
                 <svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
                 <span id="docIperfTxt">Start iPerf3 Server</span>
               </button>
             </div>
+          </div>
+        </div>
+
+        <!-- Issues and Recommendations Card (Prominent & immediately actionable) -->
+        <div class="tunnel-card u-mt-14" id="docIssuesCard">
+          <div class="tc-header">
+            <p class="tc-title" style="display:flex;align-items:center;gap:8px;">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span data-i18n="doc_issues_title">Issues &amp; Recommendations</span>
+            </p>
+            <span class="qs-hint" id="docIssuesCount">0 issues detected</span>
+          </div>
+          <div class="doc-issues-box" id="docIssuesBox">
+            <div class="qs-hint">No diagnostic report loaded. Click &quot;Run Diagnostics&quot; to inspect the connection.</div>
           </div>
         </div>
 
@@ -1892,17 +1909,6 @@
               <span class="k">IPv4 Forwarding</span>
               <span class="v" id="docIpFwdVal">—</span>
             </div>
-          </div>
-        </div>
-
-        <!-- Issues and Recommendations Card -->
-        <div class="tunnel-card u-mt-14">
-          <div class="tc-header">
-            <p class="tc-title">Issues &amp; Recommendations</p>
-            <span class="qs-hint" id="docIssuesCount">0 issues detected</span>
-          </div>
-          <div class="doc-issues-box" id="docIssuesBox">
-            <div class="qs-hint">No diagnostic report loaded. Click &quot;Run Diagnostics&quot; to inspect the connection.</div>
           </div>
         </div>
       </section>
@@ -2695,6 +2701,9 @@ const I18N = {
     doc_title: "Network Doctor & Diagnostic Suite",
     doc_sub: "Automated end-to-end path tests, MTU probe, socket exhaustion check, and routing health",
     doc_run_btn: "Run Full Diagnostics",
+    doc_fix_btn: "Quick Repair & Optimize",
+    doc_fix_box_btn: "Auto-Fix Detected Issues",
+    doc_issues_title: "Issues & Recommendations",
 
     // Logs Tab
     logs_title: "System & Tunnel Service Logs",
@@ -2939,6 +2948,9 @@ const I18N = {
     doc_title: "پزشک شبکه و عیب‌یابی جامع تونل",
     doc_sub: "تست‌های خودکار پکت‌های MTU، بررسی جدول روتینگ، ماژول‌های کرنل و باز بودن پورت‌ها",
     doc_run_btn: "اجرای عیب‌یابی کامل",
+    doc_fix_btn: "تعمیر و بهینه‌سازی خودکار",
+    doc_fix_box_btn: "رفع خودکار مشکلات شناسایی‌شده",
+    doc_issues_title: "مشکلات و راهکارهای پیشنهادی",
 
     // Logs Tab
     logs_title: "لاگ‌ها و گزارش‌های سیستمی",
@@ -6281,10 +6293,17 @@ function renderDoctor(rep) {
     metaSub.textContent = `Peer GRE: ${rep.peer_gre_ip || 'None'} · Role: ${roleTxt} · Checked: ${rep.timestamp || 'Never'}`;
   }
 
-  // Fix button visibility
+  // Fix button visibility: always keep visible in hero actions
   const fixBtn = $('docFixBtn');
   if (fixBtn) {
-    fixBtn.classList.toggle('hidden', !rep.fix_available);
+    fixBtn.classList.remove('hidden');
+    if (rep.issues && rep.issues.length > 0) {
+      fixBtn.style.boxShadow = '0 0 12px rgba(16,185,129,0.3)';
+      fixBtn.style.borderColor = 'rgba(52,211,153,0.6)';
+    } else {
+      fixBtn.style.boxShadow = 'none';
+      fixBtn.style.borderColor = 'rgba(16,185,129,0.35)';
+    }
   }
 
   // Ping Card
@@ -6350,7 +6369,7 @@ function renderDoctor(rep) {
   if (issuesCount) issuesCount.textContent = `${issues.length} issue${issues.length === 1 ? '' : 's'} detected`;
   if (issuesBox) {
     if (issues.length === 0) {
-      issuesBox.innerHTML = '<div class="qs-hint u-color-ok">✓ All diagnostic tests passed with zero bottlenecks. Connection is operating at peak performance.</div>';
+      issuesBox.innerHTML = '<div class="qs-hint u-color-ok">✓ ' + (currentLang === 'fa' ? 'تمام آزمون‌های سلامت شبکه بدون گلوگاه پاس شدند. ارتباط در بالاترین سطح کارایی قرار دارد.' : 'All diagnostic tests passed with zero bottlenecks. Connection is operating at peak performance.') + '</div>';
     } else {
       let html = '';
       for (let i = 0; i < issues.length; i++) {
@@ -6364,6 +6383,13 @@ function renderDoctor(rep) {
           </div>
         </div>`;
       }
+      html += `<div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <span class="qs-hint" style="color:var(--mu);">${currentLang === 'fa' ? 'پیشنهاد: برای رفع خودکار گلوگاه‌ها و بهینه‌سازی دکمه مقابل را بزنید.' : 'Recommendation: Run automated repair to resolve bottlenecks and optimize parameters.'}</span>
+        <button class="hashem-btn hashem-btn-primary u-btn-sm" id="docBoxFixBtn" onclick="fixDoctor()" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          <span data-i18n="doc_fix_box_btn">${currentLang === 'fa' ? 'رفع خودکار مشکلات شناسایی‌شده' : 'Auto-Fix Detected Issues'}</span>
+        </button>
+      </div>`;
       issuesBox.innerHTML = html;
     }
   }
@@ -6376,41 +6402,56 @@ async function runDoctor() {
   if (btn) {
     btn.disabled = true;
     btn.classList.add('doc-pulse');
-    btn.querySelector('span').textContent = 'Diagnosing… (sweep MTU & ping)';
+    btn.querySelector('span').textContent = currentLang === 'fa' ? 'در حال ارزیابی… (MTU و پینگ)' : 'Diagnosing… (sweep MTU & ping)';
   }
   try {
     await loadDoctor(true);
-    toastOk('Diagnostics complete', `Health score: ${doctorData ? doctorData.score : '—'}/100`);
+    toastOk(currentLang === 'fa' ? 'عیب‌یابی تکمیل شد' : 'Diagnostics complete', `${currentLang === 'fa' ? 'امتیاز سلامت' : 'Health score'}: ${doctorData ? doctorData.score : '—'}/100`);
   } catch(e) {
-    toastErr('Diagnostics failed', e.message);
+    toastErr(currentLang === 'fa' ? 'خطا در عیب‌یابی' : 'Diagnostics failed', e.message);
   } finally {
     doctorRunning = false;
     if (btn) {
       btn.disabled = false;
       btn.classList.remove('doc-pulse');
-      btn.querySelector('span').textContent = 'Run Diagnostics';
+      btn.querySelector('span').textContent = currentLang === 'fa' ? 'اجرای عیب‌یابی کامل' : 'Run Diagnostics';
     }
   }
 }
 
 async function fixDoctor() {
-  if (!await entConfirm('Apply Automated Optimizations?', 'This will enable TCP BBR, configure MSS clamping on the tunnel interface, ensure IPv4 forwarding, and restart the tunnel to apply optimal MTU settings.', 'Fix Everything')) return;
+  const confirmTitle = currentLang === 'fa' ? 'اعمال بهینه‌سازی و تعمیر خودکار؟' : 'Apply Automated Optimizations?';
+  const confirmDesc = currentLang === 'fa'
+    ? 'این عملیات الگوریتم TCP BBR را فعال کرده، MSS Clamping را در کرنل اعمال می‌کند، فورواردینگ IP را فعال، لیمیت سرویس‌های FRP را ارتقا داده و در صورت لزوم لینک تونل را بازیابی می‌کند.'
+    : 'This will enable TCP BBR, configure MSS clamping, ensure IPv4 forwarding, tune FRP concurrency limits, and restore tunnel interface connectivity.';
+  const confirmBtn = currentLang === 'fa' ? 'شروع تعمیر و بهینه‌سازی' : 'Repair & Optimize';
+
+  if (!await entConfirm(confirmTitle, confirmDesc, confirmBtn)) return;
   const btn = $('docFixBtn');
+  const boxBtn = $('docBoxFixBtn');
   if (btn) {
     btn.disabled = true;
-    btn.textContent = 'Applying fixes…';
+    const sp = btn.querySelector('span');
+    if (sp) sp.textContent = currentLang === 'fa' ? 'در حال اعمال تعمیر…' : 'Applying fixes…';
+  }
+  if (boxBtn) {
+    boxBtn.disabled = true;
+    const sp = boxBtn.querySelector('span');
+    if (sp) sp.textContent = currentLang === 'fa' ? 'در حال اعمال…' : 'Applying…';
   }
   try {
     const res = await api('/api/doctor', { action: 'fix' });
-    toastOk('Optimizations applied', (res.applied || []).join(', ') || 'System stack optimized');
-    if (res.report) renderDoctor(res.report);
+    const appliedList = (res && res.fix && res.fix.applied) || (res && res.applied) || [];
+    toastOk(currentLang === 'fa' ? 'تعمیر و بهینه‌سازی انجام شد' : 'Optimizations applied',
+      appliedList.length > 0 ? appliedList.join(' · ') : (currentLang === 'fa' ? 'تنظیمات شبکه و هسته سیستم بهینه‌سازی شد' : 'System stack optimized'));
+    if (res && res.report) renderDoctor(res.report);
     else await loadDoctor(true);
   } catch(e) {
-    toastErr('Fix failed', e.message);
+    toastErr(currentLang === 'fa' ? 'خطا در تعمیر' : 'Fix failed', e.message);
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><span>Fix All Issues</span>';
+      btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><span data-i18n="doc_fix_btn">${currentLang === 'fa' ? 'تعمیر و بهینه‌سازی خودکار' : 'Quick Repair & Optimize'}</span>`;
     }
   }
 }
