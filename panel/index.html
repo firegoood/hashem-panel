@@ -823,6 +823,106 @@
   html[dir="rtl"] .badge {
     direction: ltr;
   }
+
+  /* Benchmark Tab & Table Spacing Enhancements */
+  .bench-hero-card {
+    padding: 24px !important;
+    border-radius: 16px !important;
+  }
+  .bench-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  .bench-stat-card {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 12px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  }
+  .bench-stat-card:hover {
+    border-color: rgba(56, 189, 248, 0.3);
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .bench-table-wrap {
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(10, 15, 26, 0.6);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #benchTable {
+    width: 100%;
+    min-width: 860px;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 0;
+  }
+  #benchTable th {
+    padding: 14px 18px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--mu);
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    white-space: nowrap;
+    text-align: left;
+  }
+  html[dir="rtl"] #benchTable th {
+    text-align: right;
+  }
+  #benchTable td {
+    padding: 16px 18px;
+    vertical-align: middle;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    white-space: nowrap;
+    font-size: 13px;
+  }
+  #benchTable tr:last-child td {
+    border-bottom: none;
+  }
+  #benchTable tbody tr {
+    transition: background 0.15s ease;
+  }
+  #benchTable tbody tr:hover {
+    background: rgba(255, 255, 255, 0.035) !important;
+  }
+  .bench-rank-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--mu);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .bench-rank-1 {
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.35);
+  }
+  .bench-proto-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    font-family: var(--font-mono);
+  }
 </style>
 
 </head>
@@ -1830,43 +1930,44 @@
           </div>
 
           <!-- Quick Telemetry Stats Grid -->
-          <div class="wd-hero-grid u-mb-16" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
-            <div class="wd-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 12px 14px;">
-              <span class="wd-stat-label" style="font-size: 11px; text-transform: uppercase; color: var(--mu); display: flex; align-items: center; gap: 6px;">
-                🏆 Best Recommended
+          <div class="bench-stats-grid">
+            <div class="bench-stat-card">
+              <span class="wd-stat-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--mu); letter-spacing: 0.05em;">
+                Recommended Carrier
               </span>
-              <div class="wd-stat-val" id="benchStatWinner" style="font-size: 16px; font-weight: 700; color: #10b981; margin: 4px 0;">—</div>
-              <span class="wd-stat-sub" id="benchStatWinnerSub" style="font-size: 11px; color: var(--mu);">Top quality candidate</span>
+              <div class="wd-stat-val" id="benchStatWinner" style="font-size: 17px; font-weight: 700; color: #10b981; margin: 8px 0 4px 0;">—</div>
+              <span class="wd-stat-sub" id="benchStatWinnerSub" style="font-size: 11.5px; color: var(--mu);">Top candidate</span>
             </div>
-            <div class="wd-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 12px 14px;">
-              <span class="wd-stat-label" style="font-size: 11px; text-transform: uppercase; color: var(--mu); display: flex; align-items: center; gap: 6px;">
-                ⚡ Active Carrier
+            <div class="bench-stat-card">
+              <span class="wd-stat-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--mu); letter-spacing: 0.05em;">
+                Active Route
               </span>
-              <div class="wd-stat-val" id="benchStatActive" style="font-size: 16px; font-weight: 700; color: #38bdf8; margin: 4px 0;">—</div>
-              <span class="wd-stat-sub" id="benchStatActiveSub" style="font-size: 11px; color: var(--mu);">Active route traffic</span>
+              <div class="wd-stat-val" id="benchStatActive" style="font-size: 17px; font-weight: 700; color: #38bdf8; margin: 8px 0 4px 0;">—</div>
+              <span class="wd-stat-sub" id="benchStatActiveSub" style="font-size: 11.5px; color: var(--mu);">Active route traffic</span>
             </div>
-            <div class="wd-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 12px 14px;">
-              <span class="wd-stat-label" style="font-size: 11px; text-transform: uppercase; color: var(--mu); display: flex; align-items: center; gap: 6px;">
-                ⏱️ Lowest Latency (RTT)
+            <div class="bench-stat-card">
+              <span class="wd-stat-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--mu); letter-spacing: 0.05em;">
+                Lowest Latency (RTT)
               </span>
-              <div class="wd-stat-val" id="benchStatMinRtt" style="font-size: 16px; font-weight: 700; color: var(--tx); margin: 4px 0;">—</div>
-              <span class="wd-stat-sub" id="benchStatMinRttSub" style="font-size: 11px; color: var(--mu);">Best round-trip time</span>
+              <div class="wd-stat-val" id="benchStatMinRtt" style="font-size: 17px; font-weight: 700; color: var(--tx); margin: 8px 0 4px 0;">—</div>
+              <span class="wd-stat-sub" id="benchStatMinRttSub" style="font-size: 11.5px; color: var(--mu);">Best round-trip time</span>
             </div>
-            <div class="wd-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 12px 14px;">
-              <span class="wd-stat-label" style="font-size: 11px; text-transform: uppercase; color: var(--mu); display: flex; align-items: center; gap: 6px;">
-                🛡️ Drop Rate
+            <div class="bench-stat-card">
+              <span class="wd-stat-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--mu); letter-spacing: 0.05em;">
+                Packet Drop Rate
               </span>
-              <div class="wd-stat-val" id="benchStatLoss" style="font-size: 16px; font-weight: 700; color: #10b981; margin: 4px 0;">0%</div>
-              <span class="wd-stat-sub" id="benchStatLossSub" style="font-size: 11px; color: var(--mu);">Packet loss on winner</span>
+              <div class="wd-stat-val" id="benchStatLoss" style="font-size: 17px; font-weight: 700; color: #10b981; margin: 8px 0 4px 0;">0%</div>
+              <span class="wd-stat-sub" id="benchStatLossSub" style="font-size: 11.5px; color: var(--mu);">Zero loss link</span>
             </div>
           </div>
 
-          <!-- Leaderboard Table -->
-          <div class="t-scroll" style="border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.06); overflow: hidden;">
-            <table class="hashem-table" id="benchTable" style="margin: 0;">
+          <!-- Leaderboard Table Wrap -->
+          <div class="bench-table-wrap">
+            <table class="hashem-table" id="benchTable">
               <thead>
-                <tr style="background: rgba(255, 255, 255, 0.03);">
-                  <th data-i18n="bench_tbl_rank" style="padding: 12px 14px;">Rank &amp; Carrier</th>
+                <tr>
+                  <th style="width: 44px; text-align: center;">#</th>
+                  <th data-i18n="bench_tbl_rank">Carrier &amp; Route</th>
                   <th data-i18n="bench_tbl_trans">Transport</th>
                   <th data-i18n="bench_tbl_port">Port</th>
                   <th data-i18n="bench_tbl_rtt">Latency (RTT)</th>
@@ -1878,7 +1979,7 @@
                 </tr>
               </thead>
               <tbody id="benchTableBody">
-                <tr><td colspan="9" class="u-text-center" style="padding:28px;color:var(--mu);">Click &quot;Run Carrier Benchmark&quot; to probe carrier models.</td></tr>
+                <tr><td colspan="10" class="u-text-center" style="padding:36px;color:var(--mu);">Click &quot;Run Carrier Benchmark&quot; to probe carrier models.</td></tr>
               </tbody>
             </table>
           </div>
@@ -2580,7 +2681,7 @@ const I18N = {
     bench_failover_save: "Save Failover Policy",
     bench_leaderboard_title: "Carrier Performance Leaderboard",
     bench_run_btn: "Run Carrier Benchmark",
-    bench_tbl_rank: "Rank & Carrier",
+    bench_tbl_rank: "Carrier & Route",
     bench_tbl_trans: "Transport",
     bench_tbl_port: "Port",
     bench_tbl_rtt: "Latency (RTT)",
@@ -2824,7 +2925,7 @@ const I18N = {
     bench_failover_save: "ذخیره سیاست فیل‌اور",
     bench_leaderboard_title: "جدول لیدربورد و کیفیت پروتکل‌ها",
     bench_run_btn: "اجرای بنچمارک پروتکل‌ها",
-    bench_tbl_rank: "رتبه و پروتکل",
+    bench_tbl_rank: "مسیر و پروتکل",
     bench_tbl_trans: "ترنسپورت",
     bench_tbl_port: "پورت",
     bench_tbl_rtt: "تاخیر رفت‌وبرگشت (RTT)",
@@ -6795,71 +6896,63 @@ function renderBenchmark(bench, peer) {
     else if (m.packet_loss > 15) lossClass = 'err';
 
     const rank = idx + 1;
-    let rankBadge = `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;border-radius:6px;background:rgba(255,255,255,0.04);color:var(--mu);font-weight:600;font-size:11px">#${rank}</span>`;
-    if (rank === 1) {
-      rankBadge = `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;padding:0 6px;border-radius:6px;background:rgba(234,179,8,0.18);color:#facc15;font-weight:800;font-size:11px;border:1px solid rgba(234,179,8,0.35);box-shadow:0 0 12px rgba(250,204,21,0.25)">🥇 #1</span>`;
-    } else if (rank === 2) {
-      rankBadge = `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;padding:0 6px;border-radius:6px;background:rgba(226,232,240,0.14);color:#e2e8f0;font-weight:700;font-size:11px;border:1px solid rgba(226,232,240,0.25)">🥈 #2</span>`;
-    } else if (rank === 3) {
-      rankBadge = `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;padding:0 6px;border-radius:6px;background:rgba(217,119,6,0.16);color:#f59e0b;font-weight:700;font-size:11px;border:1px solid rgba(217,119,6,0.3)">🥉 #3</span>`;
-    }
+    const rankBadge = `<span class="bench-rank-num ${rank === 1 ? 'bench-rank-1' : ''}">${rank}</span>`;
+
+    const cleanName = (m.name || m.id).replace(/\s*\(.*?\)/, '');
+    const cleanSub = m.name && m.name.includes('(') ? m.name.match(/\((.*?)\)/)[1] : '';
 
     const portStr = m.port > 0 ? m.port : (currentLang === 'fa' ? 'کرنل ۴۷' : 'Raw 47');
 
     // Protocol badge styling
-    let protoPill = `<span class="badge dim">${esc(m.type.toUpperCase())}</span>`;
+    let protoPill = `<span class="bench-proto-pill dim">${esc(m.type.toUpperCase())}</span>`;
     const tLower = (m.type || '').toLowerCase();
     if (tLower === 'gre') {
-      protoPill = `<span class="badge" style="background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);font-size:10px;font-weight:700">GRE KERNEL</span>`;
+      protoPill = `<span class="bench-proto-pill" style="background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3)">GRE KERNEL</span>`;
     } else if (tLower === 'frp_tcp') {
-      protoPill = `<span class="badge" style="background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3);font-size:10px;font-weight:700">TCP MULTIPLEX</span>`;
+      protoPill = `<span class="bench-proto-pill" style="background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3)">TCP MUX</span>`;
     } else if (tLower === 'frp_kcp') {
-      protoPill = `<span class="badge" style="background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid rgba(245,158,11,0.3);font-size:10px;font-weight:700">KCP ARQ UDP</span>`;
+      protoPill = `<span class="bench-proto-pill" style="background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid rgba(245,158,11,0.3)">KCP ARQ</span>`;
     } else if (tLower === 'frp_quic') {
-      protoPill = `<span class="badge" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);font-size:10px;font-weight:700">QUIC STREAM</span>`;
+      protoPill = `<span class="bench-proto-pill" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3)">QUIC UDP</span>`;
     } else if (tLower === 'frp_ws') {
-      protoPill = `<span class="badge" style="background:rgba(20,184,166,0.15);color:#2dd4bf;border:1px solid rgba(20,184,166,0.3);font-size:10px;font-weight:700">WEBSOCKET</span>`;
+      protoPill = `<span class="bench-proto-pill" style="background:rgba(20,184,166,0.15);color:#2dd4bf;border:1px solid rgba(20,184,166,0.3)">WEBSOCKET</span>`;
     } else if (tLower === 'wss') {
-      protoPill = `<span class="badge" style="background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);font-size:10px;font-weight:700">TLS WSS</span>`;
+      protoPill = `<span class="bench-proto-pill" style="background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)">WSS TLS</span>`;
     } else if (tLower.includes('backhaul')) {
-      protoPill = `<span class="badge info" style="font-size:10px;font-weight:700">BACKHAUL</span>`;
+      protoPill = `<span class="bench-proto-pill info">BACKHAUL</span>`;
     }
 
     const rowBg = isActive
-      ? 'background:rgba(56,189,248,0.06);border-left:3px solid #38bdf8;'
-      : (isWinner ? 'background:rgba(16,185,129,0.04);' : '');
+      ? 'background:rgba(56,189,248,0.06);'
+      : (isWinner ? 'background:rgba(16,185,129,0.03);' : '');
 
     html += `<tr class="${isActive ? 'row-active' : ''}" style="${rowBg}">
+      <td style="text-align:center;width:44px;">${rankBadge}</td>
       <td>
-        <div style="display:flex;align-items:center;gap:10px;">
-          ${rankBadge}
-          <div>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <strong style="color:var(--tx);font-size:13px;">${esc(m.name)}</strong>
-              ${isActive ? `<span class="badge ok" style="font-size:9.5px;padding:2px 6px;">${currentLang === 'fa' ? '● فعال' : '● ACTIVE'}</span>` : ''}
-              ${isWinner ? `<span class="badge info" style="font-size:9.5px;padding:2px 6px;">${currentLang === 'fa' ? '★ برتر' : '★ BEST'}</span>` : ''}
-            </div>
-            ${m.error_detail ? `<span style="font-size:11px;color:var(--err);display:block;margin-top:2px;">${esc(m.error_detail)}</span>` : ''}
-          </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <strong style="color:var(--tx);font-size:13.5px;">${esc(cleanName)}</strong>
+          ${isActive ? `<span class="badge ok" style="font-size:9.5px;padding:2px 6px;">${currentLang === 'fa' ? 'فعال' : 'ACTIVE'}</span>` : ''}
+          ${isWinner ? `<span class="badge info" style="font-size:9.5px;padding:2px 6px;">${currentLang === 'fa' ? 'پیشنهادی' : 'BEST'}</span>` : ''}
         </div>
+        ${cleanSub ? `<div style="font-size:11px;color:var(--mu);margin-top:2px;">${esc(cleanSub)}</div>` : ''}
       </td>
       <td>${protoPill}</td>
-      <td><code class="mono" style="font-size:12px;background:rgba(255,255,255,0.04);padding:2px 6px;border-radius:4px;">${portStr}</code></td>
-      <td><span style="font-weight:600;font-family:var(--font-mono);font-size:13px;">${m.avg_rtt_ms > 0 ? m.avg_rtt_ms + ' ms' : '—'}</span></td>
+      <td><code class="mono" style="font-size:12px;background:rgba(255,255,255,0.04);padding:3px 7px;border-radius:4px;border:1px solid rgba(255,255,255,0.05);">${portStr}</code></td>
+      <td><span style="font-weight:700;font-family:var(--font-mono);font-size:13px;color:var(--tx);">${m.avg_rtt_ms > 0 ? m.avg_rtt_ms + ' ms' : '—'}</span></td>
       <td><span class="badge ${lossClass}" style="font-size:11px;font-weight:700;">${m.packet_loss}%</span></td>
       <td><span style="color:var(--mu);font-size:12px;font-family:var(--font-mono);">${m.jitter_ms > 0 ? m.jitter_ms + ' ms' : '—'}</span></td>
       <td>
-        <div style="display:flex;align-items:center;gap:8px;min-width:90px;">
-          <div style="flex:1;background:rgba(255,255,255,0.08);height:7px;border-radius:4px;overflow:hidden;">
-            <div style="width:${Math.max(4, m.score)}%;height:100%;border-radius:4px;background:${m.score >= 70 ? 'linear-gradient(90deg, #10b981, #34d399)' : (m.score >= 40 ? 'linear-gradient(90deg, #f59e0b, #fbbf24)' : 'linear-gradient(90deg, #ef4444, #f87171)')};box-shadow:0 0 8px ${m.score >= 70 ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)'};"></div>
+        <div class="bench-score-bar-wrap">
+          <div class="bench-score-track">
+            <div class="bench-score-fill" style="width:${Math.max(4, m.score)}%;background:${m.score >= 70 ? 'linear-gradient(90deg, #10b981, #34d399)' : (m.score >= 40 ? 'linear-gradient(90deg, #f59e0b, #fbbf24)' : 'linear-gradient(90deg, #ef4444, #f87171)')};box-shadow:0 0 8px ${m.score >= 70 ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'};"></div>
           </div>
-          <strong style="font-size:12px;font-family:var(--font-mono);min-width:24px;">${m.score}</strong>
+          <strong style="font-size:12px;font-family:var(--font-mono);min-width:26px;color:var(--tx);">${m.score}</strong>
         </div>
       </td>
       <td><span class="badge ${statusClass}" style="font-size:10.5px;">${esc(statusLabel)}</span></td>
       <td>
-        ${isActive ? `<button class="hashem-btn hashem-btn-ghost u-btn-xs" disabled style="opacity:0.65;font-weight:600;">${currentLang === 'fa' ? 'فعلی' : 'Current'}</button>` :
-          `<button class="hashem-btn ${isWinner ? 'hashem-btn-primary' : 'hashem-btn-secondary'} u-btn-xs" style="font-weight:600;padding:4px 10px;" onclick="applyCarrierClick('${esc(m.id)}')">${currentLang === 'fa' ? 'سوییچ' : 'Switch'}</button>`}
+        ${isActive ? `<button class="hashem-btn hashem-btn-ghost u-btn-xs" disabled style="opacity:0.65;font-weight:600;padding:5px 12px;">${currentLang === 'fa' ? 'فعلی' : 'Current'}</button>` :
+          `<button class="hashem-btn ${isWinner ? 'hashem-btn-primary' : 'hashem-btn-secondary'} u-btn-xs" style="font-weight:600;padding:5px 12px;" onclick="applyCarrierClick('${esc(m.id)}')">${currentLang === 'fa' ? 'سوییچ' : 'Switch'}</button>`}
       </td>
     </tr>`;
   });
