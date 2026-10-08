@@ -25,6 +25,8 @@
     var a = localStorage.getItem('hashem_accent');
     if (a && /^[a-z]+$/.test(a)) document.documentElement.dataset.acc = a;
     document.documentElement.dataset.rs = localStorage.getItem('hashem_rs_hidden') === '1' ? '0' : '1';
+    if (localStorage.getItem('hashem_sb') === '1') document.documentElement.dataset.sb = '1';
+    if (localStorage.getItem('hashem_dens') === 'compact') document.documentElement.dataset.dens = 'compact';
   } catch (e) { /* storage blocked: defaults */ }
   /* Language/direction before first paint (same key setLanguage() persists) so RTL never flashes LTR. */
   try {
@@ -1002,25 +1004,26 @@
       </svg>
       <span class="brand-name">Hashem</span>
     </div>
+    <button type="button" class="sb-toggle" id="sbToggle" aria-label="Collapse sidebar" data-i18n-aria="sb_collapse" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
     <nav class="sidebar-nav" id="sideNav" role="tablist" aria-orientation="vertical" aria-label="Main navigation" data-i18n-aria="aria_main_nav">
       <div class="nav-sec" role="presentation" data-i18n="sec_overview">Overview</div>
       <button role="tab" aria-selected="true" aria-controls="tab-dashboard" tabindex="0" class="nav-item on" data-tab="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span data-i18n="nav_dashboard">Dashboard</span></button>
       <div class="nav-sec" role="presentation" data-i18n="sec_tunnel">Tunnel</div>
-      <button role="tab" aria-selected="false" aria-controls="tab-tunnel" tabindex="-1" class="nav-item" data-tab="tunnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span data-i18n="nav_tunnel">Tunnel</span></button>
+      <button role="tab" aria-selected="false" aria-controls="tab-tunnel" tabindex="-1" class="nav-item" data-tab="tunnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg><span data-i18n="nav_tunnel">Tunnel</span><span class="nav-badge hidden u-ml-auto" aria-hidden="false"></span></button>
       <button role="tab" aria-selected="false" aria-controls="tab-setup" tabindex="-1" class="nav-item" data-tab="setup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span data-i18n="nav_setup">Setup</span></button>
       <button role="tab" aria-selected="false" aria-controls="tab-logs" tabindex="-1" class="nav-item" data-tab="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span data-i18n="nav_logs">Logs</span></button>
       <div class="nav-sec" role="presentation" data-i18n="sec_system">System</div>
       <button role="tab" aria-selected="false" aria-controls="tab-perf" tabindex="-1" class="nav-item" data-tab="perf" id="perfNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span data-i18n="nav_perf">Performance</span></button>
       <button role="tab" aria-selected="false" aria-controls="tab-watchdog" tabindex="-1" class="nav-item" data-tab="watchdog" id="watchdogNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span data-i18n="nav_watchdog">Watchdog</span></button>
-      <button role="tab" aria-selected="false" aria-controls="tab-doctor" tabindex="-1" class="nav-item" data-tab="doctor" id="doctorNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span data-i18n="nav_doctor">Diagnostics</span></button>
+      <button role="tab" aria-selected="false" aria-controls="tab-doctor" tabindex="-1" class="nav-item" data-tab="doctor" id="doctorNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span data-i18n="nav_doctor">Diagnostics</span><span class="nav-badge hidden u-ml-auto"></span></button>
       <button role="tab" aria-selected="false" aria-controls="tab-benchmark" tabindex="-1" class="nav-item" data-tab="benchmark" id="benchmarkNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span data-i18n="nav_benchmark">Benchmark</span></button>
       <button role="tab" aria-selected="false" aria-controls="tab-update" tabindex="-1" class="nav-item" data-tab="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg><span data-i18n="nav_update">Update</span><span class="badge info hidden u-ml-auto" id="updBadge" >new</span></button>
       <button role="tab" aria-selected="false" aria-controls="tab-settings" tabindex="-1" class="nav-item" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg><span data-i18n="nav_settings">Settings</span></button>
       <button role="tab" aria-selected="false" aria-controls="tab-terminal" tabindex="-1" class="nav-item hidden" data-tab="terminal" id="termNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span data-i18n="nav_terminal">Terminal</span><span class="term-live hidden u-ml-auto" id="termLiveDot" ></span></button>
     </nav>
     <div class="sidebar-foot">
-      <button class="hashem-btn hashem-btn-secondary u-flex-1" id="themeBtn" data-i18n="theme">Theme</button>
-      <button class="hashem-btn hashem-btn-ghost" id="logoutBtn" data-i18n="logout">Logout</button>
+      <button class="hashem-btn hashem-btn-secondary u-flex-1" id="themeBtn" aria-label="Theme" data-i18n-aria="theme"><svg class="sf-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg><span class="sf-t" data-i18n="theme">Theme</span></button>
+      <button class="hashem-btn hashem-btn-ghost" id="logoutBtn" aria-label="Logout" data-i18n-aria="logout"><svg class="sf-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg><span class="sf-t" data-i18n="logout">Logout</span></button>
     </div>
   </aside>
   <div class="main">
@@ -1028,6 +1031,7 @@
       <button class="menu-btn" id="menuBtn" aria-label="Menu" data-i18n-aria="aria_menu">☰</button>
       <div><h1>Hashem</h1><div class="sub" id="roleLine">—</div></div>
       <div class="acts">
+        <button type="button" class="hashem-btn hashem-btn-secondary pal-btn" id="palBtn" aria-haspopup="dialog" aria-label="Search and commands" data-i18n-aria="pal_open"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span class="pal-txt" data-i18n="pal_search">Search</span><kbd id="palKbd">Ctrl K</kbd></button>
         <button class="hashem-btn hashem-btn-ghost lang-btn" id="langToggleBtn" title="تغییر زبان / Switch Language" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:6px 12px;border:1px solid var(--ln);border-radius:8px">
           <span id="langFlag">🇮🇷</span> <span id="langTxt">فارسی</span>
         </button>
@@ -1046,7 +1050,18 @@
   </aside>
     <main class="page">
       <section id="tab-dashboard" role="tabpanel">
-        <div class="dash-grid ent-dense kpi-hero" id="dashGrid">
+        <div class="tunnel-card onb" id="onbCard" hidden>
+          <button type="button" class="onb-x" id="onbX" aria-label="Dismiss" data-i18n-aria="onb_dismiss">&#215;</button>
+          <div class="onb-head"><span class="onb-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span>
+            <div><p class="tc-title" data-i18n="onb_title">Welcome to Hashem</p><div class="qs-hint" data-i18n="onb_sub">No tunnel yet. Three steps and you are live.</div></div></div>
+          <ol class="onb-steps">
+            <li><span class="onb-n">1</span><div><b data-i18n="onb_s1">Choose this server's role</b><span data-i18n="onb_s1d">Iran hub (server) or foreign server (client) from the Setup tab.</span></div></li>
+            <li><span class="onb-n">2</span><div><b data-i18n="onb_s2">Link the other server</b><span data-i18n="onb_s2d">Create the tunnel and paste the connection bundle on the other side.</span></div></li>
+            <li><span class="onb-n">3</span><div><b data-i18n="onb_s3">Verify and optimise</b><span data-i18n="onb_s3d">Run Diagnostics, then Optimize in the Tunnel tab.</span></div></li>
+          </ol>
+          <div class="onb-acts"><button type="button" class="hashem-btn hashem-btn-primary" id="onbGo" data-i18n="onb_go">Open Setup</button><button type="button" class="hashem-btn hashem-btn-secondary" id="onbLater" data-i18n="onb_later">Not now</button></div>
+        </div>
+        <div class="dash-grid ent-dense kpi-hero dash-loading" id="dashGrid">
           <div class="tunnel-card kpi">
             <div class="kpi-top"><span class="kpi-label" data-i18n="kpi_traffic">Traffic &amp; Speed</span><span class="kpi-ico"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span></div>
             <div class="kpi-val" id="kpiTraffic">N/A</div>
@@ -1411,6 +1426,7 @@
             </div>
           </div>
           <div class="qs-hint">Every failed panel action is recorded here with its code — newest last.</div>
+          <div class="ent-tools"><input class="hashem-input" id="errFilter" type="search" placeholder="Filter errors…" data-i18n-ph="tbl_filter" aria-label="Filter errors" data-i18n-aria="tbl_filter"><span class="qs-hint" id="errFilterCount" aria-live="polite"></span></div>
           <div id="errList" class="u-grid-gap-6 u-mt-8"><div class="ent-skel" style="height:14px"></div></div>
         </div>
       </section>
@@ -2154,6 +2170,11 @@
           <div class="tc-header"><p class="tc-title" data-i18n="appear_title">Appearance</p></div>
           <div class="qs-hint" data-i18n="appear_hint">Pick an accent colour. Every preset is contrast-checked for both dark and light themes.</div>
           <div class="acc-grid" id="accGrid" role="radiogroup" aria-label="Accent colour" data-i18n-aria="appear_aria"></div>
+          <div class="ent-sec-label u-mt-6" data-i18n="dens_title">Table density</div>
+          <div class="qs-seg" role="group" aria-label="Table density" data-i18n-aria="dens_title" id="densSeg">
+            <button type="button" data-dens="comfortable" aria-pressed="true" data-i18n="dens_comfy">Comfortable</button>
+            <button type="button" data-dens="compact" aria-pressed="false" data-i18n="dens_compact">Compact</button>
+          </div>
         </div>
         <div class="tunnel-card">
           <div class="tc-header"><p class="tc-title" data-i18n="sup_card_title">Support Hashem</p></div>
@@ -2251,6 +2272,15 @@
 </div>
 <div id="toast" class="toast hidden"></div>
 <div id="entToasts" role="status" aria-live="polite" aria-atomic="false"></div>
+<div class="pal-ov" id="pal" hidden>
+  <div class="pal" role="dialog" aria-modal="true" aria-label="Command palette" data-i18n-aria="pal_title">
+    <div class="pal-in"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="palInput" type="text" role="combobox" aria-expanded="true" aria-controls="palList" aria-autocomplete="list" autocomplete="off" autocapitalize="off" spellcheck="false" data-i18n-ph="pal_ph" placeholder="Search pages and actions…">
+      <button type="button" class="pal-esc" id="palClose" aria-label="Close" data-i18n-aria="aria_close">Esc</button></div>
+    <div class="pal-list" id="palList" role="listbox" aria-label="Results"></div>
+    <div class="pal-foot"><span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> <span data-i18n="pal_nav">navigate</span></span><span><kbd>&#8629;</kbd> <span data-i18n="pal_run">run</span></span><span><kbd>Esc</kbd> <span data-i18n="pal_close">close</span></span></div>
+  </div>
+</div>
 <div class="sup-card" id="supCard" role="dialog" aria-labelledby="supTitle" aria-describedby="supBody" hidden>
   <button type="button" class="sup-x" id="supX" aria-label="Close" data-i18n-aria="aria_close">&#215;</button>
   <div class="sup-head">
@@ -2669,7 +2699,10 @@ drawerSync();
 function setTheme(t) {
   document.documentElement.dataset.t = t; document.body.dataset.t = t;
   try { localStorage.setItem('gre_theme', t); } catch(e) { /* storage blocked (private mode): theme just won't persist */ }
-  const b = $('themeBtn'); if (b) b.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
+  const b = $('themeBtn');
+  if (b) { const lab = t === 'dark' ? '☀️ Light' : '🌙 Dark', sp = b.querySelector('.sf-t');
+    if (sp) { sp.textContent = lab; sp.removeAttribute('data-i18n'); } else b.textContent = lab;
+    b.setAttribute('aria-label', lab.replace(/^\S+\s/, '')); b.removeAttribute('data-i18n-aria'); }
   const bm = $('themeBtnM'); if (bm) bm.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
   try { if (typeof refreshDash === 'function') refreshDash(); } catch(e) { /* dashboard not ready yet; polling repaints it */ }
 }
@@ -2912,6 +2945,20 @@ const I18N = {
     login_pass_ph: "Password",
     login_signin: "Sign in",
     rs_header: "Live Activity Stream",
+    pal_open: "Search and commands", pal_search: "Search", pal_title: "Command palette", pal_ph: "Search pages and actions…",
+    pal_nav: "navigate", pal_run: "run", pal_close: "close", pal_none: "Nothing matches", pal_go: "Go to", pal_act: "Actions", pal_look: "Appearance",
+    pal_refresh: "Refresh data", pal_theme: "Toggle dark / light theme", pal_lang: "Switch language", pal_stream: "Show / hide Live Activity Stream",
+    pal_sidebar: "Collapse / expand sidebar", pal_density: "Toggle table density", pal_diag: "Run diagnostics", pal_donate: "Support Hashem", pal_logout: "Log out",
+    pal_accent: "Accent colour",
+    sb_collapse: "Collapse sidebar", sb_expand: "Expand sidebar",
+    tbl_filter: "Filter errors…", tbl_shown: "{n} of {t} shown",
+    dens_title: "Table density", dens_comfy: "Comfortable", dens_compact: "Compact",
+    onb_title: "Welcome to Hashem", onb_sub: "No tunnel yet. Three steps and you are live.",
+    onb_s1: "Choose this server's role", onb_s1d: "Iran hub (server) or foreign server (client) from the Setup tab.",
+    onb_s2: "Link the other server", onb_s2d: "Create the tunnel and paste the connection bundle on the other side.",
+    onb_s3: "Verify and optimise", onb_s3d: "Run Diagnostics, then Optimize in the Tunnel tab.",
+    onb_go: "Open Setup", onb_later: "Not now", onb_dismiss: "Dismiss",
+    badge_tunnel: "{n} tunnel(s) need attention", badge_doctor: "{n} diagnostic issue(s)",
     fleet_title: "Fleet health",
     fleet_all_ok: "All servers healthy",
     fleet_some: "{n} of {t} servers need attention",
@@ -3283,6 +3330,20 @@ const I18N = {
     login_pass_ph: "رمز عبور",
     login_signin: "ورود به پنل",
     rs_header: "جریان زنده وقایع و لاگ‌ها",
+    pal_open: "جستجو و دستورها", pal_search: "جستجو", pal_title: "پالت دستورها", pal_ph: "جستجوی صفحه‌ها و کارها…",
+    pal_nav: "حرکت", pal_run: "اجرا", pal_close: "بستن", pal_none: "موردی پیدا نشد", pal_go: "رفتن به", pal_act: "کارها", pal_look: "ظاهر",
+    pal_refresh: "تازه‌سازی داده‌ها", pal_theme: "تغییر تم تیره / روشن", pal_lang: "تغییر زبان", pal_stream: "نمایش / بستن جریان زنده وقایع",
+    pal_sidebar: "جمع / باز کردن منوی کناری", pal_density: "تغییر تراکم جدول‌ها", pal_diag: "اجرای عیب‌یابی", pal_donate: "حمایت از هاشم", pal_logout: "خروج",
+    pal_accent: "رنگ اصلی",
+    sb_collapse: "جمع کردن منو", sb_expand: "باز کردن منو",
+    tbl_filter: "فیلتر خطاها…", tbl_shown: "{n} از {t} نمایش داده می‌شود",
+    dens_title: "تراکم جدول", dens_comfy: "راحت", dens_compact: "فشرده",
+    onb_title: "به هاشم خوش آمدید", onb_sub: "هنوز تونلی ندارید. با سه قدم راه می‌افتد.",
+    onb_s1: "نقش این سرور را انتخاب کنید", onb_s1d: "هاب ایران (سرور) یا سرور خارجی (کلاینت) از تب راه‌اندازی.",
+    onb_s2: "سرور مقابل را وصل کنید", onb_s2d: "تونل را بسازید و بسته‌ی اتصال را در سرور دیگر وارد کنید.",
+    onb_s3: "بررسی و بهینه‌سازی", onb_s3d: "عیب‌یابی را اجرا کنید، بعد در تب تونل «بهینه‌سازی» را بزنید.",
+    onb_go: "باز کردن راه‌اندازی", onb_later: "فعلاً نه", onb_dismiss: "بستن",
+    badge_tunnel: "{n} تونل نیاز به توجه دارد", badge_doctor: "{n} مورد در عیب‌یابی",
     fleet_title: "سلامت سرورها",
     fleet_all_ok: "همه‌ی سرورها سالم‌اند",
     fleet_some: "{n} از {t} سرور نیاز به توجه دارد",
@@ -3467,6 +3528,8 @@ function applyTranslations(lang) {
     }
   });
   if (typeof rsSync === 'function') rsSync();
+  if (typeof sbApply === 'function') sbApply();
+  if (typeof densApply === 'function') densApply();
   if (typeof accRender === 'function') accRender();
   if (typeof fleetRender === 'function' && typeof _fleetLast !== 'undefined' && _fleetLast) fleetRender(_fleetLast);
   if (typeof drawerSync === 'function') drawerSync();
@@ -3771,6 +3834,7 @@ async function refresh() {
     renderPeers(s.peers);
     updatePeerHints(s);
     if (typeof supObserve === 'function') supObserve(s);
+    if (typeof uiObserve === 'function') uiObserve(s);
     if (s.local) {
       const isForeign = /foreign/i.test(s.local.role || '') || (s.local.frp_svc === 'frpc');
       const ap = $('setupAddPeerStep');
@@ -3778,6 +3842,7 @@ async function refresh() {
     }
   } catch(e) {
     reportErr('status', e);
+    { const g0 = $('dashGrid'); if (g0) g0.classList.remove('dash-loading'); }
     const pc = $('peerCards');
     if (pc && !pc.children.length) pc.innerHTML = stateError(e.message, 'status');
     ok = false;
@@ -4347,6 +4412,7 @@ async function refreshDash() {
     if (!d || typeof d !== 'object') return;
     const on = !!d.online;
     const nPeers = d.peer_count || 0;
+    { const g0 = $('dashGrid'); if (g0) g0.classList.remove('dash-loading'); }
     const multi = nPeers > 0;
     const statusText = d.health ? (d.health === 'HEALTHY' ? 'Healthy' : (d.health === 'DEGRADED' ? 'Degraded' : 'Down')) : (on ? 'Online' : 'Offline');
     const statusColor = d.health ? (d.health === 'HEALTHY' ? 'var(--ok)' : (d.health === 'DEGRADED' ? 'var(--wr)' : 'var(--er)')) : (on ? 'var(--ok)' : 'var(--er)');
@@ -5391,12 +5457,13 @@ async function loadErrors() {
     const j = await api('/api/errors?n=50');
     const evs = j.events || [];
     const ec = $('errCount'); if (ec) ec.textContent = evs.length ? evs.length + ' recorded' : '';
-    $('errList').innerHTML = evs.length ? '<div class="ent-tbl-wrap" tabindex="0"><table class="ent-tbl"><thead><tr><th>Code</th><th>Time · Endpoint</th><th>Detail</th></tr></thead><tbody>'
+    $('errList').innerHTML = evs.length ? '<div class="ent-tbl-wrap" tabindex="0"><table class="ent-tbl ent-stack"><thead><tr><th data-sort="0" tabindex="0" aria-sort="none">Code</th><th data-sort="1" tabindex="0" aria-sort="none">Time · Endpoint</th><th data-sort="2" tabindex="0" aria-sort="none">Detail</th></tr></thead><tbody>'
       + evs.slice().reverse().map(e =>
-      `<tr><td><span class="badge err"><span class="dot"></span>${esc(e.code)}</span></td>` +
-      `<td class="mono u-ws-normal">${esc(e.time || '')}<br>${esc(e.endpoint || '')}</td>` +
-      `<td class="u-ws-normal">${esc(e.detail || '')}</td></tr>`).join('') + '</tbody></table></div>'
+      `<tr><td data-label="Code"><span class="badge err"><span class="dot"></span>${esc(e.code)}</span></td>` +
+      `<td data-label="Time" class="mono u-ws-normal">${esc(e.time || '')}<br>${esc(e.endpoint || '')}</td>` +
+      `<td data-label="Detail" class="u-ws-normal">${esc(e.detail || '')}</td></tr>`).join('') + '</tbody></table></div>'
       : stateEmpty({ title: tr('empty_errors_title', 'No panel errors'), msg: tr('empty_errors_msg', 'Clean run — every failure will appear here with its code.'), compact: true });
+    if (typeof tblRefilter === 'function') tblRefilter();
   } catch(e) { reportErr('errors', e); $('errList').innerHTML = stateError(e.message, 'errors', true); }
 }
 async function loadLogs() {
@@ -7178,6 +7245,170 @@ async function loadFleet() {
   catch (e) { reportErr('fleet', e); return false; }
 }
 makePoller(async () => { if ($('app').classList.contains('hidden') || $('tab-tunnel').hidden) return true; return await loadFleet(); }, 10000);
+
+// ============================================================
+// Stage 3: command palette, collapsible sidebar + alert badges,
+// table tools (filter / sort / density), onboarding.
+// ============================================================
+// ---- nav badges (sidebar + drawer share them) ----
+function navBadge(tab, n, kind, titleKey) {
+  document.querySelectorAll('[data-tab="' + tab + '"] .nav-badge').forEach(b => {
+    b.classList.toggle('hidden', !n);
+    b.textContent = n > 9 ? '9+' : String(n || '');
+    b.className = 'nav-badge u-ml-auto ' + (kind || 'warn') + (n ? '' : ' hidden');
+    const t = n ? fleetFmt(titleKey, { n }) : '';
+    b.title = t; b.setAttribute('aria-label', t);
+  });
+}
+function uiObserve(s) {
+  const peers = (s && s.peers) || [], L = (s && s.local) || {};
+  let bad = peers.filter(p => !(p.gre_up && p.frp_up && p.ping_ok)).length;
+  const anyDown = peers.some(p => !p.gre_up && !p.frp_up);
+  if (!peers.length && L.gre && L.gre.exists && !L.frp_up) bad = 1;
+  navBadge('tunnel', bad, (anyDown || (!peers.length && bad)) ? 'err' : 'warn', 'badge_tunnel');
+  // onboarding: only when nothing is configured at all
+  // `role` is always populated (it has a default), so it cannot signal "configured".
+  const empty = !peers.length && !(L.gre && L.gre.exists) && !L.frp_up;
+  let dismissed = false; try { dismissed = localStorage.getItem('hashem_onb_done') === '1'; } catch (e) { /* storage blocked */ }
+  const c = $('onbCard'); if (c) c.hidden = !empty || dismissed;
+}
+{ const _rd = renderDoctor; renderDoctor = function (rep) { _rd(rep); try { navBadge('doctor', ((rep && rep.issues) || []).length, rep && rep.rating === 'critical' ? 'err' : 'warn', 'badge_doctor'); } catch (e) { /* cosmetic */ } }; }
+$('onbGo').onclick = () => goTab('setup');
+function onbHide() { try { localStorage.setItem('hashem_onb_done', '1'); } catch (e) { /* session only */ } $('onbCard').hidden = true; }
+$('onbLater').onclick = onbHide; $('onbX').onclick = onbHide;
+
+// ---- sidebar collapse ----
+function sbIsCollapsed() { return document.documentElement.dataset.sb === '1'; }
+function sbApply() {
+  const c = sbIsCollapsed(), b = $('sbToggle');
+  if (b) { b.setAttribute('aria-pressed', c ? 'true' : 'false'); const t = tr(c ? 'sb_expand' : 'sb_collapse', c ? 'Expand sidebar' : 'Collapse sidebar'); b.setAttribute('aria-label', t); b.title = t; }
+  // icon-only rows still need an accessible name + tooltip
+  document.querySelectorAll('#sideNav [data-tab]').forEach(n => {
+    const lab = n.querySelector('[data-i18n]'); const t = lab ? lab.textContent.trim() : '';
+    if (c && t) { n.title = t; n.setAttribute('aria-label', t); } else { n.removeAttribute('title'); n.removeAttribute('aria-label'); }
+  });
+}
+function sbSet(c) {
+  if (c) document.documentElement.dataset.sb = '1'; else delete document.documentElement.dataset.sb;
+  try { localStorage.setItem('hashem_sb', c ? '1' : '0'); } catch (e) { /* session only */ }
+  sbApply();
+}
+$('sbToggle').onclick = () => sbSet(!sbIsCollapsed());
+sbApply();
+
+// ---- table density ----
+function densApply() {
+  const c = document.documentElement.dataset.dens === 'compact';
+  document.querySelectorAll('#densSeg [data-dens]').forEach(b => b.setAttribute('aria-pressed', (b.dataset.dens === 'compact') === c ? 'true' : 'false'));
+}
+function densSet(v) {
+  if (v === 'compact') document.documentElement.dataset.dens = 'compact'; else delete document.documentElement.dataset.dens;
+  try { localStorage.setItem('hashem_dens', v); } catch (e) { /* session only */ }
+  densApply();
+}
+$('densSeg').addEventListener('click', e => { const b = e.target.closest('[data-dens]'); if (b) densSet(b.dataset.dens); });
+densApply();
+
+// ---- table tools: filter + sortable headers (errors table) ----
+function tblRefilter() {
+  const wrap = $('errList'), inp = $('errFilter'); if (!wrap || !inp) return;
+  const q = inp.value.trim().toLowerCase(), rows = wrap.querySelectorAll('tbody tr');
+  let shown = 0;
+  rows.forEach(r => { const ok = !q || r.textContent.toLowerCase().includes(q); r.hidden = !ok; if (ok) shown++; });
+  const c = $('errFilterCount'); if (c) c.textContent = rows.length && q ? fleetFmt('tbl_shown', { n: shown, t: rows.length }) : '';
+}
+$('errFilter').addEventListener('input', tblRefilter);
+function tblSort(th) {
+  const table = th.closest('table'), idx = +th.dataset.sort, body = table.tBodies[0];
+  const dir = th.getAttribute('aria-sort') === 'ascending' ? 'descending' : 'ascending';
+  table.querySelectorAll('th[data-sort]').forEach(h => h.setAttribute('aria-sort', 'none'));
+  th.setAttribute('aria-sort', dir);
+  const rows = Array.from(body.rows);
+  rows.sort((a, b) => { const x = a.cells[idx].textContent.trim(), y = b.cells[idx].textContent.trim(); return (dir === 'ascending' ? 1 : -1) * x.localeCompare(y, undefined, { numeric: true }); });
+  rows.forEach(r => body.appendChild(r));
+}
+document.addEventListener('click', e => { const th = e.target.closest && e.target.closest('th[data-sort]'); if (th) tblSort(th); });
+document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('th[data-sort]')) { e.preventDefault(); tblSort(e.target); } });
+
+// ---- command palette ----
+const PAL = { open: false, items: [], shown: [], sel: 0, release: null };
+const palMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+{ const k = $('palKbd'); if (k) k.textContent = palMac ? '\u2318 K' : 'Ctrl K'; }
+function palItems() {
+  const go = tr('pal_go', 'Go to'), act = tr('pal_act', 'Actions'), look = tr('pal_look', 'Appearance');
+  const it = [];
+  document.querySelectorAll('#sideNav [data-tab]').forEach(b => {
+    if (b.classList.contains('hidden')) return;
+    const lab = b.querySelector('[data-i18n]'); const t = lab ? lab.textContent.trim() : b.dataset.tab;
+    it.push({ g: go, t, k: b.dataset.tab, ic: b.querySelector('svg') ? b.querySelector('svg').outerHTML : '', run: () => goTab(b.dataset.tab) });
+  });
+  it.push({ g: act, t: tr('pal_refresh', 'Refresh data'), k: 'refresh reload', run: () => $('refreshBtn').click() });
+  it.push({ g: act, t: tr('pal_diag', 'Run diagnostics'), k: 'doctor health check diagnostics', run: () => { goTab('doctor'); loadDoctor(true); } });
+  it.push({ g: act, t: tr('pal_stream', 'Show / hide Live Activity Stream'), k: 'stream logs live activity', run: () => rsSet(!rsIsHidden(), true) });
+  it.push({ g: act, t: tr('pal_donate', 'Support Hashem'), k: 'donate support pdnczone', run: () => window.open('https://www.pdnczone.ir', '_blank', 'noopener,noreferrer') });
+  it.push({ g: act, t: tr('pal_logout', 'Log out'), k: 'logout sign out exit', run: () => $('logoutBtn').click() });
+  it.push({ g: look, t: tr('pal_theme', 'Toggle dark / light theme'), k: 'theme dark light mode', run: () => $('themeBtn').click() });
+  it.push({ g: look, t: tr('pal_lang', 'Switch language'), k: 'language persian farsi english', run: () => $('langToggleBtn').click() });
+  it.push({ g: look, t: tr('pal_sidebar', 'Collapse / expand sidebar'), k: 'sidebar menu collapse', run: () => sbSet(!sbIsCollapsed()) });
+  it.push({ g: look, t: tr('pal_density', 'Toggle table density'), k: 'density compact comfortable table', run: () => densSet(document.documentElement.dataset.dens === 'compact' ? 'comfortable' : 'compact') });
+  ACCENTS.forEach(([n, c]) => it.push({ g: look, t: tr('pal_accent', 'Accent colour') + ': ' + tr('acc_' + n, n), k: 'accent color colour ' + n, sw: c, run: () => accSet(n) }));
+  return it;
+}
+function palScore(item, toks) {
+  const h = (item.t + ' ' + item.k + ' ' + item.g).toLowerCase(); let sc = 0;
+  for (const t of toks) { const i = h.indexOf(t); if (i < 0) return -1; sc += i === 0 ? 0 : (h.charAt(i - 1) === ' ' ? 2 : 6) + i / 100; }
+  return sc;
+}
+function palRender() {
+  const q = $('palInput').value.trim().toLowerCase(), toks = q.split(/\s+/).filter(Boolean);
+  let list = PAL.items.map((x, i) => ({ x, s: toks.length ? palScore(x, toks) : i })).filter(r => r.s >= 0);
+  if (toks.length) list.sort((a, b) => a.s - b.s);
+  PAL.shown = list.map(r => r.x); PAL.sel = Math.min(PAL.sel, Math.max(0, PAL.shown.length - 1));
+  const box = $('palList');
+  if (!PAL.shown.length) { box.innerHTML = '<div class="pal-none" role="status">' + esc(tr('pal_none', 'Nothing matches')) + '</div>'; $('palInput').removeAttribute('aria-activedescendant'); return; }
+  let lastG = '', html = '';
+  PAL.shown.forEach((x, i) => {
+    if (x.g !== lastG && !toks.length) { html += '<div class="pal-g" role="presentation">' + esc(x.g) + '</div>'; lastG = x.g; }
+    html += '<div class="pal-it' + (i === PAL.sel ? ' on' : '') + '" role="option" id="palo' + i + '" data-i="' + i + '" aria-selected="' + (i === PAL.sel) + '">'
+      + (x.sw ? '<i class="pal-sw" style="background:' + x.sw + '"></i>' : '<span class="pal-ic" aria-hidden="true">' + (x.ic || '') + '</span>') + '<span class="pal-t">' + esc(x.t) + '</span>'
+      + (toks.length ? '<span class="pal-gt">' + esc(x.g) + '</span>' : '') + '</div>';
+  });
+  box.innerHTML = html;
+  $('palInput').setAttribute('aria-activedescendant', 'palo' + PAL.sel);
+}
+function palSel(n) {
+  if (!PAL.shown.length) return;
+  PAL.sel = (n + PAL.shown.length) % PAL.shown.length;
+  document.querySelectorAll('#palList .pal-it').forEach(el => { const on = +el.dataset.i === PAL.sel; el.classList.toggle('on', on); el.setAttribute('aria-selected', on); if (on) el.scrollIntoView({ block: 'nearest' }); });
+  $('palInput').setAttribute('aria-activedescendant', 'palo' + PAL.sel);
+}
+function palOpen() {
+  if (PAL.open || $('app').classList.contains('hidden')) return;
+  if (document.querySelector('.ent-modal-ov:not([hidden])')) return;
+  PAL.open = true; PAL.items = palItems(); PAL.sel = 0;
+  $('palInput').value = ''; $('pal').hidden = false;
+  PAL.release = trapModal($('pal'), palClose);
+  palRender(); $('palInput').focus();
+}
+function palClose() {
+  if (!PAL.open) return; PAL.open = false; $('pal').hidden = true;
+  if (PAL.release) { PAL.release(); PAL.release = null; }
+}
+function palRun(i) { const x = PAL.shown[i]; if (!x) return; palClose(); try { x.run(); } catch (e) { reportErr('palette', e); } }
+$('palBtn').onclick = palOpen;
+$('palClose').onclick = palClose;
+$('palInput').addEventListener('input', () => { PAL.sel = 0; palRender(); });
+$('palInput').addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); palSel(PAL.sel + 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); palSel(PAL.sel - 1); }
+  else if (e.key === 'Enter') { e.preventDefault(); palRun(PAL.sel); }
+});
+$('palList').addEventListener('click', e => { const el = e.target.closest('.pal-it'); if (el) palRun(+el.dataset.i); });
+$('palList').addEventListener('mousemove', e => { const el = e.target.closest('.pal-it'); if (el && +el.dataset.i !== PAL.sel) palSel(+el.dataset.i); });
+$('pal').addEventListener('mousedown', e => { if (e.target === $('pal')) palClose(); });
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') { e.preventDefault(); PAL.open ? palClose() : palOpen(); }
+});
 
 // ============================================================
 // Edit Peer / Edit Tunnel Modal
