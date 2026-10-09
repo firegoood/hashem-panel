@@ -1234,6 +1234,163 @@ tunnel_present() {
     return 1
 }
 
+# ---- Dial route (foreign side): how frpc / backhaul-client reaches the Iran hub ----
+# The control connection can go over the GRE inner address (default) or straight
+# to the hub's public IP (the hub listens on 0.0.0.0). When GRE is blocked on one
+# path (ICMP/protocol 47 dropped) the public route keeps FRP alive.
+# dial.env keeps: DIAL_MODE=auto|gre|public  DIAL_KIND=frp|backhaul  DIAL_GRE  DIAL_PUBLIC
+dial_env_file() { echo "${CONFIG_DIR}/dial.env"; }
+
+dial_env_write() { # $1=mode $2=kind $3=gre_ip $4=public_ip
+    mkdir -p "$CONFIG_DIR"
+    printf 'DIAL_MODE=%s\nDIAL_KIND=%s\nDIAL_GRE=%s\nDIAL_PUBLIC=%s\n' "$1" "$2" "$3" "$4" > "$(dial_env_file)"
+    chmod 600 "$(dial_env_file)" 2>/dev/null || true
+}
+
+dial_env_get() { # $1=KEY
+    local f; f="$(dial_env_file)"
+    [[ -f "$f" ]] || return 1
+    sed -n "s/^$1=//p" "$f" | head -n1
+}
+
+dial_conf_file() { # $1=kind
+    if [[ "$1" == "backhaul" ]]; then echo "${BACKHAUL_CONFIG_DIR:-/etc/backhaul}/client.toml"; else echo "${CONFIG_DIR}/frpc.toml"; fi
+}
+
+dial_service() { [[ "$1" == "backhaul" ]] && echo backhaul-client || echo frpc; }
+
+dial_current_addr() { # $1=kind -> host currently dialled
+    local f; f="$(dial_conf_file "$1")"
+    [[ -f "$f" ]] || return 1
+    if [[ "$1" == "backhaul" ]]; then
+        sed -n 's/^remote_addr[[:space:]]*=[[:space:]]*"\([^":]*\):[0-9]*".*/\1/p' "$f" | head -n1
+    else
+        sed -n 's/^serverAddr[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -n1
+    fi
+}
+
+dial_current_port() { # $1=kind
+    local f; f="$(dial_conf_file "$1")"
+    [[ -f "$f" ]] || return 1
+    if [[ "$1" == "backhaul" ]]; then
+        sed -n 's/^remote_addr[[:space:]]*=[[:space:]]*"[^":]*:\([0-9]*\)".*/\1/p' "$f" | head -n1
+    else
+        sed -n 's/^serverPort[[:space:]]*=[[:space:]]*\([0-9]*\).*/\1/p' "$f" | head -n1
+    fi
+}
+
+# GRE is "usable" when its inner address answers ping or accepts the control port.
+dial_gre_usable() { # $1=gre_ip $2=port
+    ping -c 2 -W 2 "$1" >/dev/null 2>&1 && return 0
+    timeout 3 bash -c "exec 3<>/dev/tcp/$1/$2" >/dev/null 2>&1 && return 0
+    return 1
+}
+
+dial_pick() { # $1=mode $2=gre_ip $3=public_ip $4=port -> chosen address
+    case "$1" in
+        gre)    echo "$2" ;;
+        public) echo "$3" ;;
+        *)      if dial_gre_usable "$2" "$4"; then echo "$2"; else echo "$3"; fi ;;
+    esac
+}
+
+dial_apply_addr() { # $1=kind $2=addr $3=port
+    local f; f="$(dial_conf_file "$1")"
+    [[ -f "$f" ]] || return 1
+    if [[ "$1" == "backhaul" ]]; then
+        sed -i -E "s|^remote_addr[[:space:]]*=.*|remote_addr = \"$2:$3\"|" "$f"
+    else
+        sed -i -E "s|^serverAddr[[:space:]]*=.*|serverAddr = \"$2\"|" "$f"
+    fi
+}
+
+# Older installs have no dial.env: rebuild it from the live GRE interface + client config.
+dial_env_ensure() {
+    [[ -f "$(dial_env_file)" ]] && return 0
+    local kind="" cur pub inner gre a b c d
+    if [[ -f "${CONFIG_DIR}/frpc.toml" ]]; then kind=frp
+    elif [[ -f "${BACKHAUL_CONFIG_DIR:-/etc/backhaul}/client.toml" ]]; then kind=backhaul
+    else return 1; fi
+    cur=$(dial_current_addr "$kind"); [[ -n "$cur" ]] || return 1
+    pub=$(ip tunnel show "$TUNNEL_NAME" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="remote") print $(i+1)}' | head -n1)
+    inner=$(ip -4 addr show dev "$TUNNEL_NAME" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1)
+    gre=""
+    if [[ "$cur" =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.) ]]; then
+        gre="$cur"
+    elif [[ -n "$inner" ]]; then
+        IFS=. read -r a b c d <<< "$inner"
+        if (( d % 2 == 0 )); then gre="$a.$b.$c.$((d - 1))"; else gre="$a.$b.$c.$((d + 1))"; fi
+    fi
+    [[ -z "$pub" && "$cur" != "$gre" ]] && pub="$cur"
+    [[ -n "$gre" && -n "$pub" ]] || return 1
+    dial_env_write auto "$kind" "$gre" "$pub"
+}
+
+# dial_reselect [mode]: re-evaluate the route and rewrite the client config.
+# Prints "changed:<addr>" / "same:<addr>". Does NOT restart the service.
+dial_reselect() {
+    dial_env_ensure || return 1
+    local mode kind gre pub port cur want
+    kind=$(dial_env_get DIAL_KIND); gre=$(dial_env_get DIAL_GRE); pub=$(dial_env_get DIAL_PUBLIC)
+    mode="${1:-$(dial_env_get DIAL_MODE)}"; mode="${mode:-auto}"
+    port=$(dial_current_port "$kind"); cur=$(dial_current_addr "$kind")
+    [[ -n "$kind" && -n "$port" && -n "$cur" ]] || return 1
+    want=$(dial_pick "$mode" "$gre" "$pub" "$port")
+    [[ -n "$want" ]] || return 1
+    if [[ "$want" == "$cur" ]]; then
+        echo "same:$cur"
+    else
+        dial_apply_addr "$kind" "$want" "$port" || return 1
+        echo "changed:$want"
+    fi
+}
+
+# True when the client already holds an established TCP session to its server.
+dial_connected() { # $1=addr $2=port
+    ss -Htn state established 2>/dev/null | awk -v a="$1:$2" '$4==a {f=1} END {exit !f}'
+}
+
+# Watchdog hook (auto mode only): GRE died and the client is not connected -> go public.
+dial_watch_tick() {
+    [[ -f "$(dial_env_file)" ]] || return 0
+    [[ "$(dial_env_get DIAL_MODE)" == "auto" ]] || return 0
+    local kind gre pub port cur svc
+    kind=$(dial_env_get DIAL_KIND); gre=$(dial_env_get DIAL_GRE); pub=$(dial_env_get DIAL_PUBLIC)
+    port=$(dial_current_port "$kind"); cur=$(dial_current_addr "$kind")
+    [[ -n "$port" && "$cur" == "$gre" ]] || return 0
+    dial_connected "$cur" "$port" && return 0
+    dial_gre_usable "$gre" "$port" && return 0
+    dial_apply_addr "$kind" "$pub" "$port" || return 0
+    svc=$(dial_service "$kind")
+    systemctl restart "$svc" >/dev/null 2>&1 || true
+    log_msg "tunnel" "WARN" "GRE path to ${gre} dead; ${svc} now dials Iran public ${pub}:${port}" 2>/dev/null || true
+}
+
+cli_dial() {
+    local sub="${1:-status}"
+    case "$sub" in
+        status)
+            if ! dial_env_ensure; then echo "available=0"; return 0; fi
+            local kind cur port mode gre pub active
+            kind=$(dial_env_get DIAL_KIND); gre=$(dial_env_get DIAL_GRE); pub=$(dial_env_get DIAL_PUBLIC)
+            mode=$(dial_env_get DIAL_MODE); cur=$(dial_current_addr "$kind"); port=$(dial_current_port "$kind")
+            active="other"; [[ "$cur" == "$gre" ]] && active=gre; [[ "$cur" == "$pub" ]] && active=public
+            echo "available=1"; echo "mode=${mode:-auto}"; echo "active=$active"; echo "addr=$cur"
+            echo "port=$port"; echo "gre=$gre"; echo "public=$pub"; echo "kind=$kind"
+            ;;
+        auto|gre|public)
+            dial_env_ensure || { echo -e "${RED}[!] No foreign client config found (frpc / backhaul client).${NC}"; return 1; }
+            sed -i -E "s/^DIAL_MODE=.*/DIAL_MODE=${sub}/" "$(dial_env_file)"
+            local r; r=$(dial_reselect "$sub") || { echo -e "${RED}[!] Could not apply dial route.${NC}"; return 1; }
+            if [[ "$r" == changed:* ]]; then
+                systemctl restart "$(dial_service "$(dial_env_get DIAL_KIND)")" >/dev/null 2>&1 || true
+            fi
+            echo -e "${GREEN}[✔️] Dial route: ${sub} (${r#*:})${NC}"
+            ;;
+        *) echo "Usage: hashem dial [status|auto|gre|public]"; return 1 ;;
+    esac
+}
+
 check_root() {
     [[ "${HASHEM_NO_ROOT_CHECK:-0}" == "1" ]] && return 0
     if [[ ${EUID:-$(id -u 2>/dev/null || echo 1)} -ne 0 ]]; then
@@ -3023,9 +3180,16 @@ _setup_foreign_full() {
     elif [[ "$FRP_TRANSPORT" == "wss" ]]; then
         EFF_SERVER_PORT=$(wss_front_port "$SERVER_PORT")
     fi
+    # Dial route: GRE inner address when it works, else the hub's public IP (hub listens on 0.0.0.0)
+    local DIAL_ADDR
+    DIAL_ADDR=$(dial_pick "${FRP_DIAL:-auto}" "$PEER_GRE" "$IP_IRAN" "$EFF_SERVER_PORT")
+    if [[ "$DIAL_ADDR" != "$PEER_GRE" ]]; then
+        echo -e "${YELLOW}[!] GRE path to ${PEER_GRE} is not usable — frpc will dial the Iran public IP ${IP_IRAN} directly.${NC}"
+    fi
+    dial_env_write "${FRP_DIAL:-auto}" frp "$PEER_GRE" "$IP_IRAN"
     mkdir -p "${CONFIG_DIR}"
     cat <<EOF > "${CONFIG_DIR}/frpc.toml"
-serverAddr = "${PEER_GRE}"
+serverAddr = "${DIAL_ADDR}"
 serverPort = ${EFF_SERVER_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
@@ -3093,6 +3257,7 @@ StartLimitIntervalSec=0
 LimitNOFILE=1048576
 LimitNPROC=512000
 TasksMax=infinity
+ExecStartPre=-/bin/sh -c "if [ -x /usr/local/bin/hashem ]; then timeout 30 /usr/local/bin/hashem dial-select >/dev/null 2>&1; fi; true"
 ExecStart=${INSTALL_DIR}/frpc -c ${CONFIG_DIR}/frpc.toml
 
 [Install]
@@ -3152,7 +3317,7 @@ EOF
     fi
 
     if [[ "$STATUS_FRP" == "OK" ]]; then
-        echo -e "[${GREEN}OK${NC}]     FRP Client Service (frpc active, connecting to ${PEER_GRE}:${SERVER_PORT})"
+        echo -e "[${GREEN}OK${NC}]     FRP Client Service (frpc active, connecting to ${DIAL_ADDR}:${EFF_SERVER_PORT})"
         echo -e "         Reverse ports: ${PORTS_CLEANED} (TCP & UDP, TLS)"
     else
         echo -e "[${RED}FAILED${NC}] FRP Client Service (${FRP_ERR})"
@@ -3512,7 +3677,10 @@ setup_gre_backhaul_foreign_server_noninteractive() {
     if [[ "$STATUS_BH" == "OK" ]]; then
         mkdir -p "${BACKHAUL_CONFIG_DIR}"
         # In GRE+Backhaul, foreign client dials Iran via the GRE internal IP (PEER_GRE)
-        backhaul_write_client_conf "${BACKHAUL_CONFIG_DIR}/client.toml" "${PEER_GRE}:${SERVER_PORT}" "$TRANSPORT" "$TOKEN"
+        local BH_DIAL
+        BH_DIAL=$(dial_pick "${FRP_DIAL:-auto}" "$PEER_GRE" "$IP_IRAN" "$SERVER_PORT")
+        dial_env_write "${FRP_DIAL:-auto}" backhaul "$PEER_GRE" "$IP_IRAN"
+        backhaul_write_client_conf "${BACKHAUL_CONFIG_DIR}/client.toml" "${BH_DIAL}:${SERVER_PORT}" "$TRANSPORT" "$TOKEN"
         setup_backhaul_client_systemd "backhaul-client" "${BACKHAUL_CONFIG_DIR}/client.toml"
         sed -i "s/After=network.target/After=network.target ${TUNNEL_NAME}.service/" /etc/systemd/system/backhaul-client.service 2>/dev/null || true
         systemctl daemon-reload
@@ -3735,6 +3903,7 @@ cli_add_peer() {
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
         esac
     done
+    case "${FRP_DIAL:-auto}" in auto|gre|public) ;; *) echo -e "${YELLOW}[!] Unknown --dial '${FRP_DIAL}', using auto.${NC}"; FRP_DIAL=auto ;; esac
     CHAFF_PROFILE="${CHAFF_PROFILE:-$(perf_get_chaff)}"
     case "$CHAFF_PROFILE" in
         low|mid|off) ;;
@@ -5925,6 +6094,14 @@ watchdog_check() {
         fi
     fi
 
+    if [[ $GRE_OK -eq 0 && "$FRP_NAME" == "frpc" && $FRP_OK -eq 1 ]]; then
+        local _da _dp
+        _da=$(dial_current_addr frp 2>/dev/null); _dp=$(dial_current_port frp 2>/dev/null)
+        if [[ -n "$_da" && -n "$_dp" ]] && dial_connected "$_da" "$_dp"; then
+            GRE_OK=1
+        fi
+    fi
+
     local FAILS=0
     if [[ -f "$WATCHDOG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
         FAILS=$(python3 -c '
@@ -6084,6 +6261,7 @@ watchdog_tick() {
     fi
 
     init_watchdog_json
+    dial_watch_tick 2>/dev/null || true
 
     local TICK_ACTION
     TICK_ACTION=$(python3 -c '
@@ -7636,6 +7814,7 @@ Usage:
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
   hashem carrier [status|mode auto|direct|fou:P|wss:P|set direct|fou:P|wss:P|next] # multi-carrier failover
+  hashem dial [status|auto|gre|public]         # foreign side: reach the Iran hub over GRE, its public IP, or auto (GRE if it works)
   hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply
   hashem chaff on|off|status                   # traffic obfuscation (idle-gap filler)
   hashem dpi-shield on|off|status              # rate-limit reverse ports against DPI flood
@@ -7719,6 +7898,7 @@ cli_setup_foreign() {
             --compress) FRP_COMPRESSION="on"; shift ;;
             --frp-encryption) FRP_ENCRYPTION="$2"; shift 2 ;;
             --frp-compression) FRP_COMPRESSION="$2"; shift 2 ;;
+            --dial) FRP_DIAL="$2"; shift 2 ;;
             --chaff) CHAFF_PROFILE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) usage_cli; return 0 ;;
@@ -7904,6 +8084,7 @@ cli_setup_gre_backhaul_foreign() {
             --transport) TRANSPORT="$2"; shift 2 ;;
             --token) TOKEN="$2"; shift 2 ;;
             --bundle) BUNDLE="$2"; shift 2 ;;
+            --dial) FRP_DIAL="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) echo 'Usage: hashem setup-gre-backhaul-foreign --bundle gh1_... | --remote-pub IP --port P --token K'; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
@@ -8072,6 +8253,8 @@ if [[ $# -gt 0 ]]; then
         panel-remove-domain|panel-tls-remove) panel_tls_remove ;;
         carrier) shift; cli_carrier "$@" ;;
         carrier-kernel-init) carrier_init_kernel ;;
+        dial) shift; cli_dial "$@" ;;
+        dial-select) dial_reselect >/dev/null 2>&1; exit 0 ;;
         carrier-apply-active) shift; carrier_apply_active "$1" ;;
         optimize) tune_apply ;;
         restore) tune_restore ;;

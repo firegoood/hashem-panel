@@ -272,6 +272,8 @@ type peerLive struct {
 	GreUp    bool    `json:"gre_up"`
 	GreInner string  `json:"gre_inner"`
 	FrpUp    bool    `json:"frp_up"`
+	Linked   bool    `json:"linked"`   // an FRP/Backhaul client holds an established session to this peer's control port
+	FrpOnly  bool    `json:"frp_only"` // linked while the GRE inner address does not answer ping
 	PingOK   bool    `json:"ping_ok"`
 	PingMs   string  `json:"ping_ms"`
 	Rx       *uint64 `json:"rx"`
@@ -401,6 +403,7 @@ func livePeers() []peerLive {
 			l.GreUp = l.GreInner != ""
 		}
 		l.FrpUp = svcActive(p.FrpsSvc)
+		l.Linked = l.FrpUp && controlLinked(p.FrpPort, p.RemotePub, p.PeerGre)
 		pingTarget := p.PeerGre
 		if pingTarget == "" && p.NoGre {
 			pingTarget = p.RemotePub
@@ -415,6 +418,7 @@ func livePeers() []peerLive {
 		if !p.NoGre {
 			l.Rx, l.Tx = ifaceTraffic(p.GreIf)
 		}
+		l.FrpOnly = l.Linked && !l.PingOK
 		out = append(out, l)
 	}
 	return out

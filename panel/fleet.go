@@ -58,6 +58,8 @@ type fleetNode struct {
 	FrpUp     bool          `json:"frp_up"`
 	PingOK    bool          `json:"ping_ok"`
 	PingMs    float64       `json:"ping_ms"`
+	FrpOnly   bool          `json:"frp_only"`
+	Main      bool          `json:"main"`
 	Health    string        `json:"health"` // healthy | degraded | down
 	Rx        *uint64       `json:"rx"`
 	Tx        *uint64       `json:"tx"`
@@ -122,6 +124,10 @@ func parsePingMs(s string) float64 {
 func fleetHealth(l peerLive) int {
 	switch {
 	case l.GreUp && l.FrpUp && l.PingOK:
+		return fleetOK
+	case l.FrpUp && l.Linked:
+		// A live FRP session is the real service path: healthy even when the
+		// GRE inner address does not answer ping (reported as "FRP only").
 		return fleetOK
 	case l.GreUp || l.FrpUp:
 		return fleetDeg
@@ -222,11 +228,13 @@ func fleetSnapshot(recs []peerRecord, live map[int]peerLive) []fleetNode {
 		if n.Name == "" {
 			n.Name = "peer-" + strconv.Itoa(r.ID)
 		}
+		n.Main = r.ID == mainTunnelID
 		if n.Ports == nil {
 			n.Ports = []int{}
 		}
 		if l, ok := live[r.ID]; ok {
 			n.GreUp, n.FrpUp, n.PingOK, n.Rx, n.Tx = l.GreUp, l.FrpUp, l.PingOK, l.Rx, l.Tx
+			n.FrpOnly = l.FrpOnly
 			if l.PingOK {
 				n.PingMs = parsePingMs(l.PingMs)
 			}
@@ -265,6 +273,10 @@ func handleFleet(w http.ResponseWriter, r *http.Request) {
 		live[k] = v
 	}
 	lastLiveMu.Unlock()
+	// The main tunnel is just another spoke of the Iran hub.
+	if m, ok := live[mainTunnelID]; ok {
+		recs = append([]peerRecord{m.peerRecord}, recs...)
+	}
 	nodes := fleetSnapshot(recs, live)
 	healthy, degraded, down := 0, 0, 0
 	for _, n := range nodes {
@@ -310,6 +322,9 @@ func startFleetSampler() {
 		go func() {
 			tick := func() {
 				peers := livePeers()
+				if m := mainTunnelLive(); m != nil {
+					peers = append([]peerLive{*m}, peers...)
+				}
 				fleetRemember(peers)
 				fleetRecord(peers, time.Now())
 			}
@@ -336,3 +351,27 @@ func startFleetSampler() {
 
 // syncOnceReset returns a fresh sync.Once (tests reload history from disk).
 func syncOnceReset() sync.Once { return sync.Once{} }
+
+// mainTunnelID is the synthetic fleet id of the base (non-peer) tunnel. Peer
+// ids start at 1, so 0 never collides.
+const mainTunnelID = 0
+
+// mainTunnelLive describes the base tunnel as a hub spoke, or nil when this
+// machine is not an Iran hub or has no base tunnel configured.
+func mainTunnelLive() *peerLive {
+	st := localStatus()
+	if !strings.HasPrefix(st.Role, "iran") || !(st.Gre.Exists || st.FrpUp || len(st.Proxies) > 0) {
+		return nil
+	}
+	name := "Tunnel"
+	if st.RemotePub != "" {
+		name = "Tunnel · " + st.RemotePub
+	}
+	rec := peerRecord{ID: mainTunnelID, Name: name, RemotePub: st.RemotePub, Engine: st.Engine,
+		Transport: st.Transport, FrpPort: st.BindPort, Ports: st.ProxyPorts}
+	l := &peerLive{peerRecord: rec, GreUp: st.Gre.Exists, FrpUp: st.FrpUp, PingOK: st.PingOK, PingMs: st.PingMs,
+		GreInner: st.Gre.Inner}
+	l.Linked = st.FrpUp && controlLinkedAny(st.BindPort)
+	l.FrpOnly = l.Linked && !l.PingOK
+	return l
+}

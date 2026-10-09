@@ -245,6 +245,8 @@ func main() {
 	mux.HandleFunc("GET "+base+"/api/carrier", requireAuth(handleCarrierGet))
 	mux.HandleFunc("POST "+base+"/api/carrier", requireAuth(requireCSRF(handleCarrierPost)))
 	mux.HandleFunc("GET "+base+"/api/fleet", requireAuth(handleFleet))
+	mux.HandleFunc("GET "+base+"/api/dial", requireAuth(handleDialGet))
+	mux.HandleFunc("POST "+base+"/api/dial", requireAuth(requireCSRF(handleDialPost)))
 	mux.HandleFunc("GET "+base+"/api/support", requireAuth(handleSupport))
 	mux.HandleFunc("POST "+base+"/api/support", requireAuth(requireCSRF(handleSupport)))
 	mux.HandleFunc("GET "+base+"/api/doctor", requireAuth(handleDoctorGet))
