@@ -29,3 +29,12 @@ func TestFleetHealthFrpOnlyIsHealthy(t *testing.T) {
 		t.Fatal("unlinked FRP with dead ping stays degraded")
 	}
 }
+
+func TestDashboardRollupMatchesFleet(t *testing.T) {
+	ok := mkLive(1, true, true, false, "")
+	ok.Linked = true
+	bad := mkLive(2, true, true, false, "")
+	if fleetHealth(ok) != fleetOK || fleetHealth(bad) != fleetDeg {
+		t.Fatal("linked => healthy, unlinked+no ping => degraded")
+	}
+}
