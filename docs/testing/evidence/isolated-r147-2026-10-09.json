@@ -129,16 +129,41 @@
     "systemd_unit_static_verify": "PASS",
     "dockerfile_build": "PASS",
     "govulncheck": {
-      "result": "NOT_EXECUTED",
-      "reason": "Official vulnerability database HTTP 403; retried after upstream integration",
-      "version": "1.8.0"
+      "result": "PASS",
+      "reason": "Local official database fetch returned HTTP 403; hosted scan completed",
+      "version": "1.8.0",
+      "environment": "GitHub Actions Linux runner",
+      "local_result": "NOT_EXECUTED to completion",
+      "reachable_vulnerabilities": 0,
+      "imported_package_vulnerabilities": 0,
+      "required_module_advisories": 1,
+      "advisory_detail": {
+        "id": "GO-2026-5932",
+        "url": "https://pkg.go.dev/vuln/GO-2026-5932",
+        "module": "golang.org/x/crypto",
+        "version": "v0.57.0",
+        "package": "golang.org/x/crypto/openpgp",
+        "fixed_version": null,
+        "classification": "NOT_APPLICABLE to current Linux build",
+        "reason": "Not imported; x/crypto dependency packages are argon2 and blake2b",
+        "recheck_condition": "Upstream or fork changes imports/build platforms"
+      },
+      "go": "1.27.2",
+      "module_count_including_root": 5,
+      "platform": "Linux amd64",
+      "verbose_run": 37984925406
     },
     "interactive_menu_fixtures": "PASS",
     "real_menu_KCP_and_secure_pairing": "PASS",
     "upstream_backhaul_schema": "PASS",
     "legacy_dial_synthetic_route": "PASS",
     "legacy_WSS_unit_ownership": "PASS",
-    "WSS_stop_start_status_race_repeated_5_times": "PASS"
+    "WSS_stop_start_status_race_repeated_5_times": "PASS",
+    "legacy_TCP_mux_unset_on_off": "PASS",
+    "native_FRP_mux_on_off": "PASS",
+    "managed_and_corrupt_perf_refusal": "PASS",
+    "frontend_perf_availability": "PASS",
+    "upstream_latency_fixtures": "PASS"
   },
   "acceptance": {
     "pass": 26,
@@ -155,7 +180,7 @@
     "Test supervisor is not systemd; no real boot/reboot",
     "No real VPS or production changes",
     "No actual legacy-host installer upgrade/migration",
-    "No full legacy log/backup secret audit or completed dependency scan",
+    "No full legacy log/backup secret audit or non-Linux dependency scan; unused OpenPGP module advisory recorded",
     "Native stress: 128 completed sessions, 32 concurrent workers; no 1000-user capacity claim",
     "No sustained WAN/loss/MTU/throughput performance evidence",
     "Alternate carriers and Backhaul not certified by managed direct-GRE tests",
@@ -163,32 +188,32 @@
     "Managed backup restore commits peers individually rather than one all-node transaction"
   ],
   "release_ready": false,
-  "implementation_commit": "7631c295f9b85b75b7371c2577fbf99028ad0d08",
-  "upstream_commit": "80bbb012919c0cc27ef1e8c311310f03ae126c51",
+  "implementation_commit": "66ce97f644dedb01f31efac9055693738e95c0cb",
+  "upstream_commit": "af0c8ac2f916149011cb3abf5e0718d133445ed1",
   "suites": {
-    "linux-r146": {
-      "pass": 140,
+    "linux-r147": {
+      "pass": 150,
       "fail": 0,
       "skip": 0,
-      "elapsed_seconds": 96.904,
+      "elapsed_seconds": 97.559,
       "result": "PASS",
-      "finished_at": "2026-10-09T19:38:40.875632498Z"
+      "finished_at": "2026-10-09T20:01:14.861754669Z"
     },
-    "race-r146": {
-      "pass": 140,
+    "race-r147": {
+      "pass": 150,
       "fail": 0,
       "skip": 0,
-      "elapsed_seconds": 100.605,
+      "elapsed_seconds": 101.771,
       "result": "PASS",
-      "finished_at": "2026-10-09T19:40:37.86560149Z"
+      "finished_at": "2026-10-09T20:02:58.116920748Z"
     },
-    "windows-r146": {
-      "pass": 139,
+    "windows-r147": {
+      "pass": 148,
       "fail": 0,
-      "skip": 1,
-      "elapsed_seconds": 88.457,
+      "skip": 2,
+      "elapsed_seconds": 96.527,
       "result": "PASS",
-      "finished_at": "2026-10-09T23:08:32.3912875+03:30"
+      "finished_at": "2026-10-09T23:31:01.4554257+03:30"
     }
   },
   "ci": {
@@ -199,7 +224,7 @@
     "message": "error obtaining VCS status: exit status 128",
     "original_dependency_scan": "SKIPPED",
     "correction": "Trust only /work for Git VCS provenance across runner/root UID ownership",
-    "new_hosted_result": "FAILURE",
+    "new_hosted_result": "PASS",
     "r146_first_attempt": {
       "run_id": 37982018171,
       "head": "a2b1ec9e03081f0d146410b7c2c9d4161f2a672c",
@@ -211,27 +236,47 @@
       "dependency_scan": "SKIPPED",
       "correction": "Joined canceled WSS startup/reconnect workers and config-safe teardown; synchronized status and cancellation guards"
     },
-    "r147_followup_url": "https://github.com/firegoood/hashem-panel/actions/runs/37984000607"
+    "new_run_id": 37984925406,
+    "new_url": "https://github.com/firegoood/hashem-panel/actions/runs/37984925406",
+    "new_head": "94f7d48fb4b9cc624edd5b19a6805ec089573dc0",
+    "implementation_run": {
+      "id": 37984000607,
+      "head": "66ce97f644dedb01f31efac9055693738e95c0cb",
+      "result": "PASS",
+      "url": "https://github.com/firegoood/hashem-panel/actions/runs/37984000607",
+      "binary_build": "PASS",
+      "isolated_tests": "PASS",
+      "dependency_scan": "PASS",
+      "reachable_vulnerabilities": 0,
+      "imported_package_vulnerabilities": 0,
+      "required_module_advisories": 1,
+      "uploaded_artifact_id": 11642597233,
+      "artifact_digest": "sha256:02b5a373e67535acb35b1beb96cd372018890004c6e38bd7f34bfd2bd981af20"
+    },
+    "binary_build": "PASS",
+    "isolated_tests": "PASS",
+    "dependency_scan": "PASS",
+    "sanitized_artifact_upload": "PASS",
+    "uploaded_artifact_id": 11643025393,
+    "artifact_digest": "sha256:409fc395108d2f445758e92b33cbf15f79a835a723fbe3b4696a05cff2cf9ab9",
+    "application_test_tree_matches_implementation": true
   },
-  "post_R08_local_verification": {
-    "implementation_commit": "ee332e56408661a6b73c19bd3c419b006ef1a1cf",
-    "linux": {
-      "pass": 141,
-      "fail": 0,
-      "skip": 0
-    },
-    "race": {
-      "pass": 141,
-      "fail": 0,
-      "skip": 0
-    },
-    "windows": {
-      "pass": 140,
-      "fail": 0,
-      "skip": 1
-    },
-    "real_multi_peer_checks": 26,
-    "result": "PASS",
-    "further_upstream_integration": "See isolated-r147-2026-10-09.json"
+  "upstream_review": {
+    "starting_fork": "c71305de528280306aaa0c0b345e7f4c1eff47c4",
+    "previous_upstream": "dc9a6ee765b6b2a91505cb4f67b8c7a35a58fa81",
+    "initial_fetched_upstream": "80bbb012919c0cc27ef1e8c311310f03ae126c51",
+    "final_fetched_upstream": "af0c8ac2f916149011cb3abf5e0718d133445ed1",
+    "release": "panel-r147",
+    "release_notes": "https://github.com/pdnczone/hashem-panel/releases/tag/panel-r147",
+    "release_body": "Auto-built gre-panel from af0c8ac2f916149011cb3abf5e0718d133445ed1",
+    "upstream_go_dependency_changes": false
+  },
+  "classification": {
+    "candidate_count": 40,
+    "confirmed": 38,
+    "already_fixed": 1,
+    "not_applicable": 1,
+    "needs_runtime_verification": 0,
+    "note": "Source/advisory candidates; runtime acceptance gates are separate"
   }
 }

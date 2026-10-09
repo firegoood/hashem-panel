@@ -90,3 +90,6 @@ This repository is the existing `firegoood/hashem-panel` fork of
   before mutation. Do not change managed TCP multiplexing through perf.json:
   replacement requires per-peer schema, revision/ACK, migration and traffic tests.
   Keep numerical performance claims out of the UI without applicable evidence.
+- Preserve verbose vulnerability evidence and distinguish reachable symbols,
+  imported packages and required-module advisories. A successful scanner exit
+  must not be described as certifying every package or the whole legacy surface.

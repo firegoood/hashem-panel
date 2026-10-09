@@ -86,9 +86,9 @@ native FRP verification and traffic, rather than README assertions, support thes
 
 ## Follow-up findings R01-R09
 
-All nine source/CI defects below are **CONFIRMED**. Combined with the original
-latest-upstream classification this is **CONFIRMED 38, ALREADY_FIXED 1,
-NOT_APPLICABLE 0, NEEDS_RUNTIME_VERIFICATION 0** for counted defects. Operational
+All nine source/CI defects below are **CONFIRMED**. Including the additional S01
+security candidate, the cumulative 40-candidate classification is **CONFIRMED 38,
+ALREADY_FIXED 1, NOT_APPLICABLE 1, NEEDS_RUNTIME_VERIFICATION 0**. Operational
 acceptance remains separate; missing runtime gates are not counted as fixed.
 
 | ID | Defect / evidence | Correction and regression |
@@ -102,6 +102,7 @@ acceptance remains separate; missing runtime gates are not counted as fixed.
 | R07 | New upstream fleet labels established TCP socket as healthy without authenticated registration | Shared rollup requires managed authenticated registration; stale/pending/disabled/process-only never healthy; legacy socket-only DEGRADED |
 | R08 | Hosted run `37982018171` reproduced a WSS worker reading the TLS config path after the carrier API test restored `configDir`; stop did not join startup and could leave late listeners | Snapshot TLS paths before spawning, cancellation guards on resource publication, joined stop, atomic running/status timestamp synchronization and cancelable reconnect waits; API tests stop workers before config restore; repeated immediate server/client stop and race regression |
 | R09 | Global performance update/apply accepts managed peers without owned lifecycle/revision/ACK; new upstream mux toggle cannot keep both managed sides synchronized | Refuse before config save or Shell execution on managed/corrupt registry; disable mutating UI controls; legacy mux serialization and native verification retained; per-peer mux migration remains unsupported |
+| S01 NOT_APPLICABLE | Hosted verbose scan reports GO-2026-5932 for deprecated `golang.org/x/crypto/openpgp`, with no fixed version | Linux `go list -deps ./...` includes only `x/crypto/argon2` and `blake2b`; scanner reports 0 reachable and 0 imported-package vulnerabilities. Keep needed Argon2 dependency, do not introduce OpenPGP; reclassify if upstream imports it. This does not certify every package in the module. |
 
 The retained correction ledger records the exact new upstream decisions and
 removal conditions. No full managed FOU/WSS/QUIC failover or generic application
@@ -114,8 +115,10 @@ This is a tested managed direct-GRE TCP/KCP implementation, **not a release**.
 Actual systemd ordering/reboot, VPS firewall frameworks, installer upgrades and
 power-loss behavior, full legacy migrations, alternate carrier parity, native
 capacity/long-duration/loss/MTU performance, new-host TLS identity recovery and
-dependency vulnerability results remain unverified or partial. `govulncheck`
-could not fetch its official database (HTTP 403). No supplied production VPS was
+full security results remain partial. Hosted Linux `govulncheck` passed with 0
+reachable/imported-package vulnerabilities and 1 required-module advisory outside
+the imported call graph; verbose advisory detail is recorded in acceptance.
+Local database access still returned HTTP 403. No supplied production VPS was
 accessed. No release/default-branch merge is allowed until those gates close.
 
 Configuration authority has moved into localized `panel/managed_*.go` because

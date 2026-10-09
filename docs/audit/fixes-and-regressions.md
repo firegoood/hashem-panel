@@ -7,6 +7,10 @@ Latest integrated upstream: `af0c8ac2f916149011cb3abf5e0718d133445ed1` (`panel-r
 Previous delivery: `c71305de528280306aaa0c0b345e7f4c1eff47c4`; previous upstream: `dc9a6ee`.
 The following comparison was actually performed during this delivery; active
 rows remain only where upstream has not superseded their complete behavior.
+The r147 release notes identify the auto-build at `af0c8ac`; its full source diff
+was inspected. No upstream Go dependency files changed from `dc9a6ee` through
+`af0c8ac`. The peer schema additions are observed latency fields; global perf
+configuration adds an optional mux boolean and leaves unset old live configs intact.
 
 | IDs | Cause and changed paths | Behavioral regression retained | Upstream replacement / removal condition |
 |---|---|---|---|
@@ -57,6 +61,16 @@ application health, no real reboot/upgrade/migration or WAN evidence) are valid
 scope limits, not newly reproduced implementation failures. An arbitrary
 application protocol cannot be safely guessed from a port; no probe fabricates
 an application-health success. These gates remain explicitly uncompleted.
+
+Hosted CI `37984925406` at `94f7d48` passed the same implementation/test source
+as `66ce97f`, with verbose scanner output enabled. `govulncheck` v1.8.0 reported
+0 reachable vulnerabilities and 0 vulnerabilities in imported packages; the one
+required-module advisory is [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932),
+deprecated `x/crypto/openpgp`, with no fixed version. Actual Linux dependency
+inspection includes `x/crypto/argon2` and `blake2b`, not OpenPGP. S01 is therefore
+NOT_APPLICABLE to the current build; retaining the needed Argon2 dependency is
+not a vulnerability opt-out. Revisit this decision whenever upstream changes
+imports. Full legacy/security and non-Linux scanning remain separate gates.
 
 ## Procedure for the next Hashem Panel update
 

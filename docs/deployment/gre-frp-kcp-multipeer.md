@@ -1,7 +1,7 @@
 # Automated two-peer deployment and maintenance
 
 **Status: controlled testing only. Release blocked.** First close the real
-systemd/reboot, firewall, upgrade/migration, secret-audit and dependency gates in
+systemd/reboot, firewall, upgrade/migration and full-security gates in
 [acceptance](../testing/multipeer-acceptance.md). This document is an execution
 recipe for a subsequently authorized test host; no production machine was changed.
 Use the existing fork and reviewed commit, not the upstream floating installer.

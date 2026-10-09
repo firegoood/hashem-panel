@@ -1,8 +1,8 @@
 # Acceptance — managed direct GRE + FRP 0.71.0
 
 Date: 2026-10-09. Branch: `fix/multipeer-gre-kcp`.
-Implementation commit: `7631c295f9b85b75b7371c2577fbf99028ad0d08`.
-Integrated upstream: `80bbb012919c0cc27ef1e8c311310f03ae126c51`.
+Implementation commit: `66ce97f644dedb01f31efac9055693738e95c0cb`.
+Integrated upstream: `af0c8ac2f916149011cb3abf5e0718d133445ed1` (`panel-r147`).
 This matrix reports the disposable environment below. **No production VPS was
 accessed and no release readiness is implied by PASS.**
 
@@ -30,10 +30,10 @@ Shell CLI wrappers and authenticated HTTPS WebUI APIs operate the same manager.
 
 ## Executed checks
 
-- Full Linux suite: 140 PASS, 0 FAIL, 0 SKIP (96.904 seconds after panel-r146 integration).
-- Full Linux race suite: 140 PASS, 0 FAIL, 0 SKIP (100.605 seconds).
-- Full Windows suite: 139 PASS, 0 FAIL, 1 SKIP (88.457 seconds). The skipped
-  native Linux FRP check executed on Linux; POSIX file mode assertions are not
+- Full Linux suite: 150 PASS, 0 FAIL, 0 SKIP (97.559 seconds after panel-r147 integration).
+- Full Linux race suite: 150 PASS, 0 FAIL, 0 SKIP (101.771 seconds).
+- Full Windows suite: 148 PASS, 0 FAIL, 2 SKIP (96.527 seconds). Both skipped
+  native Linux FRP checks executed on Linux; POSIX file mode assertions are not
   applied to Windows. The TCP relay burst on Windows is bounded to 64 clients.
 - The final full race run includes concurrent credential migration plus upstream
   random-session, upstream Argon2id compatibility, checksum, Origin and peer
@@ -50,7 +50,7 @@ Shell CLI wrappers and authenticated HTTPS WebUI APIs operate the same manager.
   invalid update preservation; API secret redaction; application restart;
   idempotent repeat setup; owned interface/unit/firewall cleanup; unrelated GRE
   preservation; encrypted backup validation; 128 actual KCP TCP sessions with
-  exact payload checks. See [sanitized evidence](evidence/isolated-r146-2026-10-09.json).
+  exact payload checks. See [sanitized evidence](evidence/isolated-r147-2026-10-09.json).
 - Static `systemd-analyze verify` for the two actual generated foreign units:
   PASS. This does not execute systemd boot/ordering/restart policy.
 - Obsolete-unit and WSS-front ownership/idempotence regressions, Backhaul
@@ -61,9 +61,20 @@ Shell CLI wrappers and authenticated HTTPS WebUI APIs operate the same manager.
   activation message and secret input/redaction. Prior evidence covered direct
   CLI/API only; the previously omitted menu limitations are corrected here.
 - Dockerfile build and frontend inline JS/bundle transport checks: PASS.
-- `govulncheck` v1.8.0: **NOT_EXECUTED to completion**. Official database fetch
-  `https://vuln.go.dev/index/modules.json.gz` returned HTTP 403. CI retries this
-  as a blocking check. No claim that dependencies are vulnerability-free.
+- Upstream mux unset/on/off persistence and official FRP validation in both mux
+  modes: PASS. Go/Shell global performance mutations refuse managed or corrupt
+  registries before state changes; frontend disables these controls: PASS. Managed
+  mux migration and throughput improvements are not claimed.
+- Upstream SS RTT parser, ICMP/TCP selection and hub latency summary: PASS on
+  synthetic fixtures. Authenticated managed health guards remain PASS; KCP does
+  not get an invented TCP RTT when ICMP is unavailable.
+- `govulncheck` v1.8.0: **PASS on the hosted Linux runner** at run `37984000607`.
+  It reported 0 reachable vulnerabilities, 0 vulnerabilities in imported packages,
+  and 1 advisory in required modules outside the imported call graph. Verbose
+  run `37984925406` identifies GO-2026-5932 for unused `x/crypto/openpgp`; actual
+  Linux dependencies include only `x/crypto/argon2` and `blake2b`. Local database fetch still returned
+  HTTP 403; local scan is NOT_EXECUTED to completion. This is not a blanket
+  certification that all dependencies or legacy features are vulnerability-free.
 
 Native stress verifies 128 completed sessions with 32 concurrent workers, not
 1,000 simultaneous FRP users. The separate 1,000-client Go relay test is a harness
@@ -106,8 +117,8 @@ stability are **NOT_EXECUTED**. No attractive estimates substitute for them.
 | A29 No secrets in logs/backups/Git | NOT_EXECUTED | Managed API/private-file/encrypted-backup tests pass; full legacy log/backup coverage and external secret scanner unavailable |
 | A30 Repeated setup safe/idempotent | PASS | Same peer returns same revision/config hash without duplicate resources |
 
-**26 PASS, 0 FAIL, 4 NOT_EXECUTED.** A22, A23, A27 and A29 plus the uncompleted
-vulnerability check and unverified alternate-carrier/legacy gates block release.
+**26 PASS, 0 FAIL, 4 NOT_EXECUTED.** A22, A23, A27 and A29 plus unverified
+alternate-carrier/legacy and full-security gates block release.
 
 ## Hosted CI follow-up
 
@@ -115,8 +126,8 @@ Original run [37935268084](https://github.com/firegoood/hashem-panel/actions/run
 failed after unit/race tests passed: default `go build` could not obtain Git VCS
 status from a checkout owned by the runner but mounted in a root container.
 `govulncheck` was **SKIPPED**, so it did not cause that failure. The runner now
-trusts exactly `/work`, preserving VCS provenance without wildcard trust. A
-subsequent hosted run is required; its result is recorded after delivery.
+trusts exactly `/work`, preserving VCS provenance without wildcard trust. The
+subsequent successful binary build is confirmed by run `37984000607`.
 
 Follow-up run [37982018171](https://github.com/firegoood/hashem-panel/actions/runs/37982018171)
 passed unit tests but exposed a race in WSS startup versus carrier API test
@@ -124,7 +135,21 @@ teardown. The TLS path is now captured before spawning; stop cancels and joins
 the worker, resource publication checks cancellation, status fields synchronize,
 and the API tests stop owned workers before restoring their config paths. The
 carrier/fail-closed/immediate-stop regressions passed five repetitions under race.
-The hosted scan was again SKIPPED; a further hosted result is required.
+The hosted scan in that failed attempt was again SKIPPED.
+
+Run [37984000607](https://github.com/firegoood/hashem-panel/actions/runs/37984000607)
+at `66ce97f` passed the full workflow: frontend, image build, Shell/menu fixtures,
+Go unit/vet/race, binary build, 26 real traffic checks, mandatory dependency scan
+and sanitized artifact upload. A verbose scanner follow-up uses the identical
+application/test source and reports the required-module advisory explicitly.
+
+Final verbose run [37984925406](https://github.com/firegoood/hashem-panel/actions/runs/37984925406)
+at `94f7d48` passed all workflow steps again. The only change from `66ce97f`
+is scanner verbosity. [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932) applies
+to the deprecated OpenPGP package and has no fixed version; it is not imported
+by this Linux panel build. Scanner scope: five modules including the panel,
+Go 1.27.2 standard library and Linux package call graph. No ignore rule,
+database opt-out or weakened exit handling was added.
 
 The local scan was retried against both the canonical compressed index and
 canonical bulk archive; both returned HTTP 403. No database opt-out, empty local
