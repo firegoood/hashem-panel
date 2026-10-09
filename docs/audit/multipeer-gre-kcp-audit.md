@@ -7,9 +7,10 @@ Inspected upstream: https://github.com/pdnczone/hashem-panel
 Starting fork and fetched upstream `main`: `52b41adab0ffb84ba02aeb18119cb6780a82d5ed`
 (`panel-r142`, 2026-10-09). The fresh checkout had no custom diff or uncommitted
 files. Work is isolated on `fix/multipeer-gre-kcp`; upstream is read-only.
-The final inspected upstream `main` is `dc9a6ee765b6b2a91505cb4f67b8c7a35a58fa81`.
-Six subsequent upstream commits were reviewed and integrated with explicit
-resolutions; see the correction ledger for replacement decisions.
+The first delivery integrated `dc9a6ee765b6b2a91505cb4f67b8c7a35a58fa81`.
+This follow-up starts at fork `c71305de528280306aaa0c0b345e7f4c1eff47c4` and
+integrates upstream `80bbb012919c0cc27ef1e8c311310f03ae126c51` (`panel-r146`).
+All three new upstream commits were reviewed with explicit resolutions; see the correction ledger for replacement decisions.
 The current delivery SHA is obtained with `git rev-parse HEAD`; this report does
 not contain a self-referential commit hash. AGPL-3.0 and upstream attribution remain.
 
@@ -79,6 +80,28 @@ native FRP verification and traffic, rather than README assertions, support thes
   C05 concerns public HTTP exposure, and C03 the peer cookie bypass.
 - Upstream `52b41ad` already moved the rescue test to an unprivileged port. Its
   Windows POSIX-mode assertion was a separate remaining portability defect.
+
+## Follow-up findings R01-R07
+
+All seven source/CI defects below are **CONFIRMED**. Combined with the original
+latest-upstream classification this is **CONFIRMED 36, ALREADY_FIXED 1,
+NOT_APPLICABLE 0, NEEDS_RUNTIME_VERIFICATION 0** for counted defects. Operational
+acceptance remains separate; missing runtime gates are not counted as fixed.
+
+| ID | Defect / evidence | Correction and regression |
+|---|---|---|
+| R01 | Hosted CI unit/race PASS, binary build fails Git VCS status from runner/root ownership; scan skipped | Trust only mounted reviewed `/work`; actual CI build must pass; preserve scan gate |
+| R02 | `menu_add_peer` omits transport and defaults new native peer to TCP | Explicit menu TCP/KCP selection, KCP default; generated TR KCP and traffic tested |
+| R03 | Fast Setup dispatches to legacy hsh1 parser | Secure hsh2 stdin to native setup; actual menu pairing tested |
+| R04 | Bundle menu reads one legacy `/etc/frp/frps.toml` | Select ID and call owned `peer-token`; actual dispatch fixture |
+| R05 | CLI help and editing imply obsolete bundle/global carrier behavior | Managed-first help; normalized raw mappings and direct-GRE TCP/KCP edit menu |
+| R06 | Guided foreign setup uses wrong `local_pub` field and exports bundle to child environment | Canonical `local_public`, private stdin; capture fixture and real setup |
+| R07 | New upstream fleet labels established TCP socket as healthy without authenticated registration | Shared rollup requires managed authenticated registration; stale/pending/disabled/process-only never healthy; legacy socket-only DEGRADED |
+
+The retained correction ledger records the exact new upstream decisions and
+removal conditions. No full managed FOU/WSS/QUIC failover or generic application
+probe is claimed. Original interactive menu gaps were not covered by the first
+delivery's direct-command/API acceptance; the new fixtures close that gap.
 
 ## Remaining gates
 

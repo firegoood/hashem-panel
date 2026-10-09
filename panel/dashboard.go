@@ -38,40 +38,41 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	traffic := greTraffic()
 	recordTrafficSample(traffic)
 	peers := livePeers()
-	// multi-peer rollup: tunnel counts as online if ANY leg is up
+	// Rollup uses the same per-tunnel verdict as the fleet graph (fleetHealth):
+	// a live FRP session is healthy even when the GRE inner address has no ping.
+	// The main tunnel counts as one more spoke of the hub.
 	anyUp := st.Gre.Exists || st.FrpUp
 	health := "DOWN"
-	if len(peers) > 0 {
-		allHealthy := true
-		anyHealthy := false
+	all := peers
+	if m := mainTunnelLive(); m != nil {
+		all = append([]peerLive{*m}, peers...)
+	}
+	if len(all) > 0 {
+		healthy, up := 0, 0
 		anyUp = false
-		for _, p := range peers {
+		for _, p := range all {
 			if p.GreUp || p.FrpUp {
 				anyUp = true
 			}
-			if p.GreUp && p.FrpUp && p.PingOK {
-				anyHealthy = true
-			} else if p.GreUp || p.FrpUp {
-				anyHealthy = true
-				allHealthy = false
-			} else {
-				allHealthy = false
+			switch fleetHealth(p) {
+			case fleetOK:
+				healthy++
+				up++
+			case fleetDeg:
+				up++
 			}
 		}
-		if allHealthy && len(peers) > 0 {
+		switch {
+		case healthy == len(all):
 			health = "HEALTHY"
-		} else if anyHealthy {
+		case up > 0:
 			health = "DEGRADED"
-		} else {
-			health = "DOWN"
 		}
 	} else {
 		if st.Gre.Exists && st.FrpUp && st.PingOK {
 			health = "HEALTHY"
 		} else if st.Gre.Exists || st.FrpUp {
 			health = "DEGRADED"
-		} else {
-			health = "DOWN"
 		}
 	}
 	peerCfg := loadPeerConfig()

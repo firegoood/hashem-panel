@@ -2,6 +2,7 @@ name: Verify managed GRE FRP fork
 on:
   push:
     branches: ['fix/multipeer-gre-kcp', 'codex/**']
+    paths: ['panel/**', '*.sh', 'tests/**', '.github/workflows/verify-fork.yml']
   pull_request:
   workflow_dispatch:
 permissions:

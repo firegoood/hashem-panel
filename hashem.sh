@@ -57,6 +57,7 @@ LOG_DIR="/var/log/hashem"
 mask_sensitive() {
     local text="$1"
     echo "$text" | sed -E \
+        -e 's/hsh2_[A-Za-z0-9_-]+/[MASKED_PAIRING_BUNDLE]/g' \
         -e 's/(hsh1_[^_]+_[0-9]+_[^_]+_[^_]+_)[A-Za-z0-9_-]{8,128}/\1[MASKED_TOKEN]/g' \
         -e 's/(auth\.token[[:space:]]*=[[:space:]]*")[^"]+/\1[MASKED_TOKEN]/g' \
         -e 's/(token[[:space:]]*=[[:space:]]*")[^"]+/\1[MASKED_TOKEN]/g' \
@@ -1233,6 +1234,169 @@ tunnel_present() {
     return 1
 }
 
+# ---- Dial route (foreign side): how frpc / backhaul-client reaches the Iran hub ----
+# The control connection can go over the GRE inner address (default) or straight
+# to the hub's public IP (the hub listens on 0.0.0.0). When GRE is blocked on one
+# path (ICMP/protocol 47 dropped) the public route keeps FRP alive.
+# dial.env keeps: DIAL_MODE=auto|gre|public  DIAL_KIND=frp|backhaul  DIAL_GRE  DIAL_PUBLIC
+dial_env_file() { echo "${CONFIG_DIR}/dial.env"; }
+
+dial_env_write() { # $1=mode $2=kind $3=gre_ip $4=public_ip
+    mkdir -p "$CONFIG_DIR"
+    printf 'DIAL_MODE=%s\nDIAL_KIND=%s\nDIAL_GRE=%s\nDIAL_PUBLIC=%s\n' "$1" "$2" "$3" "$4" > "$(dial_env_file)"
+    chmod 600 "$(dial_env_file)" 2>/dev/null || true
+}
+
+dial_env_get() { # $1=KEY
+    local f; f="$(dial_env_file)"
+    [[ -f "$f" ]] || return 1
+    sed -n "s/^$1=//p" "$f" | head -n1
+}
+
+dial_conf_file() { # $1=kind
+    if [[ "$1" == "backhaul" ]]; then echo "${BACKHAUL_CONFIG_DIR:-/etc/backhaul}/client.toml"; else echo "${CONFIG_DIR}/frpc.toml"; fi
+}
+
+dial_service() { [[ "$1" == "backhaul" ]] && echo backhaul-client || echo frpc; }
+
+dial_current_addr() { # $1=kind -> host currently dialled
+    local f; f="$(dial_conf_file "$1")"
+    [[ -f "$f" ]] || return 1
+    if [[ "$1" == "backhaul" ]]; then
+        sed -n 's/^remote_addr[[:space:]]*=[[:space:]]*"\([^":]*\):[0-9]*".*/\1/p' "$f" | head -n1
+    else
+        sed -n 's/^serverAddr[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -n1
+    fi
+}
+
+dial_current_port() { # $1=kind
+    local f; f="$(dial_conf_file "$1")"
+    [[ -f "$f" ]] || return 1
+    if [[ "$1" == "backhaul" ]]; then
+        sed -n 's/^remote_addr[[:space:]]*=[[:space:]]*"[^":]*:\([0-9]*\)".*/\1/p' "$f" | head -n1
+    else
+        sed -n 's/^serverPort[[:space:]]*=[[:space:]]*\([0-9]*\).*/\1/p' "$f" | head -n1
+    fi
+}
+
+# GRE is "usable" when its inner address answers ping or accepts the control port.
+dial_gre_usable() { # $1=gre_ip $2=port
+    ping -c 2 -W 2 "$1" >/dev/null 2>&1 && return 0
+    timeout 3 bash -c "exec 3<>/dev/tcp/$1/$2" >/dev/null 2>&1 && return 0
+    return 1
+}
+
+dial_pick() { # $1=mode $2=gre_ip $3=public_ip $4=port -> chosen address
+    case "$1" in
+        gre)    echo "$2" ;;
+        public) echo "$3" ;;
+        *)      if dial_gre_usable "$2" "$4"; then echo "$2"; else echo "$3"; fi ;;
+    esac
+}
+
+dial_apply_addr() { # $1=kind $2=addr $3=port
+    local f; f="$(dial_conf_file "$1")"
+    [[ -f "$f" ]] || return 1
+    if [[ "$1" == "backhaul" ]]; then
+        sed -i -E "s|^remote_addr[[:space:]]*=.*|remote_addr = \"$2:$3\"|" "$f"
+    else
+        sed -i -E "s|^serverAddr[[:space:]]*=.*|serverAddr = \"$2\"|" "$f"
+    fi
+}
+
+# Older installs have no dial.env: rebuild it from the live GRE interface + client config.
+dial_env_ensure() {
+    [[ -f "$(dial_env_file)" ]] && return 0
+    local kind="" cur pub inner gre a b c d
+    if [[ -f "${CONFIG_DIR}/frpc.toml" ]]; then kind=frp
+    elif [[ -f "${BACKHAUL_CONFIG_DIR:-/etc/backhaul}/client.toml" ]]; then kind=backhaul
+    else return 1; fi
+    cur=$(dial_current_addr "$kind"); [[ -n "$cur" ]] || return 1
+    pub=$(ip tunnel show "$TUNNEL_NAME" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="remote") print $(i+1)}' | head -n1)
+    inner=$(ip -4 addr show dev "$TUNNEL_NAME" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1)
+    gre=""
+    if [[ "$cur" =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.) ]]; then
+        gre="$cur"
+    elif [[ -n "$inner" ]]; then
+        IFS=. read -r a b c d <<< "$inner"
+        if (( d % 2 == 0 )); then gre="$a.$b.$c.$((d - 1))"; else gre="$a.$b.$c.$((d + 1))"; fi
+    fi
+    [[ -z "$pub" && "$cur" != "$gre" ]] && pub="$cur"
+    [[ -n "$gre" && -n "$pub" ]] || return 1
+    dial_env_write auto "$kind" "$gre" "$pub"
+}
+
+# dial_reselect [mode]: re-evaluate the route and rewrite the client config.
+# Prints "changed:<addr>" / "same:<addr>". Does NOT restart the service.
+dial_reselect() {
+    managed_registry_present && return 1
+    dial_env_ensure || return 1
+    local mode kind gre pub port cur want
+    kind=$(dial_env_get DIAL_KIND); gre=$(dial_env_get DIAL_GRE); pub=$(dial_env_get DIAL_PUBLIC)
+    mode="${1:-$(dial_env_get DIAL_MODE)}"; mode="${mode:-auto}"
+    port=$(dial_current_port "$kind"); cur=$(dial_current_addr "$kind")
+    [[ -n "$kind" && -n "$port" && -n "$cur" ]] || return 1
+    want=$(dial_pick "$mode" "$gre" "$pub" "$port")
+    [[ -n "$want" ]] || return 1
+    if [[ "$want" == "$cur" ]]; then
+        echo "same:$cur"
+    else
+        dial_apply_addr "$kind" "$want" "$port" || return 1
+        echo "changed:$want"
+    fi
+}
+
+# True when the client already holds an established TCP session to its server.
+dial_connected() { # $1=addr $2=port
+    ss -Htn state established 2>/dev/null | awk -v a="$1:$2" '$4==a {f=1} END {exit !f}'
+}
+
+# Watchdog hook (auto mode only): GRE died and the client is not connected -> go public.
+dial_watch_tick() {
+    managed_registry_present && return 0
+    [[ -f "$(dial_env_file)" ]] || return 0
+    [[ "$(dial_env_get DIAL_MODE)" == "auto" ]] || return 0
+    local kind gre pub port cur svc
+    kind=$(dial_env_get DIAL_KIND); gre=$(dial_env_get DIAL_GRE); pub=$(dial_env_get DIAL_PUBLIC)
+    port=$(dial_current_port "$kind"); cur=$(dial_current_addr "$kind")
+    [[ -n "$port" && "$cur" == "$gre" ]] || return 0
+    dial_connected "$cur" "$port" && return 0
+    dial_gre_usable "$gre" "$port" && return 0
+    dial_apply_addr "$kind" "$pub" "$port" || return 0
+    svc=$(dial_service "$kind")
+    systemctl restart "$svc" >/dev/null 2>&1 || true
+    log_msg "tunnel" "WARN" "GRE path to ${gre} dead; ${svc} now dials Iran public ${pub}:${port}" 2>/dev/null || true
+}
+
+cli_dial() {
+    if managed_registry_present; then
+        if [[ "${1:-status}" == "status" ]]; then echo "available=0"; return 0; fi
+        echo "Legacy dial routing is unavailable for managed GRE peers." >&2; return 1
+    fi
+    local sub="${1:-status}"
+    case "$sub" in
+        status)
+            if ! dial_env_ensure; then echo "available=0"; return 0; fi
+            local kind cur port mode gre pub active
+            kind=$(dial_env_get DIAL_KIND); gre=$(dial_env_get DIAL_GRE); pub=$(dial_env_get DIAL_PUBLIC)
+            mode=$(dial_env_get DIAL_MODE); cur=$(dial_current_addr "$kind"); port=$(dial_current_port "$kind")
+            active="other"; [[ "$cur" == "$gre" ]] && active=gre; [[ "$cur" == "$pub" ]] && active=public
+            echo "available=1"; echo "mode=${mode:-auto}"; echo "active=$active"; echo "addr=$cur"
+            echo "port=$port"; echo "gre=$gre"; echo "public=$pub"; echo "kind=$kind"
+            ;;
+        auto|gre|public)
+            dial_env_ensure || { echo -e "${RED}[!] No foreign client config found (frpc / backhaul client).${NC}"; return 1; }
+            sed -i -E "s/^DIAL_MODE=.*/DIAL_MODE=${sub}/" "$(dial_env_file)"
+            local r; r=$(dial_reselect "$sub") || { echo -e "${RED}[!] Could not apply dial route.${NC}"; return 1; }
+            if [[ "$r" == changed:* ]]; then
+                systemctl restart "$(dial_service "$(dial_env_get DIAL_KIND)")" >/dev/null 2>&1 || true
+            fi
+            echo -e "${GREEN}[✔️] Dial route: ${sub} (${r#*:})${NC}"
+            ;;
+        *) echo "Usage: hashem dial [status|auto|gre|public]"; return 1 ;;
+    esac
+}
+
 check_root() {
     [[ "${HASHEM_NO_ROOT_CHECK:-0}" == "1" ]] && return 0
     if [[ ${EUID:-$(id -u 2>/dev/null || echo 1)} -ne 0 ]]; then
@@ -1428,7 +1592,7 @@ backhaul_ensure_tls() {
     fi
 }
 
-backhaul_write_server_conf() {
+backhaul_write_server_conf_v1() {
     local CONF_FILE="$1"
     local BIND_ADDR="$2"
     local TRANSPORT="${3:-tcpmux}"
@@ -1478,7 +1642,7 @@ EOF
     echo "]" >> "$CONF_FILE"
 }
 
-backhaul_write_client_conf() {
+backhaul_write_client_conf_v1() {
     local CONF_FILE="$1"
     local REMOTE_ADDR="$2"
     local TRANSPORT="${3:-tcpmux}"
@@ -1499,6 +1663,72 @@ web_port = 0
 sniffer_log = ""
 log_level = "info"
 EOF
+}
+
+# B-03: the Backhaul core shipped by hashem is the "Modified v2.x" build, whose
+# TOML schema differs from upstream v0.x ([listener]/[dialer]/[transport]/
+# [security]/[ports] instead of flat [server]/[client]). Writing the v0.x
+# schema for a v2 core makes it exit with "neither server nor client
+# configuration is properly set". Pick the schema from the installed core.
+backhaul_is_v2() {
+    local bin="${INSTALL_DIR:-/usr/local/bin}/backhaul" v
+    [[ -x "$bin" ]] || bin="$(command -v backhaul 2>/dev/null)"
+    [[ -n "$bin" ]] || return 1
+    v="$("$bin" -v 2>/dev/null | head -n1)"
+    [[ "$v" =~ ^v?2\. ]]
+}
+
+backhaul_write_server_conf_v2() {
+    local CONF_FILE="$1" BIND_ADDR="$2" TRANSPORT="$3" TOKEN="$4" PORTS_LIST="$5"
+    mkdir -p "$(dirname "$CONF_FILE")"
+    if [[ "$TRANSPORT" == "wss" || "$TRANSPORT" == "wssmux" ]]; then
+        backhaul_ensure_tls
+    fi
+    {
+        printf '[listener]\nbind_addr = "%s"\n\n' "$BIND_ADDR"
+        printf '[transport]\ntype = "%s"\nnodelay = true\nkeepalive_period = 75\n\n' "$TRANSPORT"
+        printf '[security]\ntoken = "%s"\n\n' "$TOKEN"
+        if [[ "$TRANSPORT" == *mux ]]; then
+            printf '[mux]\nmux_version = 1\n\n'
+        fi
+        if [[ "$TRANSPORT" == "wss" || "$TRANSPORT" == "wssmux" ]]; then
+            printf '[tls]\ntls_cert = "%s/server.crt"\ntls_key = "%s/server.key"\n\n' "$BACKHAUL_CONFIG_DIR" "$BACKHAUL_CONFIG_DIR"
+        fi
+        printf '[logging]\nlog_level = "info"\n\n[ports]\nmapping = [\n'
+        local p
+        IFS=',' read -ra _ADDR <<< "$PORTS_LIST"
+        for p in "${_ADDR[@]}"; do
+            p="$(echo "$p" | xargs)"
+            [[ -z "$p" ]] && continue
+            printf '    "%s",\n' "$p"
+        done
+        printf ']\n'
+    } > "$CONF_FILE"
+}
+
+backhaul_write_client_conf_v2() {
+    local CONF_FILE="$1" REMOTE_ADDR="$2" TRANSPORT="${3:-tcpmux}" TOKEN="$4"
+    mkdir -p "$(dirname "$CONF_FILE")"
+    {
+        printf '[dialer]\nremote_addr = "%s"\ndial_timeout = 10\nretry_interval = 3\n\n' "$REMOTE_ADDR"
+        printf '[transport]\ntype = "%s"\nconnection_pool = 8\nnodelay = true\nkeepalive_period = 75\n\n' "$TRANSPORT"
+        printf '[security]\ntoken = "%s"\n\n' "$TOKEN"
+        if [[ "$TRANSPORT" == *mux ]]; then
+            printf '[mux]\nmux_version = 1\n\n'
+        fi
+        if [[ "$TRANSPORT" == "wss" || "$TRANSPORT" == "wssmux" ]]; then
+            printf '[tls]\nsni = "%s"\n\n' "${REMOTE_ADDR%%:*}"
+        fi
+        printf '[logging]\nlog_level = "info"\n'
+    } > "$CONF_FILE"
+}
+
+backhaul_write_server_conf() {
+    if backhaul_is_v2; then backhaul_write_server_conf_v2 "$@"; else backhaul_write_server_conf_v1 "$@"; fi
+}
+
+backhaul_write_client_conf() {
+    if backhaul_is_v2; then backhaul_write_client_conf_v2 "$@"; else backhaul_write_client_conf_v1 "$@"; fi
 }
 
 setup_backhaul_server_systemd() {
@@ -2663,6 +2893,70 @@ menu_perf() {
 # the bottom of this file (setup-iran / setup-foreign), so all three paths
 # (menu, CLI, panel) execute identical steps.
 # Args: $1=local_pub $2=remote_pub $3=frp_port $4=token [$5=local_gre [$6=peer_gre [$7="cleaned ports"]]]
+# wss_front_port <control_port>: FRP "wss" needs a TLS terminator in front of
+# frps (frpc speaks WebSocket-over-TLS, frps only cleartext WebSocket). The
+# front listens on control_port+2 (quic uses +1); wraps below 65535.
+wss_front_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && (( $1 > 0 && $1 <= 65535 )) || return 1
+    local p=$(( $1 + 2 ))
+    (( p > 65535 )) && p=$(( $1 - 2 ))
+    echo "$p"
+}
+
+# frps_wss_front_ensure <suffix> <control_port>: (re)create + start the
+# TLS front unit frps-wss<suffix>.service (idempotent).
+frps_wss_front_ensure() {
+    local SUF="$1" CPORT="$2"
+    local FPORT SVC="frps-wss${1}" PBIN="${PANEL_BIN:-/usr/local/bin/gre-panel}"
+    [[ "$SUF" =~ ^(-[1-5])?$ ]] || return 1
+    FPORT=$(wss_front_port "$CPORT") || return 1
+    local unit="${HASHEM_SYSTEMD_DIR:-/etc/systemd/system}/${SVC}.service"
+    if [[ -e "$unit" ]] && ! grep -Fxq '# Hashem owned legacy WSS front' "$unit"; then
+        echo "Unowned WSS front unit; no changes made." >&2; return 1
+    fi
+    if [[ ! -x "$PBIN" ]]; then
+        echo -e "${YELLOW}[!] ${PBIN} not found — cannot start the WSS TLS front on :${FPORT}.${NC}"
+        return 1
+    fi
+    cat > "$unit" <<UNIT
+# Hashem owned legacy WSS front
+[Unit]
+Description=Hashem FRP WSS TLS front (:${FPORT} -> 127.0.0.1:${CPORT})
+After=network.target frps${SUF}.service
+
+[Service]
+Type=simple
+User=root
+Restart=always
+RestartSec=3s
+LimitNOFILE=1048576
+ExecStart=${PBIN} tls-proxy -listen 0.0.0.0:${FPORT} -target 127.0.0.1:${CPORT}
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable "$SVC" >/dev/null 2>&1 || true
+    systemctl restart "$SVC" >/dev/null 2>&1 || return 1
+    systemctl is-active --quiet "$SVC" || return 1
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+        ufw allow "${FPORT}/tcp" >/dev/null 2>&1 || true
+    fi
+    echo -e "${GREEN}[✔️] WSS TLS front listening on :${FPORT} (-> frps :${CPORT})${NC}"
+}
+
+# frps_wss_front_remove <suffix>
+frps_wss_front_remove() {
+    [[ "$1" =~ ^(-[1-5])?$ ]] || return 1
+    local SVC="frps-wss${1}"
+    local unit="${HASHEM_SYSTEMD_DIR:-/etc/systemd/system}/${SVC}.service"
+    [[ -e "$unit" ]] || return 0
+    grep -Fxq '# Hashem owned legacy WSS front' "$unit" || { echo "Unowned WSS front unit preserved." >&2; return 1; }
+    systemctl stop "$SVC" >/dev/null 2>&1 || true
+    systemctl disable "$SVC" >/dev/null 2>&1 || true
+    rm -f "${HASHEM_SYSTEMD_DIR:-/etc/systemd/system}/${SVC}.service"
+}
+
 setup_iran_server_noninteractive() {
     local IP_IRAN=$1 IP_FOREIGN=$2 BIND_PORT=$3 TOKEN=$4
     local LOCAL_GRE=${5:-$IRAN_GRE_IP} PEER_GRE=${6:-$FOREIGN_GRE_IP}
@@ -2781,6 +3075,13 @@ EOF
         fi
     fi
 
+    # 3b. WSS transport needs a TLS front for frps (needs the panel binary installed above)
+    if [[ "$FRP_TRANSPORT" == "wss" ]]; then
+        frps_wss_front_ensure "" "$BIND_PORT" || { STATUS_FRP="FAILED"; FRP_ERR="WSS TLS front failed to start"; }
+    else
+        frps_wss_front_remove ""
+    fi
+
     # 4. Summary & Verification
     echo -e "\n=============================================================="
     echo "                   INSTALLATION SUMMARY"
@@ -2891,10 +3192,19 @@ _setup_foreign_full() {
     if [[ "$FRP_TRANSPORT" == "quic" ]]; then
         EFF_SERVER_PORT=$((SERVER_PORT + 1))
         if [[ "$EFF_SERVER_PORT" -gt 65535 ]]; then EFF_SERVER_PORT=$((SERVER_PORT - 1)); fi
+    elif [[ "$FRP_TRANSPORT" == "wss" ]]; then
+        EFF_SERVER_PORT=$(wss_front_port "$SERVER_PORT")
     fi
+    # Dial route: GRE inner address when it works, else the hub's public IP (hub listens on 0.0.0.0)
+    local DIAL_ADDR
+    DIAL_ADDR=$(dial_pick "${FRP_DIAL:-auto}" "$PEER_GRE" "$IP_IRAN" "$EFF_SERVER_PORT")
+    if [[ "$DIAL_ADDR" != "$PEER_GRE" ]]; then
+        echo -e "${YELLOW}[!] GRE path to ${PEER_GRE} is not usable — frpc will dial the Iran public IP ${IP_IRAN} directly.${NC}"
+    fi
+    dial_env_write "${FRP_DIAL:-auto}" frp "$PEER_GRE" "$IP_IRAN"
     mkdir -p "${CONFIG_DIR}"
     cat <<EOF > "${CONFIG_DIR}/frpc.toml"
-serverAddr = "${PEER_GRE}"
+serverAddr = "${DIAL_ADDR}"
 serverPort = ${EFF_SERVER_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
@@ -2962,6 +3272,7 @@ StartLimitIntervalSec=0
 LimitNOFILE=1048576
 LimitNPROC=512000
 TasksMax=infinity
+ExecStartPre=-/bin/sh -c "if [ -x /usr/local/bin/hashem ]; then timeout 30 /usr/local/bin/hashem dial-select >/dev/null 2>&1; fi; true"
 ExecStart=${INSTALL_DIR}/frpc -c ${CONFIG_DIR}/frpc.toml
 
 [Install]
@@ -3021,7 +3332,7 @@ EOF
     fi
 
     if [[ "$STATUS_FRP" == "OK" ]]; then
-        echo -e "[${GREEN}OK${NC}]     FRP Client Service (frpc active, connecting to ${PEER_GRE}:${SERVER_PORT})"
+        echo -e "[${GREEN}OK${NC}]     FRP Client Service (frpc active, connecting to ${DIAL_ADDR}:${EFF_SERVER_PORT})"
         echo -e "         Reverse ports: ${PORTS_CLEANED} (TCP & UDP, TLS)"
     else
         echo -e "[${RED}FAILED${NC}] FRP Client Service (${FRP_ERR})"
@@ -3381,7 +3692,10 @@ setup_gre_backhaul_foreign_server_noninteractive() {
     if [[ "$STATUS_BH" == "OK" ]]; then
         mkdir -p "${BACKHAUL_CONFIG_DIR}"
         # In GRE+Backhaul, foreign client dials Iran via the GRE internal IP (PEER_GRE)
-        backhaul_write_client_conf "${BACKHAUL_CONFIG_DIR}/client.toml" "${PEER_GRE}:${SERVER_PORT}" "$TRANSPORT" "$TOKEN"
+        local BH_DIAL
+        BH_DIAL=$(dial_pick "${FRP_DIAL:-auto}" "$PEER_GRE" "$IP_IRAN" "$SERVER_PORT")
+        dial_env_write "${FRP_DIAL:-auto}" backhaul "$PEER_GRE" "$IP_IRAN"
+        backhaul_write_client_conf "${BACKHAUL_CONFIG_DIR}/client.toml" "${BH_DIAL}:${SERVER_PORT}" "$TRANSPORT" "$TOKEN"
         setup_backhaul_client_systemd "backhaul-client" "${BACKHAUL_CONFIG_DIR}/client.toml"
         sed -i "s/After=network.target/After=network.target ${TUNNEL_NAME}.service/" /etc/systemd/system/backhaul-client.service 2>/dev/null || true
         systemctl daemon-reload
@@ -3601,6 +3915,7 @@ cli_add_peer() {
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
         esac
     done
+    case "${FRP_DIAL:-auto}" in auto|gre|public) ;; *) echo -e "${YELLOW}[!] Unknown --dial '${FRP_DIAL}', using auto.${NC}"; FRP_DIAL=auto ;; esac
     CHAFF_PROFILE="${CHAFF_PROFILE:-$(perf_get_chaff)}"
     case "$CHAFF_PROFILE" in
         low|mid|off) ;;
@@ -3615,6 +3930,7 @@ cli_add_peer() {
         [[ -z "$PEER_GRE" ]] && PEER_GRE=$B_FOREIGN_GRE
         [[ -z "$TOKEN" ]] && TOKEN=$B_TOKEN
         [[ -z "$PORTS" ]] && PORTS=$B_PORTS
+        PEER_FRP_TRANSPORT="${B_TRANSPORT:-tcp}"
     fi
     FRP_PORT=${FRP_PORT:-$(gen_random_port)}
     validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$LOCAL_GRE" || return 1
@@ -3678,6 +3994,10 @@ cli_add_peer() {
         echo -e "${RED}[!] Error: ${FRPS_SVC} failed to start. Generated configuration might be invalid.${NC}"
         return 1
     fi
+    if [[ "${PEER_FRP_TRANSPORT:-tcp}" == "wss" ]]; then
+        local _fsuf=""; [[ "$LEGACY" == "true" ]] || _fsuf="-${ID}"
+        frps_wss_front_ensure "$_fsuf" "$FRP_PORT" || echo -e "${YELLOW}[!] WSS TLS front could not be started for this peer.${NC}"
+    fi
     # registry record (ports as JSON array)
     local PORTS_JSON
     PORTS_JSON=$(echo "$CLEANED" | python3 -c 'import json,sys; print(json.dumps([int(x) for x in sys.stdin.read().split()]))')
@@ -3723,6 +4043,7 @@ cli_remove_peer() {
     if [[ "$LEG" == "1" ]]; then
         remove_tunnel_force
     else
+        frps_wss_front_remove "-${ID}"
         systemctl stop "$SVC" "${GIF}.service" "gre-chaff-${ID}.service" >/dev/null 2>&1
         systemctl disable "$SVC" "${GIF}.service" "gre-chaff-${ID}.service" >/dev/null 2>&1
         rm -f "/etc/systemd/system/${SVC}.service" "/etc/systemd/system/${GIF}.service" "/etc/frp/frps-${ID}.toml" "/etc/backhaul/server-${ID}.toml" "/etc/systemd/system/gre-chaff-${ID}.service"
@@ -4094,27 +4415,14 @@ cli_edit_peer_ports() {
 
 # readable peer table for the menu
 peer_list_pretty() {
-    peer_init; peer_require_py || return 1
-    PEERS_F="$PEERS_FILE" python3 <<'PYEOF'
-import json, os, subprocess
-try:
-    peers = json.load(open(os.environ["PEERS_F"])).get("peers", [])
-except Exception as e:
-    print(f"[!] cannot read peers registry: {e}"); raise SystemExit(1)
-if not peers:
-    print("[*] No peer tunnels yet. Use 'Add peer tunnel' to connect a foreign server.")
-    raise SystemExit(0)
-tun = subprocess.run(["ip", "tunnel", "show"], capture_output=True, text=True).stdout
-for p in sorted(peers, key=lambda x: x["id"]):
-    gre = "up" if p.get("gre_if", "") in tun else "down"
-    try:
-        frp = subprocess.run(["systemctl", "is-active", p.get("frps_svc", "")],
-                             capture_output=True, text=True).stdout.strip()
-    except Exception:
-        frp = "?"
-    print(f"#{p['id']} {p['name']}: {p['remote_pub']} (GRE {p['local_gre']} peer {p['peer_gre']}, {p['gre_if']} {gre}) "
-          f"| {p['frps_svc']} :{p['frp_port']} {frp} | ports: {','.join(map(str, p.get('ports', [])))}")
-PYEOF
+    local records
+    records=$(managed_cli peer-list) || return 1
+    printf '%s' "$records" | python3 -c '
+import json,sys
+peers=json.load(sys.stdin)["peers"]
+if not peers: print("No peer tunnels configured.")
+for p in peers:
+ print("#%s %s | %s | %s | transport=%s | revision=%s/%s | ports=%s" % (p["id"], p.get("name",""), p.get("remote_pub",""), p.get("state","UNKNOWN"), p.get("frp_transport",p.get("transport","")), p.get("applied_revision",0), p.get("revision",0), ",".join(p.get("raw_ports",[]))))'
 }
 
 setup_iran_server() {
@@ -4139,32 +4447,25 @@ setup_iran_server() {
 
 # interactive wrapper for cli_add_peer: prompts for one more foreign server.
 menu_add_peer() {
-    echo -e "\n${YELLOW}=== Add Peer Tunnel (connect ANOTHER foreign server to this Iran) ===${NC}"
-    peer_init
-    USED=$(peer_ports_used 2>/dev/null)
-    [[ -n "$USED" ]] && echo -e "${CYAN}Already claimed reverse ports: ${USED}${NC}"
-    local MYIP
-    MYIP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
-    local NAME IP_FOREIGN PORT CPORT TOKEN LGRE PGRE PPORTS
-    read -p "Peer name (e.g. germany-1) [Enter for auto]: " NAME
-    prompt_ip LOCAL_IRAN "Enter IRAN Server Public IP" "$MYIP"
-    prompt_ip IP_FOREIGN "Enter FOREIGN Server Public IP" ""
-    # suggest next free control port + GRE pair
-    local NEXT_ID SU_FP SU_LG SU_PG
-    NEXT_ID=$(peer_next_id 2>/dev/null || echo 2)
-    SU_FP=$(gen_random_port)
-    SU_LG="10.1${NEXT_ID}.0.2"; SU_PG="10.1${NEXT_ID}.0.1"
-    prompt_port CPORT "Enter FRP Control Port (unique per peer)" "$SU_FP"
-    AUTO_TOKEN=$(gen_token32)
-    prompt_token TOKEN "Peer token (each peer gets its own)" "$AUTO_TOKEN"
-    prompt_ip LGRE "Local GRE IP (unique per peer)" "$SU_LG"
-    prompt_ip PGRE "Peer GRE IP" "$SU_PG"
-    prompt_ports PPORTS "Ports to Reverse-Tunnel"
-    cli_add_peer --name "$NAME" --local-pub "$LOCAL_IRAN" --remote-pub "$IP_FOREIGN" \
-        --frp-port "$CPORT" --token "$TOKEN" --local-gre "$LGRE" --peer-gre "$PGRE" --ports "$PPORTS"
-    echo -e "\n${GREEN}=== On the FOREIGN server, run this script option 2 with: ===${NC}"
-    echo -e "IRAN Public IP: ${CYAN}${LOCAL_IRAN}${NC} | Port: ${CYAN}${CPORT}${NC} | Token: ${CYAN}${TOKEN}${NC}"
-    echo -e "GRE: local ${CYAN}${PGRE}${NC} peer ${CYAN}${LGRE}${NC} | Ports: ${CYAN}${PPORTS}${NC}"
+    local records next_id name local_pub remote_pub local_gre peer_gre control ports transport
+    records=$(managed_cli peer-list) || return 1
+    next_id=$(printf '%s' "$records" | python3 -c 'import json,sys; used={p["id"] for p in json.load(sys.stdin)["peers"]}; free=next((i for i in range(1,6) if i not in used),0); print(free); sys.exit(0 if free else 1)') || {
+        echo "All five peer IDs are occupied." >&2; return 1;
+    }
+    printf '\nAdd managed peer #%s (direct GRE + FRP)\n' "$next_id"
+    read -r -p 'Peer name: ' name || return 1
+    read -r -p 'Iran public IPv4: ' local_pub || return 1
+    read -r -p 'Foreign public IPv4: ' remote_pub || return 1
+    read -r -p "Iran GRE IPv4 [10.70.${next_id}.1]: " local_gre || return 1
+    read -r -p "Foreign GRE IPv4 [10.70.${next_id}.2]: " peer_gre || return 1
+    read -r -p "Control port [$((17000 + next_id))]: " control || return 1
+    read -r -p 'Forward ports (e.g. 8888,8889 or tcp:8080=80): ' ports || return 1
+    read -r -p 'FRP transport [kcp] (tcp or kcp): ' transport || return 1
+    managed_json_request id "$next_id" name "$name" local_public "$local_pub" remote_public "$remote_pub" \
+        local_gre "${local_gre:-10.70.${next_id}.1}" peer_gre "${peer_gre:-10.70.${next_id}.2}" \
+        frp_port "${control:-$((17000 + next_id))}" ports "$ports" frp_transport "${transport:-kcp}" | \
+        managed_cli add-peer --request-file - || return 1
+    echo 'Local activation is PENDING. Pair the returned private hsh2 bundle on this foreign node; then verify application traffic.'
 }
 
 menu_remove_peer() {
@@ -4176,47 +4477,21 @@ menu_remove_peer() {
 }
 
 menu_edit_peer() {
-    echo -e "\n${YELLOW}=== Edit Peer Tunnel Configuration ===${NC}"
     peer_list_pretty || return 1
-    local ID
-    read -p "Peer id to edit: " ID
-    [[ "$ID" =~ ^[0-9]+$ ]] || { echo -e "${RED}[!] Invalid Peer ID.${NC}"; return 1; }
-
-    peer_init; peer_require_py || return 1
-    local rec
-    rec=$(peer_get "$ID")
-    [[ -n "$rec" ]] || { echo -e "${RED}[!] No peer with id $ID.${NC}"; return 1; }
-
-    local CUR_NAME CUR_REMOTE CUR_CARRIER CUR_PORTS
-    CUR_NAME=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))')
-    CUR_REMOTE=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("remote_pub",""))')
-    CUR_CARRIER=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("carrier","direct"))')
-    CUR_PORTS=$(echo "$rec" | python3 -c 'import json,sys; print(", ".join(str(x) for x in json.load(sys.stdin).get("ports",[])))')
-
-    echo -e "\n${CYAN}Editing Peer #${ID} (${CUR_NAME}):${NC}"
-    echo -e "Press Enter on any field to keep its current value."
-
-    local NEW_NAME NEW_REMOTE CAR_OPT NEW_CARRIER="" NEW_PORTS
-    read -p "Name [${CUR_NAME}]: " NEW_NAME
-    read -p "Remote Public IP [${CUR_REMOTE}]: " NEW_REMOTE
-    echo -e "Carrier mode options: 1) Direct GRE  2) FOU:443  3) FOU:55555  4) WSS:8443  (Enter to keep '${CUR_CARRIER}')"
-    read -p "Select carrier [1-4]: " CAR_OPT
-    case "$CAR_OPT" in
-        1) NEW_CARRIER="direct" ;;
-        2) NEW_CARRIER="fou:443" ;;
-        3) NEW_CARRIER="fou:55555" ;;
-        4) NEW_CARRIER="wss:8443" ;;
-        *) NEW_CARRIER="" ;;
-    esac
-    read -p "Forwarded ports (comma-separated) [${CUR_PORTS}]: " NEW_PORTS
-
-    local ARGS=(--id "$ID")
-    [[ -n "$NEW_NAME" ]] && ARGS+=(--name "$NEW_NAME")
-    [[ -n "$NEW_REMOTE" ]] && ARGS+=(--remote-pub "$NEW_REMOTE")
-    [[ -n "$NEW_CARRIER" ]] && ARGS+=(--carrier "$NEW_CARRIER")
-    [[ -n "$NEW_PORTS" ]] && ARGS+=(--ports "$NEW_PORTS")
-
-    cli_edit_peer "${ARGS[@]}"
+    local id name remote ports transport
+    read -r -p 'Peer ID to edit: ' id || return 1
+    [[ "$id" =~ ^[1-5]$ ]] || { echo 'Invalid managed peer ID.' >&2; return 1; }
+    echo 'Press Enter to keep the existing value. Managed carrier remains direct GRE.'
+    read -r -p 'Name: ' name || return 1
+    read -r -p 'Foreign public IPv4: ' remote || return 1
+    read -r -p 'Forward ports (protocol/range/mapping supported): ' ports || return 1
+    read -r -p 'FRP transport (tcp or kcp): ' transport || return 1
+    local fields=(id "$id")
+    [[ -z "$name" ]] || fields+=(name "$name")
+    [[ -z "$remote" ]] || fields+=(remote_pub "$remote")
+    [[ -z "$ports" ]] || fields+=(raw_ports "$ports")
+    [[ -z "$transport" ]] || fields+=(frp_transport "$transport")
+    managed_json_request "${fields[@]}" | managed_cli edit-peer --request-file -
 }
 
 menu_edit_peer_ports() {
@@ -5176,88 +5451,19 @@ free_ram() {
 }
 
 install_panel_smart() {
-    local status
-    status=$(get_component_status panel)
-    case "$status" in
-        RUNNING)
-            echo -e "${GREEN}[✔️] Web Panel is already installed and running.${NC}"
-            echo -e "${CYAN}[*] Skipping redundant reinstallation to preserve system state.${NC}"
-            show_panel_url
-            return 0
-            ;;
-        STOPPED)
-            echo -e "${YELLOW}[!] Web Panel is installed but currently STOPPED.${NC}"
-            if [[ -t 0 ]]; then
-                read -p "Start Web Panel service now? [Y/n]: " START_OPT
-                if [[ ! "$START_OPT" =~ ^[Nn]$ ]]; then
-                    systemctl start gre-panel
-                    sleep 2
-                    if systemctl is-active --quiet gre-panel; then
-                        echo -e "${GREEN}[✔️] Web Panel started successfully.${NC}"
-                        show_panel_url
-                        return 0
-                    else
-                        echo -e "${RED}[!] Failed to start Web Panel.${NC}"
-                    fi
-                fi
-            else
-                systemctl start gre-panel
-                sleep 2
-                systemctl is-active --quiet gre-panel && return 0
-            fi
-            ;;
-        BROKEN)
-            echo -e "${RED}[!] Web Panel is installed but UNHEALTHY / BROKEN.${NC}"
-            if [[ -t 0 ]]; then
-                echo "Options:"
-                echo "  1) Repair (reset-failed & restart service)"
-                echo "  2) Reinstall (clean download & install)"
-                echo "  3) Skip"
-                echo "  4) Back"
-                read -p "Select option [1-4]: " BROKEN_OPT
-                case "$BROKEN_OPT" in
-                    1)
-                        echo -e "${CYAN}[*] Attempting repair...${NC}"
-                        systemctl reset-failed gre-panel >/dev/null 2>&1 || true
-                        systemctl restart gre-panel >/dev/null 2>&1 || true
-                        sleep 2
-                        if systemctl is-active --quiet gre-panel; then
-                            echo -e "${GREEN}[✔️] Web Panel repaired and running!${NC}"
-                            show_panel_url
-                            return 0
-                        else
-                            echo -e "${RED}[!] Repair failed. Falling back to clean install...${NC}"
-                            backup_configs "panel_broken"
-                            install_panel
-                            return $?
-                        fi
-                        ;;
-                    2)
-                        backup_configs "panel_reinstall"
-                        install_panel
-                        return $?
-                        ;;
-                    3|4)
-                        return 0
-                        ;;
-                    *)
-                        echo -e "${YELLOW}[*] Action skipped.${NC}"
-                        return 0
-                        ;;
-                esac
-            else
-                backup_configs "panel_reinstall"
-                install_panel
-                return $?
-            fi
-            ;;
-        NOT_INSTALLED|*)
-            ensure_dependencies_smart
-            backup_configs "panel_install"
-            install_panel
-            return $?
-            ;;
-    esac
+    # A retained binary is insufficient proof to recreate an owned unit safely.
+    # Never repair the maintained fork by downloading a floating upstream build.
+    if [[ ! -f /etc/systemd/system/gre-panel.service ]]; then
+        echo 'Panel unit missing. Run install-fork.sh from the reviewed fork checkout; inspect ownership if installation refuses.' >&2
+        return 1
+    fi
+    if [[ ! -x /usr/local/bin/gre-panel ]] || ! grep -q '^ExecStart=/usr/local/bin/gre-panel$' /etc/systemd/system/gre-panel.service; then
+        echo 'Owned panel binary/unit required. Repair from the reviewed fork checkout.' >&2
+        return 1
+    fi
+    systemctl start gre-panel.service || return 1
+    systemctl is-active --quiet gre-panel.service || return 1
+    show_panel_url
 }
 
 install_panel() {
@@ -5614,6 +5820,14 @@ watchdog_check() {
         fi
     fi
 
+    if [[ $GRE_OK -eq 0 && "$FRP_NAME" == "frpc" && $FRP_OK -eq 1 ]]; then
+        local _da _dp
+        _da=$(dial_current_addr frp 2>/dev/null); _dp=$(dial_current_port frp 2>/dev/null)
+        if [[ -n "$_da" && -n "$_dp" ]] && dial_connected "$_da" "$_dp"; then
+            GRE_OK=1
+        fi
+    fi
+
     local FAILS=0
     if [[ -f "$WATCHDOG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
         FAILS=$(python3 -c '
@@ -5777,6 +5991,7 @@ watchdog_tick() {
     fi
 
     init_watchdog_json
+    dial_watch_tick 2>/dev/null || true
 
     local TICK_ACTION
     TICK_ACTION=$(python3 -c '
@@ -6935,10 +7150,10 @@ menu_tunnel() {
         echo "  2) Setup FOREIGN Tunnel (via Bundle string or Manual)"
         echo "  3) Add Peer Tunnel (Multi-foreign servers on Iran)"
         echo "  4) List Peers & Show Setup Bundle"
-        echo "  5) Edit Peer Tunnel Configuration (Ports, IP, Carrier, Name)"
+        echo "  5) Edit Managed Peer (Ports, IP, TCP/KCP, Name)"
         echo "  6) Remove a Specific Peer Tunnel"
-        echo "  7) Tunnel Health Status & GRE Ping Test"
-        echo "  8) Restart All Tunnel Services"
+        echo "  7) Managed Peer Health (registration and application status)"
+        echo "  8) Restart All Managed Peers"
         echo "  9) Teardown All Tunnels (Panel remains active)"
         echo "  0) Back to Main Menu"
         echo ""
@@ -6968,35 +7183,18 @@ menu_tunnel() {
                 echo "  0) Cancel"
                 read -p "Select [0-2]: " FO_PROTO
                 case "$FO_PROTO" in
-                    1)
-                        read -p "Paste Bundle string (hsh1_... / bh1_... / gh1_...): " BUNDLE_IN
-                        if [[ -n "$BUNDLE_IN" ]]; then
-                            cli_setup_foreign --bundle "$BUNDLE_IN"
-                        fi
-                        ;;
+                    1) menu_fast_foreign ;;
                     2) setup_foreign_server ;;
                     *) ;;
                 esac
                 pause_prompt
                 ;;
             3) menu_add_peer; pause_prompt ;;
-            4)
-                peer_list_pretty
-                local IP_IRAN BIND_PORT TOKEN
-                IP_IRAN=$(grep -o '"local_public": *"[^"]*"' /etc/gre-panel/panel.json 2>/dev/null | cut -d'"' -f4)
-                [[ -z "$IP_IRAN" ]] && IP_IRAN=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
-                BIND_PORT=$(awk -F'=' '/bindPort/{gsub(/[ "]/,"",$2); print $2}' /etc/frp/frps.toml 2>/dev/null)
-                TOKEN=$(awk -F'=' '/auth\.token/{gsub(/[ "]/,"",$2); print $2}' /etc/frp/frps.toml 2>/dev/null)
-                if [[ -n "$IP_IRAN" && -n "$BIND_PORT" && -n "$TOKEN" ]]; then
-                    echo -e "\n${GREEN}=== Iran Server Setup Bundle ===${NC}"
-                    echo -e "BUNDLE: ${CYAN}$(bundle_make "$IP_IRAN" "$BIND_PORT" "$IRAN_GRE_IP" "$FOREIGN_GRE_IP" "$TOKEN")${NC}\n"
-                fi
-                pause_prompt
-                ;;
+            4) menu_show_peer_bundle; pause_prompt ;;
             5) menu_edit_peer; pause_prompt ;;
             6) menu_remove_peer; pause_prompt ;;
-            7) check_status; pause_prompt ;;
-            8) restart_all; pause_prompt ;;
+            7) managed_cli health-check; pause_prompt ;;
+            8) menu_restart_peers; pause_prompt ;;
             9) remove_tunnel; pause_prompt ;;
             0) return 0 ;;
             *) echo -e "${RED}[!] Invalid option.${NC}"; sleep 1 ;;
@@ -7325,7 +7523,17 @@ main_menu() {
 # SINGLE source of truth — menu, CLI, and web panel all run the same steps.
 usage_cli() {
     cat <<EOF
-Usage:
+Managed direct GRE + FRP (TCP/KCP):
+  hashem add-peer --request-file -           # JSON stdin; also available in the menu
+  hashem setup-foreign --request-file -      # bundle=hsh2_..., local_public=<this node>
+  hashem peer-list                          # redacted desired state
+  hashem peer-token --id N                  # private per-peer hsh2 pairing bundle
+  hashem edit-peer --request-file -         # mappings, name, address, TCP/KCP
+  hashem disable-peer|enable-peer|restart-peer|remove-peer --id N
+  hashem health-check                      # registration evidence; application status can be UNKNOWN
+The managed menu defaults to KCP. Legacy hsh1 parsing does not establish managed trust.
+
+Legacy/other-engine commands:
   hashem                                    # first run: auto-install (deps + FRP + panel) & show credentials
                                             # after install: show panel credentials & exit
   hashem menu                               # interactive management menu (all options)
@@ -7344,6 +7552,7 @@ Usage:
   hashem logs | restart | panel-tls [domain] [email]   # (also: bash hashem.sh ...)
   hashem optimize | restore | tune-status
   hashem carrier [status|mode auto|direct|fou:P|wss:P|set direct|fou:P|wss:P|next] # multi-carrier failover
+  hashem dial [status|auto|gre|public]         # foreign side: reach the Iran hub over GRE, its public IP, or auto (GRE if it works)
   hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply
   hashem chaff on|off|status                   # traffic obfuscation (idle-gap filler)
   hashem dpi-shield on|off|status              # rate-limit reverse ports against DPI flood
@@ -7358,7 +7567,7 @@ Usage:
   hashem free-ram                              # cap journald + drop cache + 1GB swap
 
 Setup bundles:
-  FRP:              hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
+  Legacy FRP only:  hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>]
   Backhaul No-GRE:  bh1_<IRAN_PUB>_<BH_PORT>_<TRANSPORT>_<TOKEN>[_<PORTS>]
   GRE + Backhaul:   gh1_<IRAN_PUB>_<BH_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TRANSPORT>_<TOKEN>[_<PORTS>]
   Printed as BUNDLE:... by setup / add-peer; paste it into --bundle (CLI) or panel Foreign token field.
@@ -7427,6 +7636,7 @@ cli_setup_foreign() {
             --compress) FRP_COMPRESSION="on"; shift ;;
             --frp-encryption) FRP_ENCRYPTION="$2"; shift 2 ;;
             --frp-compression) FRP_COMPRESSION="$2"; shift 2 ;;
+            --dial) FRP_DIAL="$2"; shift 2 ;;
             --chaff) CHAFF_PROFILE="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) usage_cli; return 0 ;;
@@ -7612,6 +7822,7 @@ cli_setup_gre_backhaul_foreign() {
             --transport) TRANSPORT="$2"; shift 2 ;;
             --token) TOKEN="$2"; shift 2 ;;
             --bundle) BUNDLE="$2"; shift 2 ;;
+            --dial) FRP_DIAL="$2"; shift 2 ;;
             --force) FORCE=1; shift ;;
             -h|--help) echo 'Usage: hashem setup-gre-backhaul-foreign --bundle gh1_... | --remote-pub IP --port P --token K'; return 0 ;;
             *) echo -e "${RED}[!] Unknown flag: $1${NC}"; return 1 ;;
@@ -7730,10 +7941,67 @@ cli_carrier() {
     esac
 }
 
-cli_add_peer() { /usr/local/bin/gre-panel peer-manage add-peer "$@"; }
-cli_remove_peer() { /usr/local/bin/gre-panel peer-manage remove-peer "$@"; }
-cli_edit_peer() { /usr/local/bin/gre-panel peer-manage edit-peer "$@"; }
-cli_edit_peer_ports() { /usr/local/bin/gre-panel peer-manage edit-peer-ports "$@"; }
+managed_cli() {
+    [[ -x /usr/local/bin/gre-panel ]] || { echo 'Install the reviewed fork with install-fork.sh first.' >&2; return 1; }
+    /usr/local/bin/gre-panel peer-manage "$@"
+}
+
+managed_json_request() {
+    printf '%s\0' "$@" | python3 -c '
+import json,sys
+fields=sys.stdin.buffer.read().decode("utf-8").split("\0")[:-1]
+if len(fields)%2: raise SystemExit("Invalid request fields")
+body=dict(zip(fields[::2],fields[1::2]))
+for key in ("id","frp_port"):
+ if key in body: body[key]=int(body[key])
+if "raw_ports" in body: body["raw_ports"]=[body["raw_ports"]]
+print(json.dumps(body))'
+}
+
+managed_registry_present() {
+    python3 -c '
+import json,sys,os
+path=sys.argv[1]
+if not os.path.exists(path): sys.exit(1)
+try: peers=json.load(open(path))["peers"]
+except (ValueError,KeyError,OSError,TypeError): sys.exit(0)
+sys.exit(0 if any(p.get("managed") for p in peers) else 1)' "${PANEL_CONFIG_DIR:-${GRE_PANEL_DIR:-/etc/gre-panel}}/peers.json"
+}
+
+menu_fast_foreign() {
+    local pairing local_pub
+    read -r -s -p 'Private pairing bundle (hsh2; legacy Backhaul bh1/gh1): ' pairing || return 1
+    printf '\n'
+    case "$pairing" in
+        hsh2_*)
+            read -r -p 'This server public IPv4: ' local_pub || return 1
+            managed_json_request bundle "$pairing" local_public "$local_pub" | managed_cli setup-foreign --request-file -
+            ;;
+        bh1_*|gh1_*) cli_setup_foreign --bundle "$pairing" ;;
+        *) echo 'Managed FRP requires a secure hsh2 bundle from the Iran peer. Legacy hsh1 cannot establish managed trust.' >&2; return 1 ;;
+    esac
+}
+
+menu_show_peer_bundle() {
+    peer_list_pretty || return 1
+    local id
+    read -r -p 'Peer ID whose private hsh2 bundle to display (Enter to return): ' id || return 1
+    [[ -n "$id" ]] || return 0
+    [[ "$id" =~ ^[1-5]$ ]] || { echo 'Invalid managed peer ID.' >&2; return 1; }
+    managed_cli peer-token --id "$id"
+}
+
+menu_restart_peers() {
+    local records ids id
+    records=$(managed_cli peer-list) || return 1
+    ids=$(printf '%s' "$records" | python3 -c 'import json,sys; print(" ".join(str(p["id"]) for p in json.load(sys.stdin)["peers"] if p.get("managed")))') || return 1
+    for id in $ids; do managed_cli restart-peer --id "$id" || return 1; done
+}
+
+cli_add_peer() { managed_cli add-peer "$@"; }
+cli_remove_peer() { managed_cli remove-peer "$@"; }
+cli_edit_peer() { managed_cli edit-peer "$@"; }
+cli_edit_peer_ports() { managed_cli edit-peer-ports "$@"; }
 
 cli_add_backhaul_peer() {
     (
@@ -7754,18 +8022,13 @@ setup_iran_server() {
     read -r -p 'Control port [17001]: ' control
     read -r -p 'Forward ports (e.g. 8888,8889 or tcp:8080=80): ' ports
     read -r -p 'FRP transport [kcp]: ' transport
-    /usr/local/bin/gre-panel peer-manage setup-iran --local-pub "$local_pub" --remote-pub "$remote_pub" \
+    managed_cli setup-iran --local-pub "$local_pub" --remote-pub "$remote_pub" \
         --local-gre "${local_gre:-10.70.1.1}" --peer-gre "${peer_gre:-10.70.1.2}" \
         --frp-port "${control:-17001}" --ports "$ports" --frp-transport "${transport:-kcp}"
 }
 
 setup_foreign_server() {
-    local pairing local_pub
-    read -r -s -p 'Secure hsh2 pairing bundle: ' pairing; printf '\n'
-    read -r -p 'This server public IPv4: ' local_pub
-    HASHEM_PAIRING="$pairing" HASHEM_LOCAL_PUB="$local_pub" python3 -c \
-        'import os,json; print(json.dumps({"bundle":os.environ["HASHEM_PAIRING"],"local_pub":os.environ["HASHEM_LOCAL_PUB"]}))' | \
-        /usr/local/bin/gre-panel peer-manage setup-foreign --request-file -
+    menu_fast_foreign
 }
 
 # Shared FRP peer lifecycle. Installed by install-fork.sh from this checkout.
@@ -7829,6 +8092,8 @@ if [[ $# -gt 0 ]]; then
         panel-remove-domain|panel-tls-remove) panel_tls_remove ;;
         carrier) shift; cli_carrier "$@" ;;
         carrier-kernel-init) carrier_init_kernel ;;
+        dial) shift; cli_dial "$@" ;;
+        dial-select) dial_reselect >/dev/null 2>&1; exit 0 ;;
         carrier-apply-active) shift; carrier_apply_active "$1" ;;
         optimize) tune_apply ;;
         restore) tune_restore ;;

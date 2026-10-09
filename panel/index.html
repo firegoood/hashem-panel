@@ -405,7 +405,6 @@
     background:var(--sunk); transition:border-color .15s; }
   .dash-peer-row:hover { border-color:var(--ln2); }
   /* main tunnel card: gold left accent so it stands apart from peer cards */
-  .main-card { border-left:3px solid var(--wr); }
   .det-copy { border:1px solid var(--ln); background:var(--s2); color:var(--mu); border-radius:7px;
     font-size:12px; font-weight:700; padding:3px 8px; cursor:pointer; transition:all .15s ease; }
   .det-copy:hover { color:var(--tx); border-color:var(--ac); }
@@ -1166,6 +1165,11 @@
           <span class="rsc-ic warn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg></span>
           <div class="rsc-ban-t"><b data-i18n="rsc_ban_t">This server cannot connect to its peer</b><span data-i18n="rsc_ban_d">Ping works but every TCP connection is dropped on the way. A one-click fix reverses the connection direction.</span></div>
           <button type="button" class="hashem-btn hashem-btn-primary" id="rscBanGo" data-i18n="rsc_ban_go">Fix it</button>
+        </div>
+        <div class="tunnel-card" id="dialCard" hidden>
+          <div class="tc-header"><p class="tc-title" data-i18n="dial_title">Route to the Iran hub</p><span class="badge" id="dialBadge"><span class="dot"></span><span id="dialBadgeTxt">—</span></span></div>
+          <p class="qs-hint" id="dialInfo" data-i18n="dial_hint">How this server reaches Iran: over the GRE inner IP, directly to the hub's public IP, or Auto (GRE when it works, public IP otherwise).</p>
+          <div class="rsc-acts" id="dialActs"></div>
         </div>
         <div class="tunnel-card fleet" id="fleetCard" hidden>
           <div class="fleet-hero">
@@ -3010,6 +3014,8 @@ const I18N = {
     fleet_loss: "Loss",
     fleet_uptime: "Uptime",
     fleet_nodata: "Collecting data…",
+    fleet_frp_only: "FRP only",
+    dial_title: "Route to the Iran hub", dial_hint: "How this server reaches Iran: over the GRE inner IP, directly to the hub's public IP, or Auto (GRE when it works, public IP otherwise).", dial_auto: "Auto", dial_gre: "GRE inner IP", dial_public: "Public IP", dial_public_btn: "Iran public IP",
     fleet_topo_aria: "Tunnel topology: {hub} connected to {n} servers",
     fleet_ring_aria: "{h} of {t} servers healthy",
     rs_hide_aria: "Hide live activity stream",
@@ -3411,6 +3417,8 @@ const I18N = {
     fleet_loss: "افت",
     fleet_uptime: "آپتایم",
     fleet_nodata: "در حال جمع‌آوری داده…",
+    fleet_frp_only: "فقط FRP",
+    dial_title: "مسیر اتصال به هاب ایران", dial_hint: "این سرور از چه مسیری به ایران وصل شود: IP داخلی GRE، مستقیم به IP عمومی هاب، یا خودکار (اگر GRE کار می‌کند همان، وگرنه IP عمومی).", dial_auto: "خودکار", dial_gre: "IP داخلی GRE", dial_public: "IP عمومی", dial_public_btn: "IP عمومی ایران",
     fleet_topo_aria: "نقشه‌ی تونل: {hub} متصل به {n} سرور",
     fleet_ring_aria: "{h} از {t} سرور سالم",
     rs_hide_aria: "بستن جریان زنده وقایع",
@@ -3788,8 +3796,7 @@ function renderTunnel(st) {
       <div class="tc-header u-flex-wrap-gap8">
         <div class="u-flex-center-gap10">
           <span class="status-indicator ${up ? 'active' : 'offline'}"><span class="dot"></span></span>
-          <b class="u-fs-16-tx">Main tunnel</b>
-          <span class="badge" style="border-color:color-mix(in srgb, var(--wr) 45%, transparent);color:var(--wr)"><span class="dot"></span>main</span>
+          <b class="u-fs-16-tx">${esc(st.remote_pub ? 'Tunnel · ' + st.remote_pub : 'Tunnel')}</b>
           <span class="badge dim"><span class="dot"></span>UNKNOWN</span>
         </div>
       </div>
@@ -7269,7 +7276,7 @@ function fleetTopo(nodes, hubIp) {
     const ms = nd.ping_ms >= 0 ? Math.round(nd.ping_ms) + ' ms' : '—';
     dots += '<g class="tp-node tp-' + c + '"><circle cx="' + nx + '" cy="' + ny + '" r="22" class="tp-ring"/><circle cx="' + nx + '" cy="' + ny + '" r="6" class="tp-core"/>'
       + '<text x="' + (nx + 32) + '" y="' + (ny - 3) + '" class="tp-name"><title>' + esc(nd.name) + '</title>' + esc(nd.name.length > 17 ? nd.name.slice(0, 16) + '…' : nd.name) + '</text>'
-      + '<text x="' + (nx + 32) + '" y="' + (ny + 13) + '" class="tp-sub">' + esc(tr('fleet_' + c, c)) + ' · ' + ms + '</text></g>';
+      + '<text x="' + (nx + 32) + '" y="' + (ny + 13) + '" class="tp-sub">' + esc(tr('fleet_' + c, c)) + ' · ' + ms + (nd.frp_only ? ' · ' + esc(tr('fleet_frp_only', 'FRP only')) : '') + '</text></g>';
   });
   const hub = '<g class="tp-hub"><circle cx="' + hx + '" cy="' + hy + '" r="30" class="tp-hub-ring"/><circle cx="' + hx + '" cy="' + hy + '" r="20" class="tp-hub-core"/>'
     + '<text x="' + hx + '" y="' + (hy + 4) + '" class="tp-hub-ic" text-anchor="middle">IR</text>'
@@ -7300,7 +7307,7 @@ function fleetRender(d) {
     const cls = n.health === 'healthy' ? 'ok' : n.health === 'degraded' ? 'warn' : 'err';
     return '<article class="fl-card fl-' + n.health + '" aria-label="' + esc(n.name) + '">'
       + '<header class="fl-head"><span class="fl-name" title="' + esc(n.name) + '">' + esc(n.name) + '</span><span class="badge ' + cls + '"><span class="dot"></span>' + esc(tr('fleet_' + n.health, n.health)) + '</span></header>'
-      + '<div class="fl-ip mono">' + esc(n.remote_pub || '—') + ' · ' + esc(eng) + (n.transport ? ' · ' + esc(n.transport) : '') + '</div>'
+      + '<div class="fl-ip mono">' + esc(n.remote_pub || '—') + ' · ' + esc(eng) + (n.transport ? ' · ' + esc(n.transport) : '') + (n.frp_only ? ' · ' + esc(tr('fleet_frp_only', 'FRP only')) : '') + '</div>'
       + '<div class="fl-ms"><b>' + (ms != null ? ms : '—') + '</b><span>ms</span></div>'
       + fleetSpark(n.history)
       + '<footer class="fl-stats"><div><span>' + esc(tr('fleet_avg', 'Avg')) + '</span><b>' + (st.samples && st.avg_ms ? Math.round(st.avg_ms) + ' ms' : '—') + '</b></div>'
@@ -7314,6 +7321,34 @@ async function loadFleet() {
   catch (e) { reportErr('fleet', e); return false; }
 }
 makePoller(async () => { if ($('app').classList.contains('hidden') || $('tab-tunnel').hidden) return true; return await loadFleet(); }, 10000);
+
+// ============================================================
+// Dial route (foreign side only): GRE inner IP vs Iran public IP vs auto.
+// ============================================================
+let _dial = null;
+async function loadDial() {
+  try { _dial = await api('/api/dial'); dialRender(); return true; }
+  catch (e) { reportErr('dial', e); return false; }
+}
+function dialRender() {
+  const d = _dial || {}, card = $('dialCard'); if (!card) return;
+  card.hidden = !d.available; if (!d.available) return;
+  const b = $('dialBadge'); b.className = 'badge ' + (d.active === 'public' ? 'info' : 'ok');
+  $('dialBadgeTxt').textContent = (d.active === 'public' ? tr('dial_public', 'Public IP') : d.active === 'gre' ? 'GRE' : (d.addr || '?')) + ' · ' + (d.addr || '') + ':' + (d.port || '');
+  const acts = $('dialActs'); acts.textContent = '';
+  [['auto', 'dial_auto', 'Auto'], ['gre', 'dial_gre', 'GRE inner IP'], ['public', 'dial_public_btn', 'Iran public IP']].forEach(([m, k, def]) => {
+    const btn = document.createElement('button'); btn.type = 'button';
+    btn.className = 'hashem-btn ' + (d.mode === m ? 'hashem-btn-primary' : 'hashem-btn-secondary');
+    btn.textContent = tr(k, def) + (d.mode === m ? ' ✓' : '');
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try { _dial = await api('/api/dial', { mode: m }); dialRender(); toastOk && toastOk('Dial', m); }
+      catch (e) { reportErr('dial', e); btn.disabled = false; }
+    };
+    acts.appendChild(btn);
+  });
+}
+makePoller(async () => { if ($('app').classList.contains('hidden') || $('tab-tunnel').hidden) return true; return await loadDial(); }, 15000);
 
 // ============================================================
 // Connectivity Rescue: detect a one-way block and reverse the dial direction.

@@ -170,3 +170,27 @@ its rollback currently covers panel files rather than legacy service state.
 Safe uninstall performs the narrow cleanup. RAM-scaled legacy optimization is
 retained but does not run during managed peer provisioning and is not certified
 as harmless to other applications; review it separately before opting in.
+
+## Interactive menu and panel-r146 additions
+
+Run `hashem menu`, then Tunnel Management. Add Peer chooses the next free owned
+ID, suggests its independent GRE /30 and control port, asks for TCP/KCP, and
+uses KCP when Enter accepts the default. It returns a private hsh2 bundle and
+PENDING local activation. Foreign Fast Setup and Guided Setup both accept that
+bundle silently and ask for **that foreign node's** public address; the correct
+`local_public` field goes to native setup through stdin. List/Show Bundle asks
+for the peer ID and does not read a first-peer legacy TOML. Edit supports full
+protocol/range/mapped ports and TCP/KCP; health/restart/removal target owned peers.
+
+Upstream panel-r146 adds a legacy WSS TLS front, Backhaul schema selection,
+public-dial routing and hub/spoke display. These are retained with ownership and
+health guards. Managed direct-GRE peers do not automatically dial public FRP
+control ports: their control listeners intentionally bind to their GRE address.
+The legacy Dial panel is unavailable when managed peers exist. Managed WSS/FOU/
+QUIC support still requires per-peer trust, firewall, migration and rollback
+acceptance. An active TCP socket alone is not authenticated health.
+
+Web Panel Repair starts an existing owned binary/unit. A missing unit or binary
+requires `install-fork.sh` from the reviewed checkout; the menu never fetches a
+floating upstream replacement. Installer ownership refusal is an explicit
+migration gate, not a reason to overwrite a retained unowned binary.

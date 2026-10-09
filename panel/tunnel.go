@@ -299,6 +299,8 @@ type peerRecord struct {
 
 type peerLive struct {
 	peerRecord
+	Linked            bool    `json:"linked"`
+	FrpOnly           bool    `json:"frp_only"`
 	GreUp             bool    `json:"gre_up"`
 	GreInner          string  `json:"gre_inner"`
 	FrpUp             bool    `json:"frp_up"`
@@ -447,6 +449,11 @@ func livePeers() []peerLive {
 			l.ObservedTransport = ""
 			l.LastError = "owned GRE or FRP process is unavailable"
 		}
+		if p.Managed {
+			l.Linked = l.Authenticated && l.ProxyRegistration == "REGISTERED" && l.FrpUp && !p.Disabled
+		} else {
+			l.Linked = l.FrpUp && controlLinked(p.FrpPort, p.RemotePub, p.PeerGre)
+		}
 		pingTarget := p.PeerGre
 		if pingTarget == "" && p.NoGre {
 			pingTarget = p.RemotePub
@@ -461,6 +468,7 @@ func livePeers() []peerLive {
 		if !p.NoGre {
 			l.Rx, l.Tx = ifaceTraffic(p.GreIf)
 		}
+		l.FrpOnly = l.Linked && !l.PingOK
 		out = append(out, l)
 	}
 	return out

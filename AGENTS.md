@@ -75,3 +75,11 @@ This repository is the existing `firegoood/hashem-panel` fork of
 - The test supervisor is not systemd. Actual installation/upgrade/reboot, legacy
   migrations, alternate carriers and incomplete security scans remain explicit
   release gates until their own evidence is recorded.
+- CLI parity includes the actual interactive menu selections, not just direct
+  commands. Keep secure bundle input on stdin, public setup field names correct,
+  per-peer bundle selection and explicit TCP/KCP selection under regression tests.
+- New upstream public-dial/carrier features must not bypass managed ownership,
+  GRE-only control binding or authenticated registration/health requirements.
+- CI must build the reviewed mount with VCS provenance despite runner/container
+  UID differences. Trust only that checkout path; never use safe.directory=*.
+  Inspect failed-step logs before attributing a CI failure to vulnerability checks.

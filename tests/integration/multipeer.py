@@ -35,7 +35,7 @@ def command(args, **kw):
 def node_env(node):
     d = RUN / node
     return ['env', 'GRE_PANEL_DIR=' + str(d), 'HASHEM_UNIT_DIR=' + str(d / 'units'),
-            'PATH=' + str(ROOT / 'tests/integration') + ':' + os.environ['PATH']]
+            'TERM=dumb', 'PATH=' + str(ROOT / 'tests/integration') + ':' + os.environ['PATH']]
 
 def node_command(node, args, **kw):
     return command(['ip', 'netns', 'exec', prefix + node, *node_env(node), *args], **kw)
@@ -127,8 +127,12 @@ try:
             created, _ = api('POST',base+'/api/setup',body)
             bundles[node] = created['bundle']
         else:
-            bundles[node] = cli('ir', 'add-peer', body)['bundle']
-        cli(node, 'setup-foreign', {'bundle': bundles[node], 'local_public': NODES[node]})
+            node_command('ir', ['bash', ROOT/'hashem.sh', 'menu'], input='\n'.join(['1','3','TR',NODES['ir'],NODES['tr'],'','','',ports,'','','0','0'])+'\n')
+            bundles[node] = cli('ir', 'peer-token', flags=('--id', '2')).strip()
+        if node == 'tr':
+            node_command(node, ['bash', ROOT/'hashem.sh', 'menu'], input='\n'.join(['1','2','1',bundles[node],NODES[node],'','0','0'])+'\n')
+        else:
+            cli(node, 'setup-foreign', {'bundle': bundles[node], 'local_public': NODES[node]})
         launch(node, [BIN])
     for port, label in [(8888, 'NL'), (8889, 'NL'), (8880, 'TR'), (2052, 'TR')]:
         check('TCP ' + str(port), lambda p=port, l=label: wait_for(lambda: echo(p, l)))
@@ -143,6 +147,7 @@ try:
             assert f'0.0.0.0:{17000+peer_id}' not in udp
             cli(node, 'reconcile', flags=('--id', str(peer_id)))
     check('actual KCP listeners on two independent GRE links', kcp)
+    check('interactive Add Peer defaults to KCP and Fast Setup pairs hsh2 without config edits',lambda: (echo(2052,'TR'), 'transport.protocol = \"kcp\"' in (RUN/'tr/managed/2/frp.toml').read_text() or (_ for _ in ()).throw(AssertionError('menu changed transport'))))
     first_hash = config_hash('ir',1)
     original = json.loads((RUN/'ir/peers.json').read_text())['peers'][0]
     same = {'name':'NL','local_public':NODES['ir'],'remote_public':NODES['nl'],'local_gre':'10.70.1.1','peer_gre':'10.70.1.2','frp_port':17001,'frp_transport':'kcp','ports':'8888,8889'}

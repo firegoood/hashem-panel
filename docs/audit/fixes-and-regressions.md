@@ -3,7 +3,8 @@
 Baseline upstream: `52b41adab0ffb84ba02aeb18119cb6780a82d5ed` (`panel-r142`).
 The candidate inventory, mechanisms and limits are in
 [the audit](multipeer-gre-kcp-audit.md). Every row below is an **active** correction.
-Latest integrated upstream: `dc9a6ee765b6b2a91505cb4f67b8c7a35a58fa81`.
+Latest integrated upstream: `80bbb012919c0cc27ef1e8c311310f03ae126c51` (`panel-r146`).
+Previous delivery: `c71305de528280306aaa0c0b345e7f4c1eff47c4`; previous upstream: `dc9a6ee`.
 The following comparison was actually performed during this delivery; active
 rows remain only where upstream has not superseded their complete behavior.
 
@@ -32,6 +33,27 @@ rows remain only where upstream has not superseded their complete behavior.
 | `a2530b5` (peer leak test) | Existing fork transport already closes idle connections. Adopt the regression; no duplicate implementation or invented leak fix. | Forty real HTTP requests must leave zero open connections. |
 | `12835f7` (obsolete units/RAM tuning) | Adopt legacy-unit cleanup but narrow ownership to exact `/usr/local/bin/hashem[.sh] --monitor/--webui` commands. Integrate with safe uninstall and explicit `cleanup-legacy`, preserving unrelated units. Adopt RAM-scaled values in the pre-existing legacy tuning workflow; managed setup does not invoke global tuning. Do not import broad upstream uninstall. | Fake systemd root tests: removed dead units, idempotence, retained valid/unowned units. Real upgrade/legacy tuning/reboot still unverified. Installer does not automatically run cleanup outside its rollback scope. |
 | `dc9a6ee` (audit documents) | Preserve upstream historical audit/checklist attribution; their host observations are not this fork's test results. Fork audit and acceptance under `docs/` are authoritative for this delivery. | No claim that upstream host tests ran in this environment. |
+
+## Follow-up review and integration: panel-r146
+
+The pasted follow-up correctly identified missing interactive-menu coverage and
+an actual hosted CI failure. Previous PASS results covered direct CLI/API paths,
+not every interactive menu selection. The new review preserves that distinction.
+
+| IDs / upstream | Cause, decision and changed paths | Retained verification and replacement condition |
+|---|---|---|
+| R01 CI checkout ownership | Original Actions run `37935268084` passed Go/race tests, then failed `go build` with `error obtaining VCS status: exit status 128`. The dependency scan was SKIPPED. `tests/integration/run.sh` trusts only `/work` in the disposable container so VCS stamping works across runner/root UID ownership. | Actual default build in the runner; keep mandatory vulnerability check. Never wildcard Git trust or mask test failures. |
+| R02 menu KCP / R03 Fast Setup / R04 bundle / R05 help | `menu_add_peer` omitted transport; Fast Setup invoked legacy `cli_setup_foreign`; bundle display read the first legacy TOML; help prioritized hsh1. `hashem.sh` now shares `managed_cli`, defaults to KCP with explicit TCP choice, sends canonical JSON stdin, selects bundle by peer ID, and routes edit/remove/health/restart through owned management. | `tests/test_managed_menu.py` executes actual function bodies and menu dispatch. Real network integration creates TR through Add Peer and pairs through Fast Setup; retained exact TCP/UDP payload and removal isolation tests. Replace wrappers only when equivalent menu tests pass. |
+| R06 newly verified foreign setup field mismatch | Existing guided foreign wrapper sent `local_pub`, while setup accepts `local_public`. It also exported the pairing secret to a Python child environment. The shared private-input wrapper now sends canonical `local_public` and bundle through stdin without argv/environment exposure. | Guided/Fast Setup request capture; actual native foreign setup; quoted-name/mapping serialization; failure cannot print a success banner. |
+| `44e1d27` WSS front / Backhaul schema | Adopt TLS proxy command and v1/v2 Backhaul generators/tests. Narrow legacy WSS unit writes/removal to marker-owned units with valid suffix/port; refuse unrelated files and failed activation. Missing panel unit repair must use a reviewed fork checkout; never download upstream binaries through the menu. | Native Go TLS relay tests; fake-systemd WSS ownership/idempotence/invalid input tests and Backhaul version/schema fixtures. Full WSS/Backhaul deployment remains outside managed direct-GRE acceptance. |
+| `133ead9` public dial/topology | Adopt independent legacy dial helpers/UI and base tunnel as a fleet spoke. Refuse legacy dial mutation when managed peers exist (Go API and Shell mutation/watchdog entry points). Public FRP fallback conflicts with managed GRE-only bind and is not silently enabled. | Legacy synthetic route fixture; `TestLegacyDialCannotMutateManagedPeers`; no topology ID collision with managed peers. Complete per-peer carrier/trust/rollback acceptance is required before managed fallback support. |
+| R07 / `80bbb01` fleet health | Adopt shared dashboard/fleet rollup. Correct upstream socket-only HEALTHY inference: managed health requires a fresh authenticated registration, active owned resources and enabled state; blocked ICMP alone does not invalidate registration. Legacy socket-only evidence stays DEGRADED. | Adapt upstream linked/fleet regressions to authenticated evidence; `TestManagedFleetRequiresAuthenticationAndRegistration`; retain UNKNOWN application forwarding. |
+
+The review's other observations (no managed alternate carrier, UNKNOWN generic
+application health, no real reboot/upgrade/migration or WAN evidence) are valid
+scope limits, not newly reproduced implementation failures. An arbitrary
+application protocol cannot be safely guessed from a port; no probe fabricates
+an application-health success. These gates remain explicitly uncompleted.
 
 ## Procedure for the next Hashem Panel update
 
