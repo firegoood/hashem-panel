@@ -1,8 +1,8 @@
 # Acceptance — managed direct GRE + FRP 0.71.0
 
 Date: 2026-10-09. Branch: `fix/multipeer-gre-kcp`.
-Implementation commit: `c48f7bc96d43e6c67de64d044b8ee4616080b262`.
-Integrated upstream: `dc9a6ee765b6b2a91505cb4f67b8c7a35a58fa81`.
+Implementation commit: `7631c295f9b85b75b7371c2577fbf99028ad0d08`.
+Integrated upstream: `80bbb012919c0cc27ef1e8c311310f03ae126c51`.
 This matrix reports the disposable environment below. **No production VPS was
 accessed and no release readiness is implied by PASS.**
 
@@ -30,9 +30,9 @@ Shell CLI wrappers and authenticated HTTPS WebUI APIs operate the same manager.
 
 ## Executed checks
 
-- Full Linux suite: 133 PASS, 0 FAIL, 0 SKIP (96.542 seconds after upstream integration).
-- Full Linux race suite: 133 PASS, 0 FAIL, 0 SKIP (101.121 seconds).
-- Full Windows suite: 132 PASS, 0 FAIL, 1 SKIP (88.797 seconds). The skipped
+- Full Linux suite: 140 PASS, 0 FAIL, 0 SKIP (96.904 seconds after panel-r146 integration).
+- Full Linux race suite: 140 PASS, 0 FAIL, 0 SKIP (100.605 seconds).
+- Full Windows suite: 139 PASS, 0 FAIL, 1 SKIP (88.457 seconds). The skipped
   native Linux FRP check executed on Linux; POSIX file mode assertions are not
   applied to Windows. The TCP relay burst on Windows is bounded to 64 clients.
 - The final full race run includes concurrent credential migration plus upstream
@@ -50,10 +50,16 @@ Shell CLI wrappers and authenticated HTTPS WebUI APIs operate the same manager.
   invalid update preservation; API secret redaction; application restart;
   idempotent repeat setup; owned interface/unit/firewall cleanup; unrelated GRE
   preservation; encrypted backup validation; 128 actual KCP TCP sessions with
-  exact payload checks. See [sanitized evidence](evidence/isolated-2026-10-09.json).
+  exact payload checks. See [sanitized evidence](evidence/isolated-r146-2026-10-09.json).
 - Static `systemd-analyze verify` for the two actual generated foreign units:
   PASS. This does not execute systemd boot/ordering/restart policy.
-- Obsolete-unit ownership/idempotence regression using fake systemctl: PASS.
+- Obsolete-unit and WSS-front ownership/idempotence regressions, Backhaul
+  version/schema fixtures and legacy dial synthetic route fixture: PASS.
+- Real interactive Add Peer default KCP and foreign Fast Setup with secure hsh2:
+  PASS, including matching TCP/UDP traffic. Actual menu function/dispatch fixtures
+  also cover TCP choice, bundle by ID, mapping edit, removal/restart, failed
+  activation message and secret input/redaction. Prior evidence covered direct
+  CLI/API only; the previously omitted menu limitations are corrected here.
 - Dockerfile build and frontend inline JS/bundle transport checks: PASS.
 - `govulncheck` v1.8.0: **NOT_EXECUTED to completion**. Official database fetch
   `https://vuln.go.dev/index/modules.json.gz` returned HTTP 403. CI retries this
@@ -102,6 +108,20 @@ stability are **NOT_EXECUTED**. No attractive estimates substitute for them.
 
 **26 PASS, 0 FAIL, 4 NOT_EXECUTED.** A22, A23, A27 and A29 plus the uncompleted
 vulnerability check and unverified alternate-carrier/legacy gates block release.
+
+## Hosted CI follow-up
+
+Original run [37935268084](https://github.com/firegoood/hashem-panel/actions/runs/37935268084)
+failed after unit/race tests passed: default `go build` could not obtain Git VCS
+status from a checkout owned by the runner but mounted in a root container.
+`govulncheck` was **SKIPPED**, so it did not cause that failure. The runner now
+trusts exactly `/work`, preserving VCS provenance without wildcard trust. A
+subsequent hosted run is required; its result is recorded after delivery.
+
+The local scan was retried against both the canonical compressed index and
+canonical bulk archive; both returned HTTP 403. No database opt-out, empty local
+database or fabricated scan result is used. Documentation-only pushes do not
+rerun networking CI; all code, scripts, tests and workflow changes do.
 
 ## Failure and recovery coverage
 

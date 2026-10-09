@@ -1,0 +1,203 @@
+{
+  "environment": "privileged disposable Linux container; real kernel GRE; FRP 0.71.0; systemctl test supervisor",
+  "checks": [
+    {
+      "check": "TCP 8888",
+      "result": "PASS"
+    },
+    {
+      "check": "UDP round trip 8888",
+      "result": "PASS"
+    },
+    {
+      "check": "TCP 8889",
+      "result": "PASS"
+    },
+    {
+      "check": "UDP round trip 8889",
+      "result": "PASS"
+    },
+    {
+      "check": "TCP 8880",
+      "result": "PASS"
+    },
+    {
+      "check": "UDP round trip 8880",
+      "result": "PASS"
+    },
+    {
+      "check": "TCP 2052",
+      "result": "PASS"
+    },
+    {
+      "check": "UDP round trip 2052",
+      "result": "PASS"
+    },
+    {
+      "check": "actual KCP listeners on two independent GRE links",
+      "result": "PASS"
+    },
+    {
+      "check": "interactive Add Peer defaults to KCP and Fast Setup pairs hsh2 without config edits",
+      "result": "PASS"
+    },
+    {
+      "check": "repeat setup is idempotent",
+      "result": "PASS"
+    },
+    {
+      "check": "application restart preserves both peer traffic",
+      "result": "PASS"
+    },
+    {
+      "check": "status API redacts credentials and preserves unknown forwarding",
+      "result": "PASS"
+    },
+    {
+      "check": "disable nl preserves other peer",
+      "result": "PASS"
+    },
+    {
+      "check": "disable tr preserves other peer",
+      "result": "PASS"
+    },
+    {
+      "check": "WebUI port edit deploys FRPC mappings and preserves Turkey",
+      "result": "PASS"
+    },
+    {
+      "check": "CLI Turkey edit deploys mappings and preserves Netherlands",
+      "result": "PASS"
+    },
+    {
+      "check": "encrypted managed backup validates without plaintext credentials",
+      "result": "PASS"
+    },
+    {
+      "check": "transport edit changes operational FRPC configuration",
+      "result": "PASS"
+    },
+    {
+      "check": "invalid update preserves working state",
+      "result": "PASS"
+    },
+    {
+      "check": "128 actual KCP TCP sessions with payload verification",
+      "result": "PASS"
+    },
+    {
+      "check": "delete first peer preserves second traffic",
+      "result": "PASS"
+    },
+    {
+      "check": "owned first peer files removed",
+      "result": "PASS"
+    },
+    {
+      "check": "first peer interface units and firewall rules removed",
+      "result": "PASS"
+    },
+    {
+      "check": "unrelated GRE unchanged",
+      "result": "PASS"
+    },
+    {
+      "check": "delete second peer preserves recreated first traffic",
+      "result": "PASS"
+    }
+  ],
+  "real_vps": false,
+  "systemd_reboot": "NOT_EXECUTED",
+  "date": "2026-10-09",
+  "runtime": {
+    "os": "Debian 12 amd64 in Docker Desktop/WSL2",
+    "kernel": "6.6.114.1-microsoft-standard-WSL2",
+    "linux_go": "1.27.2",
+    "windows_go": "1.27.1",
+    "frp": "0.71.0",
+    "shellcheck": "0.9.0",
+    "base_image_digest": "sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61",
+    "frp_amd64_archive_sha256": "84f27e39f11169f7adcef8e8b70c9329de17747b1f14dad9fb95eef5682ea716"
+  },
+  "additional_checks": {
+    "go_vet": "PASS",
+    "gofmt": "PASS",
+    "bash_syntax": "PASS",
+    "installer_and_runner_shellcheck": "PASS",
+    "frontend_js_and_bundle": "PASS",
+    "legacy_units_ownership": "PASS",
+    "systemd_unit_static_verify": "PASS",
+    "dockerfile_build": "PASS",
+    "govulncheck": {
+      "result": "NOT_EXECUTED",
+      "reason": "Official vulnerability database HTTP 403; retried after upstream integration",
+      "version": "1.8.0"
+    },
+    "interactive_menu_fixtures": "PASS",
+    "real_menu_KCP_and_secure_pairing": "PASS",
+    "upstream_backhaul_schema": "PASS",
+    "legacy_dial_synthetic_route": "PASS",
+    "legacy_WSS_unit_ownership": "PASS"
+  },
+  "acceptance": {
+    "pass": 26,
+    "fail": 0,
+    "not_executed": 4,
+    "not_executed_cases": [
+      "A22",
+      "A23",
+      "A27",
+      "A29"
+    ]
+  },
+  "limitations": [
+    "Test supervisor is not systemd; no real boot/reboot",
+    "No real VPS or production changes",
+    "No actual legacy-host installer upgrade/migration",
+    "No full legacy log/backup secret audit or completed dependency scan",
+    "Native stress: 128 completed sessions, 32 concurrent workers; no 1000-user capacity claim",
+    "No sustained WAN/loss/MTU/throughput performance evidence",
+    "Alternate carriers and Backhaul not certified by managed direct-GRE tests",
+    "New-host central TLS identity recovery unverified",
+    "Managed backup restore commits peers individually rather than one all-node transaction"
+  ],
+  "release_ready": false,
+  "implementation_commit": "7631c295f9b85b75b7371c2577fbf99028ad0d08",
+  "upstream_commit": "80bbb012919c0cc27ef1e8c311310f03ae126c51",
+  "suites": {
+    "linux-r146": {
+      "pass": 140,
+      "fail": 0,
+      "skip": 0,
+      "elapsed_seconds": 96.904,
+      "result": "PASS",
+      "finished_at": "2026-10-09T19:38:40.875632498Z"
+    },
+    "race-r146": {
+      "pass": 140,
+      "fail": 0,
+      "skip": 0,
+      "elapsed_seconds": 100.605,
+      "result": "PASS",
+      "finished_at": "2026-10-09T19:40:37.86560149Z"
+    },
+    "windows-r146": {
+      "pass": 139,
+      "fail": 0,
+      "skip": 1,
+      "elapsed_seconds": 88.457,
+      "result": "PASS",
+      "finished_at": "2026-10-09T23:08:32.3912875+03:30"
+    }
+  },
+  "ci": {
+    "original_run_id": 37935268084,
+    "original_url": "https://github.com/firegoood/hashem-panel/actions/runs/37935268084",
+    "original_result": "FAILURE",
+    "failed_step": "binary build in disposable container",
+    "message": "error obtaining VCS status: exit status 128",
+    "original_dependency_scan": "SKIPPED",
+    "correction": "Trust only /work for Git VCS provenance across runner/root UID ownership",
+    "new_hosted_result": "PENDING"
+  }
+}
