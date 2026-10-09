@@ -117,17 +117,13 @@ func handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify SHA256 checksum if available in official release manifest
-	manifest, _ := fetchChecksumManifest(latest)
-	if manifest != nil {
-		if expectedHash, ok := manifest[asset]; ok {
-			if err := VerifyFileSHA256(tmpPath, expectedHash); err != nil {
-				LogSecurityAudit("update_checksum_failed", cfg.Username, ClientIP(r), "asset="+asset+" err="+err.Error())
-				writeAPIError(w, r, "E-UPDATE-07", err.Error())
-				return
-			}
-			LogSecurityAudit("update_checksum_verified", cfg.Username, ClientIP(r), "asset="+asset+" sha256="+expectedHash)
-		}
+	// Verify SHA256 against the release manifest. Fail-closed: an update with
+	// no manifest entry for this asset is refused (M-01) unless the operator
+	// explicitly opts out with GRE_PANEL_ALLOW_UNVERIFIED_UPDATE=1.
+	if err := verifyAssetChecksum(tmpPath, latest, asset); err != nil {
+		LogSecurityAudit("update_checksum_failed", cfg.Username, ClientIP(r), "asset="+asset+" err="+err.Error())
+		writeAPIError(w, r, "E-UPDATE-07", err.Error())
+		return
 	}
 
 	if err := verifyELF(tmpPath); err != nil {
@@ -189,25 +185,66 @@ func isOfficialGitHubURL(u string) bool {
 		host == "gh.ddlc.top" || host == "fastly.jsdelivr.net"
 }
 
+
+// manifestFetcher is swapped in tests.
+var manifestFetcher = fetchChecksumManifest
+
+// verifyAssetChecksum checks tmpPath against the release's checksum manifest.
+// Missing manifest / missing entry => error (fail-closed) unless
+// GRE_PANEL_ALLOW_UNVERIFIED_UPDATE=1.
+func verifyAssetChecksum(tmpPath, tag, asset string) error {
+	allowUnverified := os.Getenv("GRE_PANEL_ALLOW_UNVERIFIED_UPDATE") == "1"
+	manifest, ferr := manifestFetcher(tag)
+	expected, ok := "", false
+	if manifest != nil {
+		expected, ok = manifest[asset]
+	}
+	if !ok {
+		if allowUnverified {
+			LogSecurityAudit("update_unverified_allowed", "system", "local", "asset="+asset)
+			return nil
+		}
+		if ferr != nil {
+			return fmt.Errorf("refusing unverified update: checksum manifest unavailable (%v)", ferr)
+		}
+		return fmt.Errorf("refusing unverified update: no checksum entry for %s", asset)
+	}
+	if err := VerifyFileSHA256(tmpPath, expected); err != nil {
+		return err
+	}
+	LogSecurityAudit("update_checksum_verified", "system", "local", "asset="+asset+" sha256="+expected)
+	return nil
+}
+
 // fetchChecksumManifest attempts to download checksums.txt or SHA256SUMS from the release.
 func fetchChecksumManifest(tag string) (map[string]string, error) {
-	candidates := []string{
-		"https://github.com/pdnczone/hashem-panel/releases/download/" + tag + "/checksums.txt",
-		"https://github.com/pdnczone/hashem-panel/releases/download/" + tag + "/SHA256SUMS",
+	base := "https://github.com/pdnczone/hashem-panel/releases/download/" + tag + "/"
+	if tag == "latest" || tag == "" {
+		base = "https://github.com/pdnczone/hashem-panel/releases/latest/download/"
+	}
+	var candidates []string
+	for _, name := range []string{"checksums.txt", "SHA256SUMS"} {
+		u := base + name
+		candidates = append(candidates, u,
+			"https://mirror.ghproxy.com/"+u, "https://ghproxy.net/"+u, "https://gh.ddlc.top/"+u)
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
 	for _, u := range candidates {
 		resp, err := client.Get(u)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			continue
+		}
+		if resp.StatusCode == http.StatusOK {
+			data, rerr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 			resp.Body.Close()
-			if err == nil && len(data) > 0 {
-				return ParseChecksumManifest(string(data)), nil
+			if rerr == nil && len(data) > 0 {
+				if m := ParseChecksumManifest(string(data)); len(m) > 0 {
+					return m, nil
+				}
 			}
+			continue
 		}
-		if resp != nil {
-			resp.Body.Close()
-		}
+		resp.Body.Close()
 	}
 	return nil, fmt.Errorf("no checksum manifest found")
 }
