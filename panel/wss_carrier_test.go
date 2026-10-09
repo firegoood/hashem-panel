@@ -128,3 +128,18 @@ func TestCarrierWSSIntegration(t *testing.T) {
 		t.Errorf("expected active carrier 'wss:8443', got '%s'", resp.Active)
 	}
 }
+
+// M-02: browser-originated WebSocket upgrades to the carrier must be refused.
+func TestWSSOriginPolicy(t *testing.T) {
+	r := httptest.NewRequest("GET", "/tunnel-stream", nil)
+	if !wssOriginAllowed(r) {
+		t.Fatal("non-browser client (no Origin) must be allowed")
+	}
+	r.Header.Set("Origin", "https://evil.example")
+	if wssOriginAllowed(r) {
+		t.Fatal("cross-site browser Origin must be rejected")
+	}
+	if !wssTokenEqual("abc", "abc") || wssTokenEqual("abc", "abd") || wssTokenEqual("", "abc") {
+		t.Fatal("token compare wrong")
+	}
+}

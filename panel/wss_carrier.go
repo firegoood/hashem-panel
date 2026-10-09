@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -357,7 +358,9 @@ func (m *wssCarrierManager) setErr(err error) {
 // runServer starts the WebSocket receiver and bridges to local UDP FOU
 func (m *wssCarrierManager) runServer() {
 	var upgrader = websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+		// Carrier peers are not browsers and never send Origin. Rejecting any
+		// browser-originated upgrade blocks cross-site WebSocket hijacking (M-02).
+		CheckOrigin: wssOriginAllowed,
 	}
 
 	// Prepare local UDP socket to send/recv to/from FOU
@@ -399,7 +402,7 @@ func (m *wssCarrierManager) runServer() {
 		if token == "" {
 			token = r.URL.Query().Get("token")
 		}
-		if m.cfg.AuthToken != "" && token != m.cfg.AuthToken {
+		if m.cfg.AuthToken != "" && !wssTokenEqual(token, m.cfg.AuthToken) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -424,8 +427,9 @@ func (m *wssCarrierManager) runServer() {
 	})
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", m.cfg.ListenPort),
-		Handler: mux,
+		Addr:              fmt.Sprintf(":%d", m.cfg.ListenPort),
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 	m.connMu.Lock()
 	m.httpServer = server
@@ -643,4 +647,12 @@ func (m *wssCarrierManager) bridgePump(ws *websocket.Conn, udpConn *net.UDPConn,
 
 	_ = ws.Close()
 	<-done
+}
+
+// wssOriginAllowed accepts only non-browser clients (no Origin header).
+func wssOriginAllowed(r *http.Request) bool { return r.Header.Get("Origin") == "" }
+
+// wssTokenEqual compares the carrier token in constant time.
+func wssTokenEqual(got, want string) bool {
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
