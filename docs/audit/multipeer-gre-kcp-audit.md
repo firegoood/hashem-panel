@@ -1,4 +1,4 @@
-# Managed GRE + FRP audit — 2026-10-09
+# Managed GRE + FRP audit â€” 2026-10-09
 
 Existing fork: https://github.com/firegoood/hashem-panel
 
@@ -32,6 +32,7 @@ PASS results or certify an unexecuted reboot/security test.
 | ID | Classification | Verified observation / resolution |
 |---|---|---|
 | V01 | CONFIRMED deployment limitation | IR's pinned Go HTTPS redirect returns 404; NL/TR install that exact pinned archive successfully. Existing panel on IR remains unchanged after failure. A strict local artifact path adds the same hash validation and staged extraction; see the correction ledger for regression scope and supersession conditions. Network filtering attribution remains unproven. |
+| V02 | CONFIRMED CI infrastructure limitation | Workflow run `37990095656`, attempts 1 and 2, fails while resolving the pinned Docker Hub image with HTTP 429, before any Go/native/vulnerability check. Docker's ECR Public copy resolves the same digest; full validation remains required. |
 
 Reviewed the Shell installer/menu/lifecycle/firewall/backup paths and panel
 setup, registry, status, carriers, peer auth, passwords, monitoring, benchmark,
