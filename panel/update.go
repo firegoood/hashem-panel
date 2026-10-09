@@ -107,6 +107,30 @@ func isOfficialGitHubURL(u string) bool {
 		host == "gh.ddlc.top" || host == "fastly.jsdelivr.net"
 }
 
+var manifestFetcher = fetchChecksumManifest
+
+// verifyAssetChecksum checks tmpPath against the release's checksum manifest.
+// Missing manifest / missing entry => error. This fork has no unverified opt-out.
+// Automatic installation remains disabled; only reviewed fork checkouts install.
+func verifyAssetChecksum(tmpPath, tag, asset string) error {
+	manifest, ferr := manifestFetcher(tag)
+	expected, ok := "", false
+	if manifest != nil {
+		expected, ok = manifest[asset]
+	}
+	if !ok {
+		if ferr != nil {
+			return fmt.Errorf("refusing unverified update: checksum manifest unavailable (%v)", ferr)
+		}
+		return fmt.Errorf("refusing unverified update: no checksum entry for %s", asset)
+	}
+	if err := VerifyFileSHA256(tmpPath, expected); err != nil {
+		return err
+	}
+	LogSecurityAudit("update_checksum_verified", "system", "local", "asset="+asset+" sha256="+expected)
+	return nil
+}
+
 // fetchChecksumManifest attempts to download checksums.txt or SHA256SUMS from the release.
 func fetchChecksumManifest(tag string) (map[string]string, error) {
 	candidates := []string{
@@ -117,10 +141,12 @@ func fetchChecksumManifest(tag string) (map[string]string, error) {
 	for _, u := range candidates {
 		resp, err := client.Get(u)
 		if err == nil && resp.StatusCode == http.StatusOK {
-			data, err := io.ReadAll(resp.Body)
+			data, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 			resp.Body.Close()
-			if err == nil && len(data) > 0 {
-				return ParseChecksumManifest(string(data)), nil
+			if err == nil && len(data) > 0 && len(data) <= 1<<20 {
+				if manifest := ParseChecksumManifest(string(data)); len(manifest) > 0 {
+					return manifest, nil
+				}
 			}
 		}
 		if resp != nil {

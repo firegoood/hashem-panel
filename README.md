@@ -1,3 +1,11 @@
+> **Existing maintained fork: controlled testing only; release blocked.**
+> Use the [reviewed fork deployment](docs/deployment/gre-frp-kcp-multipeer.md)
+> for automated, independently owned direct GRE + FRP 0.71.0 TCP/KCP peers.
+> [Acceptance evidence and remaining gates](docs/testing/multipeer-acceptance.md)
+> define the verified scope. Legacy/alternate-carrier features below are retained
+> and have not all been certified. Future updates follow [AGENTS.md](AGENTS.md)
+> and the [upstream correction ledger](docs/audit/fixes-and-regressions.md).
+
 <div align="center">
 
 # DNC MADE THIS
@@ -24,12 +32,12 @@
 
 ## ✨ Features
 
-- 🚀 **One-Line Installation:** Prebuilt standalone Go binary from official GitHub releases. Zero runtime dependencies.
+- 🚀 **Reviewed Installation:** Build the maintained fork checkout with pinned FRP downloads; see prerequisites in the deployment guide.
 - 🔄 **Dual Relay Engines:** Choose between **FRP** (Fast Reverse Proxy) and **Backhaul** (TCP, WS, WSS, TCPO with Mux & Snappy compression).
 - 🖥️ **Premium Web Dashboard:** Ultra-modern, responsive, glassmorphic UI with dynamic traffic charts and dark mode.
 - ⌨️ **`hashem` CLI Tool:** Complete control right from your SSH terminal using an interactive menu or direct CLI commands.
 - 🌐 **Multi-Peer Architecture:** Connect up to 5 foreign servers to a single Iranian server simultaneously.
-- 📦 **Automated Bundling:** Effortless pairing. One setup string (`hsh1_...`) carries all keys, IPs, transport types, and ports.
+- 📦 **Automated Bundling:** Effortless pairing. Managed pairing uses a private `hsh2_...` bundle with identity, revision, mappings and TLS trust; legacy `hsh1` parsing is retained.
 - 🔀 **Advanced Port Management:** Supports individual ports (`443`), multiple ports (`80,443`), port ranges (`1000-1010`), and port mappings (`8080=80`).
 - 📊 **Deep Network Insights:** Real-time graphs, RAM/CPU vitals, Live Activity Streams, and exact traffic metrics.
 - ⚡ **Auto-Adaptation:** Smartly adjusts multiplexing capacity dynamically based on active load and available system RAM.
@@ -38,11 +46,11 @@
 - 🔗 **Inter-Panel Synchronization:** Dual-path REST link (Internal Tunnel IP + Public fallback) pairs Iran (Master) and Foreign (Worker) panels with shared secrets for coordinated zero-downtime reconfiguration.
 - 🔑 **Instant Password Management:** Safe one-time display upon installation, interactive reset menu, and non-interactive `hashem reset-password` command.
 - 🔒 **Enterprise-Grade Security:**
-  - **No Plaintext Passwords:** Credentials stored exclusively as SHA-256 hashes (CWE-256 mitigation).
+  - **No Plaintext Passwords:** Credentials use salted Argon2id; successful login migrates legacy SHA-256 and upstream Argon2id formats.
   - **NIST 800-63B Password Policy:** Enforces strong 12+ character passwords with uppercase, lowercase, numbers, and symbols.
   - **CSRF Defense:** Session-bound HMAC-SHA256 CSRF protection for all state-changing endpoints.
   - **IP Spoofing Protection:** Reverse proxy validation (`TRUSTED_PROXY_IPS`) prevents header-based brute-force bypasses.
-  - **Integrity Verified Updates:** Pinned to official GitHub releases with SHA-256 checksum validation.
+  - **Reviewed Updates:** Automatic upstream replacement is disabled; installation uses a reviewed fork checkout and pinned download digests.
   - **Audit Logging:** Tamper-evident logging of all logins, password changes, updates, and shell commands.
 - 💻 **In-Browser Terminal:** Interactive root shell (xterm.js + WebSocket + PTY) gated by admin permissions and session auditing.
 - 🛡️ **DPI Shield & Traffic Chaff:** Built-in obfuscation and rate-limiting to defeat deep packet inspection and network scanning.
@@ -70,23 +78,27 @@ Users ──► IRAN SERVER (Public Ports) ══════ GRE + [FRP / Backh
 
 ## ⚡ Quick Installation Guide
 
-Install the entire system on **both** your Iran and Foreign servers using this simple one-liner command:
+On each authorized test node, install the reviewed existing fork checkout (see the deployment guide for prerequisites and release gates):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/pdnczone/hashem-panel/main/install.sh)
+git clone https://github.com/firegoood/hashem-panel.git
+cd hashem-panel
+git checkout fix/multipeer-gre-kcp
+git rev-parse HEAD # verify the delivered reviewed commit
+bash install-fork.sh
 ```
 
 ### 🛠️ Step-by-Step Setup
 
 1. **Step 1 (On IRAN Server):**
-   - Run the command above and choose option `1` from the menu.
+   - Install the checkout, then run `hashem menu` and choose option `1`.
    - Choose your transport mode (**FRP** or **Backhaul**), carrier type, and ports.
-   - The installer will generate a **Setup Bundle** (e.g., `hsh1_85.1.2.3_7000_10.10.10.2_...`). **Copy this string.**
+   - The installer will generate a **Setup Bundle** (`hsh2_...`). **Copy this string.**
 2. **Step 2 (On FOREIGN Server):**
-   - Run the command above and choose option `2`.
+   - Install the checkout, then run `hashem menu` and choose option `2`.
    - Paste the copied bundle. The system automatically configures the tunnel and services.
 3. **Step 3 (Access Web Panel):**
-   - At the end of installation, you will receive your secure panel URL (`http://<server-ip>:7777/<secret>`) and initial administrator credentials displayed clearly in your terminal.
+   - At the end of installation, you will receive your secure panel URL (`https://<server-ip>:7443/<secret>`) and initial administrator credentials displayed clearly in your terminal.
    - *Note: Passwords are not saved as plaintext on disk (CWE-256). Please save your password upon install. You can reset it anytime via `hashem reset-password` or CLI menu option `3 -> 2`.*
 
 ---
@@ -109,14 +121,14 @@ hashem chaff on       # Enables traffic obfuscation (idle-gap filler)
 hashem dpi-shield     # Enables DPI Shield (rate-limits reverse ports)
 hashem free-ram       # Frees system RAM and drops filesystem cache
 hashem update         # Updates the script and web panel to the latest verified release
-hashem uninstall      # Full wipe: cleanly removes services, configs, and binaries
+hashem uninstall      # Removes owned resources; retains shared files and recovery material
 ```
 
 ---
 
 ## 🔐 Security & Hardening
 
-Hashem Panel has undergone a full security hardening audit conforming to **OWASP Top 10** and **NIST 800-63B** guidelines:
+The fork's verified security controls and remaining audit gaps are recorded in the [audit](docs/audit/multipeer-gre-kcp-audit.md) and [acceptance report](docs/testing/multipeer-acceptance.md):
 
 - **Security Policy & Disclosures**: See [SECURITY.md](SECURITY.md).
 - **Production Deployment Guide**: See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for reverse proxy (Nginx / Caddy), TLS certificates, firewall rules, and `TRUSTED_PROXY_IPS` configuration.

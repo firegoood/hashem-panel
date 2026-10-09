@@ -1,14 +1,12 @@
 package main
 
 // Auth: cookie session + login/logout/password.
-// Session token = sha256(nonce + pass_hash); nonce is generated at startup
-// (see main.go). Changing the password invalidates all sessions.
+// Random tokens are validated against the private server-side session store.
+// Changing the password invalidates all sessions.
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -152,23 +150,8 @@ func authed(r *http.Request) bool {
 	if err != nil || c.Value == "" {
 		return false
 	}
-	want := sessionToken()
-	if subtle.ConstantTimeCompare([]byte(c.Value), []byte(want)) == 1 {
-		return true
-	}
 	// persistent server-side sessions (survive restarts, 24h absolute)
 	return validSession(c.Value)
-}
-
-func sessionToken() string {
-	mu.Lock()
-	defer mu.Unlock()
-	return sessionTokenLocked()
-}
-
-func sessionTokenLocked() string {
-	mac := sha256.Sum256(append(append([]byte{}, nonce[:]...), []byte(cfg.PassHash)...))
-	return hex.EncodeToString(mac[:])
 }
 
 func requireAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -243,7 +226,12 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, "E-AUTH-05", "credentials changed; sign in again")
 		return
 	}
-	tok := sessionTokenLocked()
+	tok, err := newSessionToken()
+	if err != nil {
+		mu.Unlock()
+		writeAPIError(w, r, "E-AUTH-05", "")
+		return
+	}
 	addSessionLocked(tok)
 	mu.Unlock()
 
@@ -332,7 +320,12 @@ func handlePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	nonce = replacementNonce
 	sessionStore{Tokens: map[string]int64{}}.save()
-	tok := sessionTokenLocked()
+	tok, err := newSessionToken()
+	if err != nil {
+		mu.Unlock()
+		writeAPIError(w, r, "E-AUTH-05", "")
+		return
+	}
 	addSessionLocked(tok)
 	mu.Unlock()
 	csrfTok := GenerateCSRFToken(tok)

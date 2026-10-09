@@ -41,6 +41,12 @@ func verifyPassword(encoded, password string) (valid, legacy bool) {
 		got := sha256.Sum256([]byte(password))
 		return subtle.ConstantTimeCompare(want, got[:]) == 1, true
 	}
+	// Upstream be79224 used a PHC value without its leading "$". Accept
+	// that deployed format, then upgrade to the bounded canonical fork format.
+	upstreamFormat := strings.HasPrefix(encoded, "argon2id$")
+	if upstreamFormat {
+		encoded = "$" + encoded
+	}
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[1] != "argon2id" || parts[2] != "v=19" {
 		return false, false
@@ -74,5 +80,23 @@ func verifyPassword(encoded, password string) (valid, legacy bool) {
 	passwordWork <- struct{}{}
 	defer func() { <-passwordWork }()
 	got := argon2.IDKey([]byte(password), salt, uint32(values[1]), uint32(values[0]), uint8(values[2]), 32)
-	return subtle.ConstantTimeCompare(want, got) == 1, false
+	return subtle.ConstantTimeCompare(want, got) == 1, upstreamFormat || values[0] < 65536 || values[1] < 3 || values[2] < 2
+}
+
+func isLegacyHash(stored string) bool {
+	if len(stored) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(stored)
+	return err == nil
+}
+
+// Random per-login tokens replace the derivable nonce/password-hash cookie
+// scheme, following upstream be79224. Entropy failures return an error.
+func newSessionToken() (string, error) {
+	var token [32]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(token[:]), nil
 }
