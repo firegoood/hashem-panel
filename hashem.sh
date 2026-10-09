@@ -1429,7 +1429,7 @@ backhaul_ensure_tls() {
     fi
 }
 
-backhaul_write_server_conf() {
+backhaul_write_server_conf_v1() {
     local CONF_FILE="$1"
     local BIND_ADDR="$2"
     local TRANSPORT="${3:-tcpmux}"
@@ -1479,7 +1479,7 @@ EOF
     echo "]" >> "$CONF_FILE"
 }
 
-backhaul_write_client_conf() {
+backhaul_write_client_conf_v1() {
     local CONF_FILE="$1"
     local REMOTE_ADDR="$2"
     local TRANSPORT="${3:-tcpmux}"
@@ -1500,6 +1500,72 @@ web_port = 0
 sniffer_log = ""
 log_level = "info"
 EOF
+}
+
+# B-03: the Backhaul core shipped by hashem is the "Modified v2.x" build, whose
+# TOML schema differs from upstream v0.x ([listener]/[dialer]/[transport]/
+# [security]/[ports] instead of flat [server]/[client]). Writing the v0.x
+# schema for a v2 core makes it exit with "neither server nor client
+# configuration is properly set". Pick the schema from the installed core.
+backhaul_is_v2() {
+    local bin="${INSTALL_DIR:-/usr/local/bin}/backhaul" v
+    [[ -x "$bin" ]] || bin="$(command -v backhaul 2>/dev/null)"
+    [[ -n "$bin" ]] || return 1
+    v="$("$bin" -v 2>/dev/null | head -n1)"
+    [[ "$v" =~ ^v?2\. ]]
+}
+
+backhaul_write_server_conf_v2() {
+    local CONF_FILE="$1" BIND_ADDR="$2" TRANSPORT="$3" TOKEN="$4" PORTS_LIST="$5"
+    mkdir -p "$(dirname "$CONF_FILE")"
+    if [[ "$TRANSPORT" == "wss" || "$TRANSPORT" == "wssmux" ]]; then
+        backhaul_ensure_tls
+    fi
+    {
+        printf '[listener]\nbind_addr = "%s"\n\n' "$BIND_ADDR"
+        printf '[transport]\ntype = "%s"\nnodelay = true\nkeepalive_period = 75\n\n' "$TRANSPORT"
+        printf '[security]\ntoken = "%s"\n\n' "$TOKEN"
+        if [[ "$TRANSPORT" == *mux ]]; then
+            printf '[mux]\nmux_version = 1\n\n'
+        fi
+        if [[ "$TRANSPORT" == "wss" || "$TRANSPORT" == "wssmux" ]]; then
+            printf '[tls]\ntls_cert = "%s/server.crt"\ntls_key = "%s/server.key"\n\n' "$BACKHAUL_CONFIG_DIR" "$BACKHAUL_CONFIG_DIR"
+        fi
+        printf '[logging]\nlog_level = "info"\n\n[ports]\nmapping = [\n'
+        local p
+        IFS=',' read -ra _ADDR <<< "$PORTS_LIST"
+        for p in "${_ADDR[@]}"; do
+            p="$(echo "$p" | xargs)"
+            [[ -z "$p" ]] && continue
+            printf '    "%s",\n' "$p"
+        done
+        printf ']\n'
+    } > "$CONF_FILE"
+}
+
+backhaul_write_client_conf_v2() {
+    local CONF_FILE="$1" REMOTE_ADDR="$2" TRANSPORT="${3:-tcpmux}" TOKEN="$4"
+    mkdir -p "$(dirname "$CONF_FILE")"
+    {
+        printf '[dialer]\nremote_addr = "%s"\ndial_timeout = 10\nretry_interval = 3\n\n' "$REMOTE_ADDR"
+        printf '[transport]\ntype = "%s"\nconnection_pool = 8\nnodelay = true\nkeepalive_period = 75\n\n' "$TRANSPORT"
+        printf '[security]\ntoken = "%s"\n\n' "$TOKEN"
+        if [[ "$TRANSPORT" == *mux ]]; then
+            printf '[mux]\nmux_version = 1\n\n'
+        fi
+        if [[ "$TRANSPORT" == "wss" || "$TRANSPORT" == "wssmux" ]]; then
+            printf '[tls]\nsni = "%s"\n\n' "${REMOTE_ADDR%%:*}"
+        fi
+        printf '[logging]\nlog_level = "info"\n'
+    } > "$CONF_FILE"
+}
+
+backhaul_write_server_conf() {
+    if backhaul_is_v2; then backhaul_write_server_conf_v2 "$@"; else backhaul_write_server_conf_v1 "$@"; fi
+}
+
+backhaul_write_client_conf() {
+    if backhaul_is_v2; then backhaul_write_client_conf_v2 "$@"; else backhaul_write_client_conf_v1 "$@"; fi
 }
 
 setup_backhaul_server_systemd() {
@@ -2664,6 +2730,58 @@ menu_perf() {
 # the bottom of this file (setup-iran / setup-foreign), so all three paths
 # (menu, CLI, panel) execute identical steps.
 # Args: $1=local_pub $2=remote_pub $3=frp_port $4=token [$5=local_gre [$6=peer_gre [$7="cleaned ports"]]]
+# wss_front_port <control_port>: FRP "wss" needs a TLS terminator in front of
+# frps (frpc speaks WebSocket-over-TLS, frps only cleartext WebSocket). The
+# front listens on control_port+2 (quic uses +1); wraps below 65535.
+wss_front_port() {
+    local p=$(( $1 + 2 ))
+    (( p > 65535 )) && p=$(( $1 - 2 ))
+    echo "$p"
+}
+
+# frps_wss_front_ensure <suffix> <control_port>: (re)create + start the
+# TLS front unit frps-wss<suffix>.service (idempotent).
+frps_wss_front_ensure() {
+    local SUF="$1" CPORT="$2"
+    local FPORT SVC="frps-wss${1}" PBIN="${PANEL_BIN:-/usr/local/bin/gre-panel}"
+    FPORT=$(wss_front_port "$CPORT")
+    if [[ ! -x "$PBIN" ]]; then
+        echo -e "${YELLOW}[!] ${PBIN} not found — cannot start the WSS TLS front on :${FPORT}.${NC}"
+        return 1
+    fi
+    cat > "${HASHEM_SYSTEMD_DIR:-/etc/systemd/system}/${SVC}.service" <<UNIT
+[Unit]
+Description=Hashem FRP WSS TLS front (:${FPORT} -> 127.0.0.1:${CPORT})
+After=network.target frps${SUF}.service
+
+[Service]
+Type=simple
+User=root
+Restart=always
+RestartSec=3s
+LimitNOFILE=1048576
+ExecStart=${PBIN} tls-proxy -listen 0.0.0.0:${FPORT} -target 127.0.0.1:${CPORT}
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable "$SVC" >/dev/null 2>&1 || true
+    systemctl restart "$SVC" >/dev/null 2>&1 || true
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+        ufw allow "${FPORT}/tcp" >/dev/null 2>&1 || true
+    fi
+    echo -e "${GREEN}[✔️] WSS TLS front listening on :${FPORT} (-> frps :${CPORT})${NC}"
+}
+
+# frps_wss_front_remove <suffix>
+frps_wss_front_remove() {
+    local SVC="frps-wss${1}"
+    systemctl stop "$SVC" >/dev/null 2>&1 || true
+    systemctl disable "$SVC" >/dev/null 2>&1 || true
+    rm -f "${HASHEM_SYSTEMD_DIR:-/etc/systemd/system}/${SVC}.service"
+}
+
 setup_iran_server_noninteractive() {
     local IP_IRAN=$1 IP_FOREIGN=$2 BIND_PORT=$3 TOKEN=$4
     local LOCAL_GRE=${5:-$IRAN_GRE_IP} PEER_GRE=${6:-$FOREIGN_GRE_IP}
@@ -2785,6 +2903,13 @@ EOF
         fi
     fi
 
+    # 3b. WSS transport needs a TLS front for frps (needs the panel binary installed above)
+    if [[ "$FRP_TRANSPORT" == "wss" ]]; then
+        frps_wss_front_ensure "" "$BIND_PORT" || { STATUS_FRP="FAILED"; FRP_ERR="WSS TLS front failed to start"; }
+    else
+        frps_wss_front_remove ""
+    fi
+
     # 4. Summary & Verification
     echo -e "\n=============================================================="
     echo "                   INSTALLATION SUMMARY"
@@ -2895,6 +3020,8 @@ _setup_foreign_full() {
     if [[ "$FRP_TRANSPORT" == "quic" ]]; then
         EFF_SERVER_PORT=$((SERVER_PORT + 1))
         if [[ "$EFF_SERVER_PORT" -gt 65535 ]]; then EFF_SERVER_PORT=$((SERVER_PORT - 1)); fi
+    elif [[ "$FRP_TRANSPORT" == "wss" ]]; then
+        EFF_SERVER_PORT=$(wss_front_port "$SERVER_PORT")
     fi
     mkdir -p "${CONFIG_DIR}"
     cat <<EOF > "${CONFIG_DIR}/frpc.toml"
@@ -3622,6 +3749,7 @@ cli_add_peer() {
         [[ -z "$PEER_GRE" ]] && PEER_GRE=$B_FOREIGN_GRE
         [[ -z "$TOKEN" ]] && TOKEN=$B_TOKEN
         [[ -z "$PORTS" ]] && PORTS=$B_PORTS
+        PEER_FRP_TRANSPORT="${B_TRANSPORT:-tcp}"
     fi
     FRP_PORT=${FRP_PORT:-$(gen_random_port)}
     validate_setup_common "$LOCAL_PUB" "$REMOTE_PUB" "$FRP_PORT" "$LOCAL_GRE" || return 1
@@ -3685,6 +3813,10 @@ cli_add_peer() {
         echo -e "${RED}[!] Error: ${FRPS_SVC} failed to start. Generated configuration might be invalid.${NC}"
         return 1
     fi
+    if [[ "${PEER_FRP_TRANSPORT:-tcp}" == "wss" ]]; then
+        local _fsuf=""; [[ "$LEGACY" == "true" ]] || _fsuf="-${ID}"
+        frps_wss_front_ensure "$_fsuf" "$FRP_PORT" || echo -e "${YELLOW}[!] WSS TLS front could not be started for this peer.${NC}"
+    fi
     # registry record (ports as JSON array)
     local PORTS_JSON
     PORTS_JSON=$(echo "$CLEANED" | python3 -c 'import json,sys; print(json.dumps([int(x) for x in sys.stdin.read().split()]))')
@@ -3730,6 +3862,7 @@ cli_remove_peer() {
     if [[ "$LEG" == "1" ]]; then
         remove_tunnel_force
     else
+        frps_wss_front_remove "-${ID}"
         systemctl stop "$SVC" "${GIF}.service" "gre-chaff-${ID}.service" >/dev/null 2>&1
         systemctl disable "$SVC" "${GIF}.service" "gre-chaff-${ID}.service" >/dev/null 2>&1
         rm -f "/etc/systemd/system/${SVC}.service" "/etc/systemd/system/${GIF}.service" "/etc/frp/frps-${ID}.toml" "/etc/backhaul/server-${ID}.toml" "/etc/systemd/system/gre-chaff-${ID}.service"
@@ -4850,6 +4983,7 @@ uninstall_all() {
 uninstall_all_force() {
         echo -e "${CYAN}[*] Performing complete uninstallation of Hashem...${NC}"
         # 1. Stop & disable all services & timers
+        systemctl stop 'frps-wss*' >/dev/null 2>&1 || true
         systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-chaff hashem-watchdog.timer hashem-watchdog.service backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
         systemctl stop 'frps*' 'frpc*' 'backhaul*' 'gre-t*' 'gre-chaff*' 'hashem-chaff*' >/dev/null 2>&1 || true
         systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-chaff hashem-watchdog.timer hashem-watchdog.service backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
@@ -4934,6 +5068,7 @@ remove_tunnel() {
 remove_tunnel_force() {
         echo -e "${CYAN}[*] Removing all tunnel components...${NC}"
         # Stop & disable services
+        frps_wss_front_remove ""
         systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-chaff hashem-chaff backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
         systemctl stop 'frps*' 'frpc*' 'backhaul*' 'gre-t*' 'gre-chaff*' 'hashem-chaff*' >/dev/null 2>&1 || true
         systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-chaff hashem-chaff backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
@@ -5302,6 +5437,11 @@ install_panel_smart() {
             if [[ -t 0 ]]; then
                 read -p "Start Web Panel service now? [Y/n]: " START_OPT
                 if [[ ! "$START_OPT" =~ ^[Nn]$ ]]; then
+                    if [[ ! -f /etc/systemd/system/gre-panel.service ]]; then
+                        backup_configs "panel_unit_repair"
+                        install_panel
+                        return $?
+                    fi
                     systemctl start gre-panel
                     sleep 2
                     if systemctl is-active --quiet gre-panel; then
@@ -5313,6 +5453,13 @@ install_panel_smart() {
                     fi
                 fi
             else
+                # B-02: binary present but unit missing (e.g. copied in by an
+                # updater, or unit removed) => `systemctl start` can never work.
+                if [[ ! -f /etc/systemd/system/gre-panel.service ]]; then
+                    backup_configs "panel_unit_repair"
+                    install_panel
+                    return $?
+                fi
                 systemctl start gre-panel
                 sleep 2
                 systemctl is-active --quiet gre-panel && return 0

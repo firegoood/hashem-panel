@@ -184,6 +184,9 @@ func main() {
 		fmt.Println(panelVersion)
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "tls-proxy" {
+		os.Exit(tlsProxyCmd(os.Args[2:]))
+	}
 	if v := os.Getenv("GRE_PANEL_DIR"); v != "" {
 		configDir = v
 	}
