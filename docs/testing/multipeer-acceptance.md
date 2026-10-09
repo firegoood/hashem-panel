@@ -118,6 +118,14 @@ status from a checkout owned by the runner but mounted in a root container.
 trusts exactly `/work`, preserving VCS provenance without wildcard trust. A
 subsequent hosted run is required; its result is recorded after delivery.
 
+Follow-up run [37982018171](https://github.com/firegoood/hashem-panel/actions/runs/37982018171)
+passed unit tests but exposed a race in WSS startup versus carrier API test
+teardown. The TLS path is now captured before spawning; stop cancels and joins
+the worker, resource publication checks cancellation, status fields synchronize,
+and the API tests stop owned workers before restoring their config paths. The
+carrier/fail-closed/immediate-stop regressions passed five repetitions under race.
+The hosted scan was again SKIPPED; a further hosted result is required.
+
 The local scan was retried against both the canonical compressed index and
 canonical bulk archive; both returned HTTP 403. No database opt-out, empty local
 database or fabricated scan result is used. Documentation-only pushes do not

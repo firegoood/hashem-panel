@@ -81,10 +81,10 @@ native FRP verification and traffic, rather than README assertions, support thes
 - Upstream `52b41ad` already moved the rescue test to an unprivileged port. Its
   Windows POSIX-mode assertion was a separate remaining portability defect.
 
-## Follow-up findings R01-R07
+## Follow-up findings R01-R08
 
-All seven source/CI defects below are **CONFIRMED**. Combined with the original
-latest-upstream classification this is **CONFIRMED 36, ALREADY_FIXED 1,
+All eight source/CI defects below are **CONFIRMED**. Combined with the original
+latest-upstream classification this is **CONFIRMED 37, ALREADY_FIXED 1,
 NOT_APPLICABLE 0, NEEDS_RUNTIME_VERIFICATION 0** for counted defects. Operational
 acceptance remains separate; missing runtime gates are not counted as fixed.
 
@@ -97,6 +97,7 @@ acceptance remains separate; missing runtime gates are not counted as fixed.
 | R05 | CLI help and editing imply obsolete bundle/global carrier behavior | Managed-first help; normalized raw mappings and direct-GRE TCP/KCP edit menu |
 | R06 | Guided foreign setup uses wrong `local_pub` field and exports bundle to child environment | Canonical `local_public`, private stdin; capture fixture and real setup |
 | R07 | New upstream fleet labels established TCP socket as healthy without authenticated registration | Shared rollup requires managed authenticated registration; stale/pending/disabled/process-only never healthy; legacy socket-only DEGRADED |
+| R08 | Hosted run `37982018171` reproduced a WSS worker reading the TLS config path after the carrier API test restored `configDir`; stop did not join startup and could leave late listeners | Snapshot TLS paths before spawning, cancellation guards on resource publication, joined stop, atomic running/status timestamp synchronization and cancelable reconnect waits; API tests stop workers before config restore; repeated immediate server/client stop and race regression |
 
 The retained correction ledger records the exact new upstream decisions and
 removal conditions. No full managed FOU/WSS/QUIC failover or generic application

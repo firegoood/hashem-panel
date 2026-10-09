@@ -83,3 +83,6 @@ This repository is the existing `firegoood/hashem-panel` fork of
 - CI must build the reviewed mount with VCS provenance despite runner/container
   UID differences. Trust only that checkout path; never use safe.directory=*.
   Inspect failed-step logs before attributing a CI failure to vulnerability checks.
+- Carrier stop/replacement must cancel and join startup/reconnect work before
+  returning. Test cleanup must stop owned workers before restoring config paths;
+  retain race tests for concurrent status and immediate start/stop.

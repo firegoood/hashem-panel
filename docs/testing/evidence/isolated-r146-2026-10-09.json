@@ -137,7 +137,8 @@
     "real_menu_KCP_and_secure_pairing": "PASS",
     "upstream_backhaul_schema": "PASS",
     "legacy_dial_synthetic_route": "PASS",
-    "legacy_WSS_unit_ownership": "PASS"
+    "legacy_WSS_unit_ownership": "PASS",
+    "WSS_stop_start_status_race_repeated_5_times": "PASS"
   },
   "acceptance": {
     "pass": 26,
@@ -198,6 +199,17 @@
     "message": "error obtaining VCS status: exit status 128",
     "original_dependency_scan": "SKIPPED",
     "correction": "Trust only /work for Git VCS provenance across runner/root UID ownership",
-    "new_hosted_result": "PENDING"
+    "new_hosted_result": "PENDING",
+    "r146_first_attempt": {
+      "run_id": 37982018171,
+      "head": "a2b1ec9e03081f0d146410b7c2c9d4161f2a672c",
+      "url": "https://github.com/firegoood/hashem-panel/actions/runs/37982018171",
+      "result": "FAILURE",
+      "failed_step": "race suite",
+      "confirmed_defect": "R08",
+      "unit_suite": "PASS",
+      "dependency_scan": "SKIPPED",
+      "correction": "Joined canceled WSS startup/reconnect workers and config-safe teardown; synchronized status and cancellation guards"
+    }
   }
 }

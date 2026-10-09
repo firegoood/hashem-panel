@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
+	"time"
 )
 
 func TestWSSConfigDefaultsAndLoadSave(t *testing.T) {
@@ -89,6 +92,7 @@ func TestCarrierWSSIntegration(t *testing.T) {
 	oldConfigDir := configDir
 	configDir = tmpDir
 	defer func() { configDir = oldConfigDir }()
+	defer stopWSSCarrier()
 
 	cfg := defaultCarrierConfig()
 	foundWSS := false
@@ -126,6 +130,52 @@ func TestCarrierWSSIntegration(t *testing.T) {
 	}
 	if resp.Active != "wss:8443" {
 		t.Errorf("expected active carrier 'wss:8443', got '%s'", resp.Active)
+	}
+}
+
+// A stop during startup must join the worker and prevent a late listener from
+// appearing after cancellation. Also exercise concurrent status reads.
+func TestWSSCarrierImmediateStop(t *testing.T) {
+	old := configDir
+	configDir = t.TempDir()
+	defer func() { configDir = old }()
+	defer stopWSSCarrier()
+	for _, role := range []string{"server", "client"} {
+		for i := 0; i < 20; i++ {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			port := ln.Addr().(*net.TCPAddr).Port
+			ln.Close()
+			cfg := wssConfig{Role: role, UseTLS: true, ListenPort: port, RemoteAddr: "127.0.0.1:1"}
+			if err := startWSSCarrier(cfg); err != nil {
+				t.Fatal(err)
+			}
+			wssMu.RLock()
+			mgr := wssActiveState
+			wssMu.RUnlock()
+			statusDone := make(chan struct{})
+			go func() { _ = getWSSStatus(); close(statusDone) }()
+			stopped := make(chan struct{})
+			go func() { _ = stopWSSCarrier(); close(stopped) }()
+			select {
+			case <-stopped:
+			case <-time.After(3 * time.Second):
+				t.Fatal("carrier stop did not cancel and join startup/reconnect work")
+			}
+			<-statusDone
+			select {
+			case <-mgr.runDone:
+			default:
+				t.Fatal("carrier stop returned before worker exited")
+			}
+			ln, err = net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+			if err != nil {
+				t.Fatal("carrier left its listener after stop:", err)
+			}
+			ln.Close()
+		}
 	}
 }
 

@@ -72,7 +72,10 @@ type wssCarrierManager struct {
 	cfg            wssConfig
 	ctx            context.Context
 	cancel         context.CancelFunc
-	running        bool
+	running        atomic.Bool
+	runDone        chan struct{}
+	certFile       string
+	keyFile        string
 	connected      int32 // 1 if connected, 0 otherwise
 	bytesSent      int64
 	bytesRecv      int64
@@ -233,7 +236,7 @@ func getWSSStatus() wssCarrierStatus {
 	mgr := wssActiveState
 	wssMu.RUnlock()
 
-	if mgr == nil || !mgr.running {
+	if mgr == nil || !mgr.running.Load() {
 		cfg := loadWSSConfig()
 		return wssCarrierStatus{
 			Running:    false,
@@ -246,6 +249,7 @@ func getWSSStatus() wssCarrierStatus {
 
 	mgr.errMu.Lock()
 	lastErr := mgr.lastError
+	lastConnected := mgr.lastConnected
 	mgr.errMu.Unlock()
 
 	latency := float64(atomic.LoadInt64(&mgr.latencyMs)) / 1000.0
@@ -261,7 +265,7 @@ func getWSSStatus() wssCarrierStatus {
 		PacketsSent:    atomic.LoadInt64(&mgr.packetsSent),
 		PacketsRecv:    atomic.LoadInt64(&mgr.packetsRecv),
 		LatencyMs:      latency,
-		LastConnected:  mgr.lastConnected,
+		LastConnected:  lastConnected,
 		ReconnectCount: int(atomic.LoadInt32(&mgr.reconnectCount)),
 		LastError:      lastErr,
 	}
@@ -271,22 +275,26 @@ func startWSSCarrier(cfg wssConfig) error {
 	wssMu.Lock()
 	defer wssMu.Unlock()
 
-	if wssActiveState != nil && wssActiveState.running {
+	if wssActiveState != nil && wssActiveState.running.Load() {
 		_ = wssActiveState.stop()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	mgr := &wssCarrierManager{
-		cfg:     cfg,
-		ctx:     ctx,
-		cancel:  cancel,
-		running: true,
+		cfg:      cfg,
+		ctx:      ctx,
+		cancel:   cancel,
+		runDone:  make(chan struct{}),
+		certFile: tlsCertFile(),
+		keyFile:  tlsKeyFile(),
 	}
+	mgr.running.Store(true)
 	wssActiveState = mgr
 
 	if runtime.GOOS == "windows" {
 		atomic.StoreInt32(&mgr.connected, 1)
 		mgr.lastConnected = time.Now().Format("2006-01-02 15:04:05")
+		close(mgr.runDone)
 		return nil
 	}
 
@@ -300,11 +308,14 @@ func startWSSCarrier(cfg wssConfig) error {
 		}
 	}
 
-	if role == "server" {
-		go mgr.runServer()
-	} else {
-		go mgr.runClient()
-	}
+	go func() {
+		defer close(mgr.runDone)
+		if role == "server" {
+			mgr.runServer()
+		} else {
+			mgr.runClient()
+		}
+	}()
 
 	return nil
 }
@@ -313,7 +324,7 @@ func stopWSSCarrier() error {
 	wssMu.Lock()
 	defer wssMu.Unlock()
 
-	if wssActiveState == nil || !wssActiveState.running {
+	if wssActiveState == nil {
 		return nil
 	}
 	err := wssActiveState.stop()
@@ -322,7 +333,7 @@ func stopWSSCarrier() error {
 }
 
 func (m *wssCarrierManager) stop() error {
-	m.running = false
+	m.running.Store(false)
 	if m.cancel != nil {
 		m.cancel()
 	}
@@ -344,6 +355,11 @@ func (m *wssCarrierManager) stop() error {
 	}
 	if udp != nil {
 		_ = udp.Close()
+	}
+	// Join startup/reconnect work before another carrier or config takes over.
+	// Resources published during startup also check cancellation under connMu.
+	if m.runDone != nil {
+		<-m.runDone
 	}
 	atomic.StoreInt32(&m.connected, 0)
 	return nil
@@ -387,6 +403,11 @@ func (m *wssCarrierManager) runServer() {
 		}
 	}
 	m.connMu.Lock()
+	if m.ctx != nil && m.ctx.Err() != nil {
+		m.connMu.Unlock()
+		_ = udpConn.Close()
+		return
+	}
 	m.udpConn = udpConn
 	m.connMu.Unlock()
 	defer func() {
@@ -417,6 +438,11 @@ func (m *wssCarrierManager) runServer() {
 		}
 
 		m.connMu.Lock()
+		if m.ctx != nil && m.ctx.Err() != nil {
+			m.connMu.Unlock()
+			_ = ws.Close()
+			return
+		}
 		if m.activeConn != nil {
 			_ = m.activeConn.Close()
 		}
@@ -424,7 +450,9 @@ func (m *wssCarrierManager) runServer() {
 		m.connMu.Unlock()
 
 		atomic.StoreInt32(&m.connected, 1)
+		m.errMu.Lock()
 		m.lastConnected = time.Now().Format("2006-01-02 15:04:05")
+		m.errMu.Unlock()
 
 		m.bridgePump(ws, udpConn, udpAddr)
 	})
@@ -435,6 +463,10 @@ func (m *wssCarrierManager) runServer() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	m.connMu.Lock()
+	if m.ctx != nil && m.ctx.Err() != nil {
+		m.connMu.Unlock()
+		return
+	}
 	m.httpServer = server
 	m.connMu.Unlock()
 	defer func() {
@@ -450,8 +482,7 @@ func (m *wssCarrierManager) runServer() {
 		var cert tls.Certificate
 		var certErr error
 
-		panelCert := tlsCertFile()
-		panelKey := tlsKeyFile()
+		panelCert, panelKey := m.certFile, m.keyFile
 		if _, err := os.Stat(panelCert); err == nil {
 			cert, certErr = tls.LoadX509KeyPair(panelCert, panelKey)
 		} else {
@@ -501,6 +532,11 @@ func (m *wssCarrierManager) runClient() {
 		}
 	}
 	m.connMu.Lock()
+	if m.ctx.Err() != nil {
+		m.connMu.Unlock()
+		_ = udpConn.Close()
+		return
+	}
 	m.udpConn = udpConn
 	m.connMu.Unlock()
 	defer func() {
@@ -512,7 +548,7 @@ func (m *wssCarrierManager) runClient() {
 		_ = udpConn.Close()
 	}()
 
-	for m.running {
+	for {
 		select {
 		case <-m.ctx.Done():
 			return
@@ -566,23 +602,37 @@ func (m *wssCarrierManager) runClient() {
 			if resp != nil && resp.StatusCode == http.StatusUnauthorized {
 				m.setErr(fmt.Errorf("unauthorized token on %s", url))
 			}
-			time.Sleep(2 * time.Second)
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-time.After(2 * time.Second):
+			}
 			continue
 		}
 
 		rtt := time.Since(t0).Microseconds()
 		atomic.StoreInt64(&m.latencyMs, rtt)
-		atomic.StoreInt32(&m.connected, 1)
-		m.lastConnected = time.Now().Format("2006-01-02 15:04:05")
-
 		m.connMu.Lock()
+		if m.ctx.Err() != nil {
+			m.connMu.Unlock()
+			_ = ws.Close()
+			return
+		}
 		m.activeConn = ws
 		m.connMu.Unlock()
+		atomic.StoreInt32(&m.connected, 1)
+		m.errMu.Lock()
+		m.lastConnected = time.Now().Format("2006-01-02 15:04:05")
+		m.errMu.Unlock()
 
 		m.bridgePump(ws, udpConn, udpAddr)
 
 		atomic.StoreInt32(&m.connected, 0)
-		time.Sleep(1 * time.Second)
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
 	}
 }
 

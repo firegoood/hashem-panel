@@ -174,7 +174,7 @@ func TestManagedWSSFailsClosed(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
-	wss := &wssCarrierManager{cfg: wssConfig{UseTLS: true, ListenPort: port, LocalBridgeUDP: 19998}}
+	wss := &wssCarrierManager{cfg: wssConfig{UseTLS: true, ListenPort: port, LocalBridgeUDP: 19998}, certFile: tlsCertFile(), keyFile: tlsKeyFile()}
 	done := make(chan struct{})
 	go func() { wss.runServer(); close(done) }()
 	select {

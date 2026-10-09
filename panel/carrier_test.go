@@ -58,6 +58,7 @@ func TestCarrierAPIEndpoints(t *testing.T) {
 	oldConfigDir := configDir
 	configDir = tmpDir
 	defer func() { configDir = oldConfigDir }()
+	defer stopWSSCarrier()
 
 	// Initial GET
 	req := httptest.NewRequest("GET", "/api/carrier", nil)

@@ -190,6 +190,10 @@ The legacy Dial panel is unavailable when managed peers exist. Managed WSS/FOU/
 QUIC support still requires per-peer trust, firewall, migration and rollback
 acceptance. An active TCP socket alone is not authenticated health.
 
+Legacy WSS stop/replacement now cancels and joins its startup/reconnect worker
+before returning, preventing a canceled startup from leaving a late listener.
+This local lifecycle correction does not certify the alternate-carrier gates.
+
 Web Panel Repair starts an existing owned binary/unit. A missing unit or binary
 requires `install-fork.sh` from the reviewed checkout; the menu never fetches a
 floating upstream replacement. Installer ownership refusal is an explicit
