@@ -3,7 +3,9 @@
 **Status: controlled testing only. Release blocked.** First close the real
 systemd/reboot, firewall, upgrade/migration and full-security gates in
 [acceptance](../testing/multipeer-acceptance.md). This document is an execution
-recipe for a subsequently authorized test host; no production machine was changed.
+recipe for authorized test hosts. The later 2026-10-10 three-VPS validation is
+recorded separately in acceptance: NL passed bounded synthetic forwarding;
+the TR GRE path failed. Reboot and full security acceptance remain open.
 Use the existing fork and reviewed commit, not the upstream floating installer.
 
 ## Architecture
@@ -224,3 +226,9 @@ Web Panel Repair starts an existing owned binary/unit. A missing unit or binary
 requires `install-fork.sh` from the reviewed checkout; the menu never fetches a
 floating upstream replacement. Installer ownership refusal is an explicit
 migration gate, not a reason to overwrite a retained unowned binary.
+
+Fleet displays the normalized FRP transport for managed peers. Its health and
+the peer card's authenticated state remain separate from configured transport:
+KCP in a pending card is not proof of registration. First-paint theme setup does
+not request an authenticated dashboard before frontend initialization; later
+theme changes repaint it after login.

@@ -123,3 +123,24 @@ func TestFleetSnapshotDownWithoutLive(t *testing.T) {
 		t.Fatalf("defaults wrong: %+v", nodes[0])
 	}
 }
+
+func TestFleetSnapshotTransportSemantics(t *testing.T) {
+	resetFleet()
+	fleetLoad = syncOnceReset()
+	recs := []peerRecord{
+		{ID: 1, Engine: "frp", Managed: true, FRPTransport: "kcp", Transport: "tcp"},
+		{ID: 2, Engine: "frp", Managed: true, FRPTransport: "tcp"},
+		{ID: 3, Engine: "gre-backhaul", Transport: "wss", FRPTransport: "kcp"},
+		{ID: 4, Engine: "frp", Transport: "tcp"},
+	}
+	nodes := fleetSnapshot(recs, nil)
+	want := []string{"kcp", "tcp", "wss", "tcp"}
+	for i, n := range nodes {
+		if n.Transport != want[i] {
+			t.Errorf("peer %d: fleet transport %q, want %q", n.ID, n.Transport, want[i])
+		}
+		if n.Health != "down" || n.Linked {
+			t.Errorf("configured transport must not imply verified connectivity: %+v", n)
+		}
+	}
+}

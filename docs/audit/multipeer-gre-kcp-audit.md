@@ -32,7 +32,11 @@ PASS results or certify an unexecuted reboot/security test.
 | ID | Classification | Verified observation / resolution |
 |---|---|---|
 | V01 | CONFIRMED deployment limitation | IR's pinned Go HTTPS redirect returns 404; NL/TR install that exact pinned archive successfully. Existing panel on IR remains unchanged after failure. A strict local artifact path adds the same hash validation and staged extraction; see the correction ledger for regression scope and supersession conditions. Network filtering attribution remains unproven. |
-| V02 | CONFIRMED CI infrastructure limitation | Workflow run `37990095656`, attempts 1 and 2, fails while resolving the pinned Docker Hub image with HTTP 429, before any Go/native/vulnerability check. Docker's ECR Public copy resolves the same digest; full validation remains required. |
+| V02 | CONFIRMED CI infrastructure limitation | Workflow run `37990095656`, attempts 1 and 2, fails while resolving the pinned Docker Hub image with HTTP 429, before any Go/native/vulnerability check. Docker's ECR Public copy resolves the same digest; local full integration and hosted run `37991494631` PASS. |
+| V03 | CONFIRMED application defect | Authenticated real Fleet API and browser cards omit managed KCP because they use the legacy transport field. Normalized FRP transport now takes precedence for FRP, with engine/fallback/no-false-connectivity regressions. |
+| V04 | CONFIRMED application defect | Actual Chrome reports an unhandled i18n initialization error on first paint, caused by premature asynchronous dashboard refresh. Initial theme no longer requests a dashboard before authentication; later theme changes still repaint. |
+| V05 | NEEDS_RUNTIME_VERIFICATION of provider cause | Managed IR/TR GRE packets leave each host but are absent at the opposite interface in paired captures. Small packets also fail; native configs validate and host policies accept them. Off-host loss/blocking is observed, but the responsible provider/ISP device is unproved. No carrier substitution or application workaround is applied. |
+| V06 | Operational observation, not a confirmed source defect | NL's outer interface MTU is 1400 and effective inner PMTU is 1376. Small/large echo and real KCP traffic succeed, while an inner DF packet of 1380 fails. Sustained fragmentation/loss/MTU tuning remains unverified; no guessed MTU patch is retained. |
 
 Reviewed the Shell installer/menu/lifecycle/firewall/backup paths and panel
 setup, registry, status, carriers, peer auth, passwords, monitoring, benchmark,

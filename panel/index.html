@@ -2739,7 +2739,9 @@ function setTheme(t) {
     if (sp) { sp.textContent = lab; sp.removeAttribute('data-i18n'); } else b.textContent = lab;
     b.setAttribute('aria-label', lab.replace(/^\S+\s/, '')); b.removeAttribute('data-i18n-aria'); }
   const bm = $('themeBtnM'); if (bm) bm.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
-  try { if (typeof refreshDash === 'function') refreshDash(); } catch(e) { /* dashboard not ready yet; polling repaints it */ }
+  // First-paint initialization precedes dashboard/i18n constants. Repaint
+  // only after login; the normal authenticated refresh renders initial data.
+  try { if (typeof refreshDash === 'function' && !$('app').classList.contains('hidden')) refreshDash(); } catch(e) { /* dashboard polling repaints it */ }
 }
 $('themeBtn').onclick = () => setTheme(document.body.dataset.t === 'dark' ? 'light' : 'dark');
 try { setTheme(localStorage.getItem('gre_theme') || document.body.dataset.t || 'dark'); } catch(e) { /* storage blocked: keep default theme */ }

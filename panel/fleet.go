@@ -246,6 +246,11 @@ func fleetSnapshot(recs []peerRecord, live map[int]peerLive) []fleetNode {
 			LatencyMs: -1, ControlPort: r.FrpPort,
 			Health: "down", History: append([]fleetSample{}, win...), Stats: fleetCompute(win),
 		}
+		// FRP uses its normalized transport field; Transport belongs to legacy
+		// carrier engines. This is configuration, not evidence of a live session.
+		if r.Engine == "frp" && r.FRPTransport != "" {
+			n.Transport = r.FRPTransport
+		}
 		if n.Name == "" {
 			n.Name = "peer-" + strconv.Itoa(r.ID)
 		}

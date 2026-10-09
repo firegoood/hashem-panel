@@ -36,6 +36,27 @@ render({role:'iran',gre:{exists:true,name:'gre-tunnel'},frp_up:true,proxy_ports:
 assert.ok(!html.includes("peerRemoveClick(${p.id}, '${esc(nm)}')"));
 console.log('PASS inline JavaScript syntax, secure/legacy bundle transport, malformed bundle and peer-name handler');
 
+// First-paint theme setup runs before dashboard/i18n initialization. It must
+// not fetch an authenticated dashboard or create a rejected startup promise.
+const themeStart = html.indexOf('function setTheme(t) {');
+const themeEnd = html.indexOf("$('themeBtn').onclick", themeStart);
+let dashboardCalls = 0, loginHidden = true;
+const themeDocument = {documentElement:{dataset:{}}, body:{dataset:{}}};
+const setTheme = vm.runInNewContext(html.slice(themeStart,themeEnd) + '; setTheme', {
+  document:themeDocument,
+  $: id => id === 'app' ? {classList:{contains:() => loginHidden}} : null,
+  localStorage:{setItem(){}},
+  refreshDash: async () => { dashboardCalls++; }
+});
+setTheme('dark');
+assert.equal(themeDocument.documentElement.dataset.t, 'dark');
+assert.equal(themeDocument.body.dataset.t, 'dark');
+assert.equal(dashboardCalls, 0, 'first paint must not call the uninitialized dashboard');
+loginHidden = false;
+setTheme('light');
+assert.equal(dashboardCalls, 1, 'authenticated theme changes must repaint the dashboard');
+console.log('PASS first-paint theme initializes without requesting an uninitialized dashboard');
+
 (async () => {
   const perfStart = html.indexOf('async function loadPerf() {');
   const perfEnd = html.indexOf('function updateTuningUI(', perfStart);
