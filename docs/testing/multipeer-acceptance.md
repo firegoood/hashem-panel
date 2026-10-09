@@ -3,8 +3,9 @@
 Date: 2026-10-09. Branch: `fix/multipeer-gre-kcp`.
 Implementation commit: `66ce97f644dedb01f31efac9055693738e95c0cb`.
 Integrated upstream: `af0c8ac2f916149011cb3abf5e0718d133445ed1` (`panel-r147`).
-This matrix reports the disposable environment below. **No production VPS was
-accessed and no release readiness is implied by PASS.**
+This original matrix reports the 2026-10-09 disposable environment below. No VPS
+was accessed for that matrix. The later authorized real-VPS results are separate
+in the dated section at the end; neither scope implies release readiness.
 
 ## Environment and reproducible commands
 
@@ -168,3 +169,131 @@ restore cannot be mistaken for a committed interrupted operation.
 CI in `.github/workflows/verify-fork.yml` runs on the dedicated branch/PR and
 publishes only sanitized acceptance evidence. It does not build a public release
 or merge to main. A successful local test is not a claim that hosted CI finished.
+
+
+## Authorized real VPS validation, 2026-10-10
+
+Starting fork: `cc35d5171f5da6148859c9504ad92ee4a8d39d34`; inspected upstream
+unchanged at `af0c8ac2f916149011cb3abf5e0718d133445ed1`. Dedicated working branch:
+`codex/real-vps-gre-kcp-validation`; delivery goes to the existing fork branch
+`fix/multipeer-gre-kcp` by fast-forward. No newer upstream integration, main merge
+or public release. Deployed code: `b86ffc7c09b884de7961659116ef983996ed2f6d`.
+The current documentation commit is available through `git rev-parse HEAD`.
+
+Actual environment: three user-authorized amd64 Ubuntu 24.04.5 LTS VPSs, kernel
+6.8.0-146-generic, about 2 GiB RAM each; IR/NL have 2 vCPUs and TR has 1.
+Official FRP 0.71.0 and genuine systemd are used. SSH host keys were verified
+by the user before password authentication. Public evidence uses node labels;
+raw inventory/configuration, live addresses, keys and pairing bundles are not
+published. Four requested operational reports are local and excluded from Git.
+See [sanitized machine-readable evidence](evidence/real-vps-2026-10-10.json).
+
+**Outcome: overall deployment acceptance FAIL; release and complete three-node
+operational readiness remain blocked.** NL GRE/KCP registered and forwarded
+exact synthetic TCP/UDP responses on 8888 and 8889. TR configuration/unit/native
+validation passes, but final managed GRE is unstable and FRPC does not register;
+8880/2052 fail. Early temporary TR probes sometimes passed. Later paired
+captures observe outbound GRE absent at the opposite host during that capture
+window, including small packets. This supports off-host loss/blocking but does
+not identify a specific ISP/provider device or prove a permanent all-time block.
+No alternate carrier or direct-public control fallback was enabled.
+
+NL bounded receiver throughput over actual FRP KCP: one TCP stream 5.046 Mb/s
+at a 5 Mb/s cap; four TCP streams 20.152 Mb/s total at 5 Mb/s each, both 8 seconds
+with zero iperf TCP retransmissions. UDP target 2 Mb/s, 1200-byte datagrams,
+8 seconds: receiver 1.975 Mb/s, 1667 packets, zero loss and 4.993 ms jitter.
+Direct public/GRE baseline around 8.04 Mb/s is reported separately and is not
+KCP capacity. Attempted concurrent load gave NL 6.171 Mb/s; TR refused, so no
+two-peer throughput measurement exists. TR direct TCP control connected but
+carried zero test data; that is not a valid capacity measurement. Existing TR
+iperf being busy was respected without restarting it. No 1000-user, saturation
+or long-duration claim is made. Resource sampling overlapped part of the load;
+global non-idle CPU includes VM steal and differs from owned process CPU.
+Reverse NL-to-IR tests: 4.980 Mb/s one stream, 9.567 Mb/s four streams at the
+same caps, with 0 and 33 reported TCP retransmissions respectively. These are
+endpoint TCP counters, not KCP ARQ retransmission counts. An initial reverse UDP
+attempt found the owned test server busy; an isolated retry through port 8889
+received 1.999 Mb/s, 1666 datagrams, reported zero loss and 5.004 ms jitter.
+The reverse 40-second resource window covers the TCP sequence and failed first
+UDP attempt, not the UDP retry. NL whole-host non-idle CPU peaked at 100% for a
+one-second sample while managed FRPC peaked at 3.98% of one core; the cause was
+not isolated. After fixture shutdown, later no-load samples were 98-100% idle.
+Concurrency was not escalated. These observations do not certify sustained load.
+
+Actual NL FRPC crash recovery: 36.685 seconds to exact response with systemd
+NRestarts increment. Brief owned GRE loss: 7.012 seconds down and 0.315 seconds
+to exact response after link up. TR restart and disable/enable preserve NL
+traffic/PID. Reciprocal functional continuity cannot be certified while TR is
+disconnected. Native units verify/enable, but no machine was rebooted.
+
+V01/V02 correct verified-artifact deployment and pinned-image CI limitations;
+V03/V04 correct Fleet transport omission and first-load theme/i18n error.
+Each application regression fails before correction and passes after it. Actual
+headless Chrome on all three panels logs in with independent securely stored
+passwords, shows authenticated NL and pending TR, displays KCP, logs out, and
+reports zero JavaScript errors after correction. Generic application forwarding
+health remains UNKNOWN. Hosted full CI
+[37993816464](https://github.com/firegoood/hashem-panel/actions/runs/37993816464)
+passes for the deployed code, including frontend, Shell, unit/vet/race/build,
+26 native traffic/safety checks and mandatory verbose govulncheck. Scanner scope:
+0 reachable vulnerabilities, 0 imported-package vulnerabilities, one required-
+module advisory GO-2026-5932 in unused OpenPGP; no exclusion was added.
+
+All task-owned temporary GRE, echo, benchmark and HTTPS transfer services/files,
+artifact caches and the incomplete IR clone were removed. Reviewed source,
+installed panels/managed peers and private recovery backups remain. Pre-existing
+SSH/iperf service PIDs, SSH config hash, public routes/global sysctls and baseline
+unrelated service activity are preserved. Host firewall has only peer-commented
+added rules and unchanged ACCEPT policies. There are no real destination apps
+on the requested foreign ports after synthetic fixtures were removed; the tested
+NL tunnel therefore still needs application backends before operational use.
+
+**Credential handling incident:** an initial raw read of the user attachment
+included supplied SSH credentials in private tool output. T30 is FAIL, even
+though none were committed and later workflows use private stdin/verified SSH.
+Independent new panel passwords are stored only in current-user Windows
+Credential Manager. The user should arrange SSH password rotation; SSH access
+credentials were not changed automatically. This incident is not concealed by
+the passing bounded journal/argv/unit secret checks.
+
+| Case | Result | Evidence and scope |
+|---|---|---|
+| T01 | PASS | All three authorized nodes authenticated with user-verified host keys; later SSH remained available. |
+| T02 | PASS | Read-only inventory on all three before mutation: OS/kernel/resources/interfaces/routes/listeners/firewall/SSH/workloads. |
+| T03 | PASS | IR kernel GRE support and actual owned GRE creation. |
+| T04 | PASS | NL kernel GRE support and actual owned GRE creation. |
+| T05 | PASS | TR kernel GRE support and actual owned GRE creation. |
+| T06 | PASS | IR/NL bidirectional GRE, exact TCP/UDP payloads and packet evidence. |
+| T07 | FAIL | TR temporary early probes sometimes passed; final managed GRE remained unstable. Paired captures showed outbound small GRE missing at the opposite host during the capture window. |
+| T08 | PASS | NL native FRP 0.71.0 KCP, fresh authenticated registration, public exact responses; 30 UDP control packets captured on owned GRE, 12 outbound/18 inbound, zero capture drops. |
+| T09 | FAIL | TR KCP configuration validates and service runs, but no authenticated FRP registration; connection write timeouts. |
+| T10 | PASS | Public NL 8888 TCP and UDP exact synthetic application replies, including independent external client. Test backend subsequently removed. |
+| T11 | PASS | Public NL 8889 TCP and UDP exact synthetic application replies, including independent external client. Test backend subsequently removed. |
+| T12 | FAIL | TR 8880 public TCP refused and UDP timed out; no registered proxy. |
+| T13 | FAIL | TR 2052 public TCP refused and UDP timed out; no registered proxy. |
+| T14 | FAIL | Attempted simultaneous load: NL succeeded, TR refused. Both active together was not achieved. |
+| T15 | BLOCKED | Independent per-peer FRP/management secrets verified, but two simultaneous authenticated sessions require working TR. |
+| T16 | BLOCKED | NL restart recovered; TR service PID/config preserved. Functional TR continuity could not be tested because TR was already disconnected. |
+| T17 | PASS | TR owned restart preserved NL service PID and concurrent exact traffic. |
+| T18 | PASS | NL native disable/enable closed/reopened its proxy and recovered exact response; other peer resources preserved. |
+| T19 | PASS | TR native disable/enable preserved NL PID and exact TCP/UDP responses. This proves safe control/isolation, not successful TR reconnection. |
+| T20 | PASS | Host policies preserved; only exact peer-commented rules added; GRE-only FRP control binds. Provider firewall/GRE forwarding was not inspectable. |
+| T21 | PASS | All generated installed systemd units passed systemd-analyze verify and are enabled/active. This does not prove boot recovery. |
+| T22 | BLOCKED | NL actual FRPC SIGKILL recovered payload in 36.685 s with NRestarts increment; NL restart also recovered. TR functional recovery remains blocked. |
+| T23 | NOT_EXECUTED | No reboot authorization; existing workloads/other SSH sessions were preserved. |
+| T24 | PASS | Authentic reviewed checkout, native installer and CLI stdin pairing; repeated installation on all three preserves accounts/configs/TLS. No normal TOML/unit/registry editing. |
+| T25 | PASS | Actual headless Chrome via verified SSH tunnels: new login/logout, peer cards/Fleet match NL CONNECTED and TR pending; KCP visible and zero JavaScript errors after V03/V04 fixes. |
+| T26 | PASS | Final SSH config hash and SSH/old iperf PIDs unchanged; public routes/global sysctls preserved; baseline unrelated services active. |
+| T27 | BLOCKED | Bounded NL actual KCP and direct-path TCP/UDP measurements recorded. No usable TR throughput or concurrent two-peer result. |
+| T28 | PASS | 25 one-second forward samples partially overlap load; 40 reverse samples cover bounded TCP sequence and its failed UDP attempt. CPU/RSS recorded on all three; retry UDP has no separate resource window. Global non-idle includes steal; not maximum/sustained capacity. |
+| T29 | NOT_EXECUTED | Bounded authentication/CSRF/replay/permissions/known-secret/host-policy checks pass; whole legacy surface, full external secret/security scan and all-platform scan remain unverified. |
+| T30 | FAIL | Initial raw attachment read exposed supplied SSH credentials in private tool output. No credentials were committed; new panel passwords use Windows Credential Manager and private stdin. Rotation of the exposed SSH passwords requires the user to arrange it. |
+| T31 | NOT_EXECUTED | Private pre-install backup and encrypted managed backup dry-run verified; failed download preserved the prior IR install. A working full restore/host activation rollback was not exercised on these non-disposable machines. |
+| T32 | PASS | V03/V04 application defects have failing-before/passing-after regressions and real browser verification. V01/V02 deployment/CI limitations corrected without disabling trust checks. V05 external network failure remains explicit. |
+| T33 | PASS | Verified corrections and sanitized evidence committed on dedicated branch and fast-forward pushed to existing fork branch; no upstream/main/release write. |
+| T34 | PASS | Hosted full CI green for deployed code b86ffc7c09b884de7961659116ef983996ed2f6d, run 37993816464; final documentation-only head checked separately. |
+
+**21 PASS, 6 FAIL, 4 BLOCKED, 3 NOT_EXECUTED.** Runtime/provider TR repair and
+retest, genuine application backends, coordinated reboot, real restore/rollback,
+complete security/legacy coverage and sustained performance remain separate gates.
+A green container/CI result cannot replace these real-host gates.

@@ -137,8 +137,10 @@ capacity/long-duration/loss/MTU performance, new-host TLS identity recovery and
 full security results remain partial. Hosted Linux `govulncheck` passed with 0
 reachable/imported-package vulnerabilities and 1 required-module advisory outside
 the imported call graph; verbose advisory detail is recorded in acceptance.
-Local database access still returned HTTP 403. No supplied production VPS was
-accessed. No release/default-branch merge is allowed until those gates close.
+Local database access still returned HTTP 403. Before the separately authorized
+2026-10-10 task, no supplied VPS had been accessed. Later evidence is recorded in
+the dated real-VPS acceptance section; it does not close every earlier gate.
+No release/default-branch merge is allowed until the critical gates close.
 
 Configuration authority has moved into localized `panel/managed_*.go` because
 separate Shell and Go writers produced demonstrably incompatible ownership,

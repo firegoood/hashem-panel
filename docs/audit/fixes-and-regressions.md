@@ -76,6 +76,15 @@ scope limits, not newly reproduced implementation failures. An arbitrary
 application protocol cannot be safely guessed from a port; no probe fabricates
 an application-health success. These gates remain explicitly uncompleted.
 
+That paragraph describes the previous isolated delivery. The later authorized
+2026-10-10 task adds actual systemd installation, upgrade from three r142 panels,
+repeat install, bounded NL WAN forwarding/performance and real browser evidence.
+V03/V04 pass their regressions and real browser retest after deployment at
+`b86ffc7c09b884de7961659116ef983996ed2f6d`; hosted full CI run `37993816464`
+also passes. TR GRE/KCP, reboot, full legacy account migration/restore, sustained
+capacity and complete security acceptance remain open. Consult the dated
+acceptance rather than extending old container results to these hosts.
+
 Hosted CI `37984925406` at `94f7d48` passed the same implementation/test source
 as `66ce97f`, with verbose scanner output enabled. `govulncheck` v1.8.0 reported
 0 reachable vulnerabilities and 0 vulnerabilities in imported packages; the one

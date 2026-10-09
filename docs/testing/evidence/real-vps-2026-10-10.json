@@ -1,0 +1,342 @@
+{
+  "date": "2026-10-10",
+  "real_vps": true,
+  "starting_sha": "cc35d5171f5da6148859c9504ad92ee4a8d39d34",
+  "inspected_upstream_sha": "af0c8ac2f916149011cb3abf5e0718d133445ed1",
+  "deployed_code_sha": "b86ffc7c09b884de7961659116ef983996ed2f6d",
+  "FRP_version": "0.71.0",
+  "OS": "Ubuntu 24.04.5 LTS",
+  "kernel": "6.8.0-146-generic",
+  "nodes": [
+    {
+      "node": "IR",
+      "vCPUs": 2,
+      "installed": true,
+      "SSH_and_existing_iperf_preserved": true,
+      "public_routes_and_sysctls_preserved": true,
+      "temporary_resources_removed": true
+    },
+    {
+      "node": "NL",
+      "vCPUs": 2,
+      "installed": true,
+      "SSH_and_existing_iperf_preserved": true,
+      "public_routes_and_sysctls_preserved": true,
+      "temporary_resources_removed": true
+    },
+    {
+      "node": "TR",
+      "vCPUs": 1,
+      "installed": true,
+      "SSH_and_existing_iperf_preserved": true,
+      "public_routes_and_sysctls_preserved": true,
+      "temporary_resources_removed": true
+    }
+  ],
+  "NL_KCP_packet_proof": {
+    "all_16_exact_responses": true,
+    "udp_control_on_owned_GRE": 30,
+    "central_to_foreign_packets": 12,
+    "foreign_to_central_packets": 18,
+    "tcpdump_kernel_drops": 0,
+    "no_payload_capture": true
+  },
+  "forwarding_before_fixture_cleanup": [
+    {
+      "peer": "NL",
+      "port": 8888,
+      "protocol": "tcp",
+      "exact_response": true,
+      "rtt_ms": 218.0
+    },
+    {
+      "peer": "NL",
+      "port": 8888,
+      "protocol": "udp",
+      "exact_response": true,
+      "rtt_ms": 141.0
+    },
+    {
+      "peer": "NL",
+      "port": 8889,
+      "protocol": "tcp",
+      "exact_response": true,
+      "rtt_ms": 469.0
+    },
+    {
+      "peer": "NL",
+      "port": 8889,
+      "protocol": "udp",
+      "exact_response": true,
+      "rtt_ms": 265.0
+    },
+    {
+      "peer": "TR",
+      "port": 8880,
+      "protocol": "tcp",
+      "exact_response": false,
+      "error": "ConnectionRefusedError"
+    },
+    {
+      "peer": "TR",
+      "port": 8880,
+      "protocol": "udp",
+      "exact_response": false,
+      "error": "TimeoutError"
+    },
+    {
+      "peer": "TR",
+      "port": 2052,
+      "protocol": "tcp",
+      "exact_response": false,
+      "error": "ConnectionRefusedError"
+    },
+    {
+      "peer": "TR",
+      "port": 2052,
+      "protocol": "udp",
+      "exact_response": false,
+      "error": "TimeoutError"
+    }
+  ],
+  "NL_bounded_receiver_Mbps": {
+    "TCP_one_stream_8_sec_5M_cap": 5.0464545,
+    "TCP_four_streams_8_sec_5M_each_cap": 20.1517643,
+    "UDP_8_sec_2M_target_1200_bytes": 1.974568936,
+    "UDP_loss_percent": 0,
+    "UDP_jitter_ms": 4.992603303
+  },
+  "TR_throughput": "NO_USABLE_MEASUREMENT",
+  "simultaneous_both_peers": "FAIL_TR_NOT_REGISTERED",
+  "NL_crash_recovery_seconds": 36.685,
+  "NL_temporary_GRE_down_seconds": 7.012,
+  "NL_recovery_after_GRE_up_seconds": 0.315,
+  "webUI_real_browser": "PASS_ZERO_JS_ERRORS_AFTER_CORRECTION",
+  "CI_code_run": 37993816464,
+  "CI_code_conclusion": "success",
+  "release_blocked": true,
+  "real_destination_applications": "NOT_INSTALLED; synthetic echo/iperf removed",
+  "acceptance": [
+    {
+      "id": "T01",
+      "result": "PASS",
+      "evidence": "All three authorized nodes authenticated with user-verified host keys; later SSH remained available."
+    },
+    {
+      "id": "T02",
+      "result": "PASS",
+      "evidence": "Read-only inventory on all three before mutation: OS/kernel/resources/interfaces/routes/listeners/firewall/SSH/workloads."
+    },
+    {
+      "id": "T03",
+      "result": "PASS",
+      "evidence": "IR kernel GRE support and actual owned GRE creation."
+    },
+    {
+      "id": "T04",
+      "result": "PASS",
+      "evidence": "NL kernel GRE support and actual owned GRE creation."
+    },
+    {
+      "id": "T05",
+      "result": "PASS",
+      "evidence": "TR kernel GRE support and actual owned GRE creation."
+    },
+    {
+      "id": "T06",
+      "result": "PASS",
+      "evidence": "IR/NL bidirectional GRE, exact TCP/UDP payloads and packet evidence."
+    },
+    {
+      "id": "T07",
+      "result": "FAIL",
+      "evidence": "TR temporary early probes sometimes passed; final managed GRE remained unstable. Paired captures showed outbound small GRE missing at the opposite host during the capture window."
+    },
+    {
+      "id": "T08",
+      "result": "PASS",
+      "evidence": "NL native FRP 0.71.0 KCP, fresh authenticated registration, public exact responses; 30 UDP control packets captured on owned GRE, 12 outbound/18 inbound, zero capture drops."
+    },
+    {
+      "id": "T09",
+      "result": "FAIL",
+      "evidence": "TR KCP configuration validates and service runs, but no authenticated FRP registration; connection write timeouts."
+    },
+    {
+      "id": "T10",
+      "result": "PASS",
+      "evidence": "Public NL 8888 TCP and UDP exact synthetic application replies, including independent external client. Test backend subsequently removed."
+    },
+    {
+      "id": "T11",
+      "result": "PASS",
+      "evidence": "Public NL 8889 TCP and UDP exact synthetic application replies, including independent external client. Test backend subsequently removed."
+    },
+    {
+      "id": "T12",
+      "result": "FAIL",
+      "evidence": "TR 8880 public TCP refused and UDP timed out; no registered proxy."
+    },
+    {
+      "id": "T13",
+      "result": "FAIL",
+      "evidence": "TR 2052 public TCP refused and UDP timed out; no registered proxy."
+    },
+    {
+      "id": "T14",
+      "result": "FAIL",
+      "evidence": "Attempted simultaneous load: NL succeeded, TR refused. Both active together was not achieved."
+    },
+    {
+      "id": "T15",
+      "result": "BLOCKED",
+      "evidence": "Independent per-peer FRP/management secrets verified, but two simultaneous authenticated sessions require working TR."
+    },
+    {
+      "id": "T16",
+      "result": "BLOCKED",
+      "evidence": "NL restart recovered; TR service PID/config preserved. Functional TR continuity could not be tested because TR was already disconnected."
+    },
+    {
+      "id": "T17",
+      "result": "PASS",
+      "evidence": "TR owned restart preserved NL service PID and concurrent exact traffic."
+    },
+    {
+      "id": "T18",
+      "result": "PASS",
+      "evidence": "NL native disable/enable closed/reopened its proxy and recovered exact response; other peer resources preserved."
+    },
+    {
+      "id": "T19",
+      "result": "PASS",
+      "evidence": "TR native disable/enable preserved NL PID and exact TCP/UDP responses. This proves safe control/isolation, not successful TR reconnection."
+    },
+    {
+      "id": "T20",
+      "result": "PASS",
+      "evidence": "Host policies preserved; only exact peer-commented rules added; GRE-only FRP control binds. Provider firewall/GRE forwarding was not inspectable."
+    },
+    {
+      "id": "T21",
+      "result": "PASS",
+      "evidence": "All generated installed systemd units passed systemd-analyze verify and are enabled/active. This does not prove boot recovery."
+    },
+    {
+      "id": "T22",
+      "result": "BLOCKED",
+      "evidence": "NL actual FRPC SIGKILL recovered payload in 36.685 s with NRestarts increment; NL restart also recovered. TR functional recovery remains blocked."
+    },
+    {
+      "id": "T23",
+      "result": "NOT_EXECUTED",
+      "evidence": "No reboot authorization; existing workloads/other SSH sessions were preserved."
+    },
+    {
+      "id": "T24",
+      "result": "PASS",
+      "evidence": "Authentic reviewed checkout, native installer and CLI stdin pairing; repeated installation on all three preserves accounts/configs/TLS. No normal TOML/unit/registry editing."
+    },
+    {
+      "id": "T25",
+      "result": "PASS",
+      "evidence": "Actual headless Chrome via verified SSH tunnels: new login/logout, peer cards/Fleet match NL CONNECTED and TR pending; KCP visible and zero JavaScript errors after V03/V04 fixes."
+    },
+    {
+      "id": "T26",
+      "result": "PASS",
+      "evidence": "Final SSH config hash and SSH/old iperf PIDs unchanged; public routes/global sysctls preserved; baseline unrelated services active."
+    },
+    {
+      "id": "T27",
+      "result": "BLOCKED",
+      "evidence": "Bounded NL actual KCP and direct-path TCP/UDP measurements recorded. No usable TR throughput or concurrent two-peer result."
+    },
+    {
+      "id": "T28",
+      "result": "PASS",
+      "evidence": "25 one-second forward samples partially overlap load; 40 reverse samples cover bounded TCP sequence and its failed UDP attempt. CPU/RSS recorded on all three; retry UDP has no separate resource window. Global non-idle includes steal; not maximum/sustained capacity."
+    },
+    {
+      "id": "T29",
+      "result": "NOT_EXECUTED",
+      "evidence": "Bounded authentication/CSRF/replay/permissions/known-secret/host-policy checks pass; whole legacy surface, full external secret/security scan and all-platform scan remain unverified."
+    },
+    {
+      "id": "T30",
+      "result": "FAIL",
+      "evidence": "Initial raw attachment read exposed supplied SSH credentials in private tool output. No credentials were committed; new panel passwords use Windows Credential Manager and private stdin. Rotation of the exposed SSH passwords requires the user to arrange it."
+    },
+    {
+      "id": "T31",
+      "result": "NOT_EXECUTED",
+      "evidence": "Private pre-install backup and encrypted managed backup dry-run verified; failed download preserved the prior IR install. A working full restore/host activation rollback was not exercised on these non-disposable machines."
+    },
+    {
+      "id": "T32",
+      "result": "PASS",
+      "evidence": "V03/V04 application defects have failing-before/passing-after regressions and real browser verification. V01/V02 deployment/CI limitations corrected without disabling trust checks. V05 external network failure remains explicit."
+    },
+    {
+      "id": "T33",
+      "result": "PASS",
+      "evidence": "Verified corrections and sanitized evidence committed on dedicated branch and fast-forward pushed to existing fork branch; no upstream/main/release write."
+    },
+    {
+      "id": "T34",
+      "result": "PASS",
+      "evidence": "Hosted full CI green for deployed code b86ffc7c09b884de7961659116ef983996ed2f6d, run 37993816464; final documentation-only head checked separately."
+    }
+  ],
+  "counts": {
+    "PASS": 21,
+    "FAIL": 6,
+    "BLOCKED": 4,
+    "NOT_EXECUTED": 3
+  },
+  "NL_reverse_KCP_receiver_Mbps": {
+    "TCP_one_stream_8_sec_5M_cap": 4.980051865374994,
+    "TCP_four_streams_8_sec_5M_each_cap": 9.566584239404165,
+    "TCP_four_streams_reported_endpoint_retransmits": 33,
+    "UDP_8_sec_2M_target_1200_bytes": 1.998963622551633,
+    "UDP_reported_loss_percent": 0,
+    "UDP_jitter_ms": 5.00385815061187,
+    "scope": "Receiver measurements; iperf TCP retransmits are endpoint TCP counters, not KCP ARQ counters. Initial reverse UDP attempt was busy; separate owned fixture retry passed."
+  },
+  "reverse_load_resource_samples": {
+    "IR": {
+      "node": "IR",
+      "samples": 40,
+      "peak_system_nonidle_including_steal": 36.76470588235294,
+      "peak_owned_RSS_MiB": 75.30078125,
+      "minimum_available_MiB": 1543.4921875,
+      "peak_process_CPU_one_core": {
+        "frps": 11.724537902876618,
+        "gre-panel": 5.852740763991702
+      }
+    },
+    "NL": {
+      "node": "NL",
+      "samples": 40,
+      "peak_system_nonidle_including_steal": 100.0,
+      "peak_owned_RSS_MiB": 42.1328125,
+      "minimum_available_MiB": 1588.421875,
+      "peak_process_CPU_one_core": {
+        "gre-panel": 4.9622196543738815,
+        "frpc": 3.98009245713731
+      }
+    },
+    "TR": {
+      "node": "TR",
+      "samples": 40,
+      "peak_system_nonidle_including_steal": 27.184466019417474,
+      "peak_owned_RSS_MiB": 39.24609375,
+      "minimum_available_MiB": 1608.19140625,
+      "peak_process_CPU_one_core": {
+        "gre-panel": 3.9691926744362864,
+        "frpc": 1.983649965503061
+      }
+    }
+  },
+  "reverse_resource_limit": "NL global non-idle CPU reached 100% in a one-second sample; managed frpc peak 3.98% of one core. Test completed and fixture stopped; later no-load samples were 98-100% idle. Cause of whole-host peak not isolated; no further concurrency escalation."
+}
