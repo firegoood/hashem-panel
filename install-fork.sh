@@ -8,6 +8,20 @@ repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 [[ -f "$repo_dir/panel/go.mod" ]] || { echo 'Complete fork checkout required.' >&2; exit 1; }
 stage_dir=$(mktemp -d)
 trap 'rm -rf -- "$stage_dir"' EXIT
+# Optional offline artifacts still pass the same pinned digest check. Copy into
+# the private staging directory before checking/extracting to avoid cache races.
+fetch_verified_artifact() {
+    local url=$1 filename=$2 destination=$3 expected_hash=$4
+    local artifact_dir=${HASHEM_INSTALL_ARTIFACT_DIR:-}
+    if [[ -n "$artifact_dir" ]]; then
+        [[ "$artifact_dir" = /* && -d "$artifact_dir" ]] || { echo 'Artifact directory must be an absolute existing directory.' >&2; return 1; }
+        [[ -f "$artifact_dir/$filename" && ! -L "$artifact_dir/$filename" ]] || { echo "Required regular artifact missing: $filename" >&2; return 1; }
+        cp -- "$artifact_dir/$filename" "$destination" || return 1
+    else
+        curl --proto '=https' --tlsv1.2 -fsSL --max-time 180 "$url" -o "$destination" || return 1
+    fi
+    printf '%s  %s\n' "$expected_hash" "$destination" | sha256sum -c -
+}
 case $(uname -m) in
     x86_64) arch=amd64; frp_hash=84f27e39f11169f7adcef8e8b70c9329de17747b1f14dad9fb95eef5682ea716; go_hash=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445 ;;
     aarch64|arm64) arch=arm64; frp_hash=f33c293c275d8fc68c654b6fba8f10b2551d6463d09a9fc9cffb7227eae82266; go_hash=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec ;;
@@ -22,13 +36,11 @@ if [[ $missing -eq 1 ]]; then
 fi
 go_cmd=$(command -v go || true)
 if [[ -z "$go_cmd" ]] || ! "$go_cmd" version | grep -Eq 'go1\.(2[6-9]|[3-9][0-9])\.'; then
-    curl --proto '=https' --tlsv1.2 -fsSL --max-time 180 "https://go.dev/dl/go1.27.1.linux-${arch}.tar.gz" -o "$stage_dir/go.tgz"
-    printf '%s  %s\n' "$go_hash" "$stage_dir/go.tgz" | sha256sum -c -
+    fetch_verified_artifact "https://go.dev/dl/go1.27.1.linux-${arch}.tar.gz" "go1.27.1.linux-${arch}.tar.gz" "$stage_dir/go.tgz" "$go_hash"
     tar -xzf "$stage_dir/go.tgz" -C "$stage_dir"
     go_cmd="$stage_dir/go/bin/go"
 fi
-curl --proto '=https' --tlsv1.2 -fsSL --max-time 180 "https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_${arch}.tar.gz" -o "$stage_dir/frp.tgz"
-printf '%s  %s\n' "$frp_hash" "$stage_dir/frp.tgz" | sha256sum -c -
+fetch_verified_artifact "https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_${arch}.tar.gz" "frp_0.71.0_linux_${arch}.tar.gz" "$stage_dir/frp.tgz" "$frp_hash"
 # Expected archive and digest are pinned. Extract only the two regular binaries.
 tar -xzf "$stage_dir/frp.tgz" -C "$stage_dir" "frp_0.71.0_linux_${arch}/frps" "frp_0.71.0_linux_${arch}/frpc"
 fork_sha=$(git -C "$repo_dir" rev-parse --short=12 HEAD 2>/dev/null || echo source)

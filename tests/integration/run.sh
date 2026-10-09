@@ -11,6 +11,7 @@ bash tests/test_legacy_units.sh
 bash tests/test_backhaul_schema.sh
 bash tests/test_wss_front.sh
 bash tests/test_dial_route.sh
+bash tests/test_install_artifacts.sh
 python3 tests/test_managed_menu.py
 python3 tests/test_perf_mux.py
 cd panel

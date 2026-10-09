@@ -19,6 +19,20 @@ not contain a self-referential commit hash. AGPL-3.0 and upstream attribution re
 
 ## Method and scope
 
+### Pinned real VPS validation, 2026-10-10
+
+The newly authorized three-node task starts at fork
+`cc35d5171f5da6148859c9504ad92ee4a8d39d34`, on dedicated branch
+`codex/real-vps-gre-kcp-validation`. Inspected upstream remains
+`af0c8ac2f916149011cb3abf5e0718d133445ed1`; this task does not integrate newer
+upstream. SSH host keys were verified by the user before password authentication.
+This later operational evidence does not change the scope of earlier isolated
+PASS results or certify an unexecuted reboot/security test.
+
+| ID | Classification | Verified observation / resolution |
+|---|---|---|
+| V01 | CONFIRMED deployment limitation | IR's pinned Go HTTPS redirect returns 404; NL/TR install that exact pinned archive successfully. Existing panel on IR remains unchanged after failure. A strict local artifact path adds the same hash validation and staged extraction; see the correction ledger for regression scope and supersession conditions. Network filtering attribution remains unproven. |
+
 Reviewed the Shell installer/menu/lifecycle/firewall/backup paths and panel
 setup, registry, status, carriers, peer auth, passwords, monitoring, benchmark,
 update, terminal, systemd templates and CI. Candidate classification describes

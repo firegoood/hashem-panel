@@ -51,6 +51,23 @@ are preserved. It refuses an unowned existing panel binary/unit. Record the
 initial password printed in the root installation terminal securely. The
 service never logs a generated plaintext login password.
 
+When a node cannot fetch the pinned official Go/FRP archives, transfer those
+exact archives through an authenticated channel from a host that can. Run the
+same installer with an absolute, root-controlled artifact directory:
+
+```sh
+HASHEM_INSTALL_ARTIFACT_DIR=/root/hashem-reviewed-artifacts bash install-fork.sh
+```
+
+For amd64, the required filenames are `go1.27.1.linux-amd64.tar.gz` (when a
+supported Go compiler is absent) and `frp_0.71.0_linux_amd64.tar.gz`. Arm64 uses
+the corresponding arm64 names. An explicit directory is strict: missing,
+symlinked or checksum-mismatching files fail before installed files change;
+there is no unverified download fallback. The installer copies into private
+staging and checks the same pinned SHA-256 values before extraction. This does
+not waive Go module verification or install a prebuilt, unreviewed panel.
+Without the option, the existing verified HTTPS download behavior remains.
+
 Open the printed HTTPS URL/base path. A self-signed management certificate is
 created automatically. Compare its fingerprint through the trusted installation
 channel before accepting it in a browser; optional public domain certificates

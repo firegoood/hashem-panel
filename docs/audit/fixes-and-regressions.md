@@ -29,6 +29,17 @@ configuration adds an optional mux boolean and leaves unset old live configs int
 
 ## Upstream comparison performed on 2026-10-09
 
+### Authorized VPS validation starting 2026-10-10
+
+Starting fork: `cc35d5171f5da6148859c9504ad92ee4a8d39d34`; inspected upstream
+remains `af0c8ac2f916149011cb3abf5e0718d133445ed1`. No additional upstream
+updates were fetched or merged for this pinned deployment. Private operational
+reports are excluded locally from Git; public evidence uses node labels.
+
+| ID | Cause and affected paths | Behavioral regression / verification scope | Upstream comparison / removal condition |
+|---|---|---|---|
+| V01 | IR's verified Go download redirects to an HTTP 404 while the same pinned archive installs successfully on NL/TR. The installer had no verified offline artifact path. `install-fork.sh`, deployment documentation, integration runner | `tests/test_install_artifacts.sh`: verified private staged copy survives cache replacement; tampered, missing, symlinked and relative-path inputs fail. Real use remains pending until the corrected installer is installed on IR. This is a deployment limitation; the HTTP response is not attributed to a specific ISP or fixed by application code. | Upstream has no equivalent reviewed-fork cache path at the inspected SHA. Prefer a future equivalent verified artifact mechanism only after these rejection tests and actual installation pass. Mandatory digests must remain; remove this path when its functionality is superseded, not merely when the network recovers. |
+
 | Upstream commit | Decision and reason | Retained regression / removal |
 |---|---|---|
 | `be79224` (passwords/sessions) | Adopt random per-login server-side sessions; remove the derivable cookie authentication path. Retain the fork's one Argon2id implementation: strict work bounds, error-returning entropy, atomic private storage, concurrent credential recheck. Accept upstream `argon2id$` and canonical `$argon2id$` formats and migrate successfully authenticated upstream accounts. | Adapt upstream password/session tests to the error-returning API; add actual upstream-format account migration. Delete duplicate upstream `password.go`; keep compatibility fixtures. C04 becomes ALREADY_FIXED relative to latest upstream. |
