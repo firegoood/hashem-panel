@@ -3,91 +3,123 @@ package main
 import (
 	"net"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
-// controlLinked reports whether a foreign client holds an ESTABLISHED TCP
-// session to this hub's control port (or its WSS TLS front, port+2). It is the
-// only honest "FRP is connected" signal: the per-peer frps unit being active
-// says nothing about whether the client reached it. The client may arrive over
-// the GRE inner address or the hub's public IP (dial route), so a match on
-// either remote address counts.
-func controlLinked(port int, remotePub, peerGre string) bool {
-	if port <= 0 {
-		return false
-	}
-	out, err := exec.Command("ss", "-Htn", "state", "established").Output()
-	if err != nil {
-		return false
-	}
-	return linkedFromSS(string(out), []int{port, port + 2, port - 2}, remotePub, peerGre)
+// ssSession is one ESTABLISHED TCP session from `ss -Htin`.
+type ssSession struct {
+	LPort int
+	RHost string
+	RTTms float64 // kernel smoothed RTT; -1 when ss did not report one
 }
 
-// controlLinkedAny is controlLinked without a remote filter (main tunnel).
-func controlLinkedAny(port int) bool {
-	if port <= 0 {
-		return false
+// parseSS parses `ss -Htin state established` output. Each session is a
+// header line (Recv-Q Send-Q Local Peer) optionally followed by an indented
+// info line carrying "rtt:<srtt>/<var>".
+func parseSS(out string) []ssSession {
+	var res []ssSession
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if line[0] == ' ' || line[0] == '\t' {
+			if len(res) == 0 {
+				continue
+			}
+			if i := strings.Index(line, " rtt:"); i >= 0 {
+				v := line[i+5:]
+				if j := strings.IndexAny(v, "/ "); j >= 0 {
+					v = v[:j]
+				}
+				if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && res[len(res)-1].RTTms < 0 {
+					res[len(res)-1].RTTms = f
+				}
+			}
+			continue
+		}
+		f := strings.Fields(line)
+		if len(f) < 4 {
+			continue
+		}
+		_, lp, e1 := net.SplitHostPort(f[2])
+		rh, _, e2 := net.SplitHostPort(f[3])
+		if e1 != nil || e2 != nil {
+			continue
+		}
+		p, err := strconv.Atoi(lp)
+		if err != nil {
+			continue
+		}
+		res = append(res, ssSession{LPort: p, RHost: strings.Trim(rh, "[]"), RTTms: -1})
 	}
-	out, err := exec.Command("ss", "-Htn", "state", "established").Output()
-	if err != nil {
-		return false
-	}
-	return linkedFromSS(string(out), []int{port, port + 2}, "", "")
+	return res
 }
 
-// linkedFromSS parses `ss -Htn state established` output (Recv-Q Send-Q Local Peer).
-func linkedFromSS(out string, ports []int, remotes ...string) bool {
+// sessionsOn picks sessions on any of the local ports, optionally restricted to
+// the given remote addresses (empty list = any remote).
+func sessionsOn(all []ssSession, ports []int, remotes ...string) []ssSession {
 	want := map[string]bool{}
 	for _, r := range remotes {
 		if r = strings.TrimSpace(r); r != "" {
 			want[r] = true
 		}
 	}
-	for _, line := range strings.Split(out, "\n") {
-		f := strings.Fields(line)
-		if len(f) < 4 {
-			continue
-		}
-		_, lport, e1 := net.SplitHostPort(f[2])
-		rhost, _, e2 := net.SplitHostPort(f[3])
-		if e1 != nil || e2 != nil {
-			continue
-		}
+	var res []ssSession
+	for _, s := range all {
 		hit := false
 		for _, p := range ports {
-			if p > 0 && lport == itoa(p) {
+			if p > 0 && s.LPort == p {
 				hit = true
 				break
 			}
 		}
-		if !hit {
-			continue
-		}
-		if len(want) == 0 || want[strings.Trim(rhost, "[]")] {
-			return true
+		if hit && (len(want) == 0 || want[s.RHost]) {
+			res = append(res, s)
 		}
 	}
-	return false
+	return res
 }
 
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
+func ssEstablished() string {
+	out, err := exec.Command("ss", "-Htin", "state", "established").Output()
+	if err != nil {
+		return ""
 	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
+	return string(out)
 }
+
+// minRTT returns the lowest reported RTT among sessions, or -1.
+func minRTT(ss []ssSession) float64 {
+	best := -1.0
+	for _, s := range ss {
+		if s.RTTms >= 0 && (best < 0 || s.RTTms < best) {
+			best = s.RTTms
+		}
+	}
+	return best
+}
+
+// controlSession reports whether a foreign client holds an ESTABLISHED TCP
+// session to this hub's control port (or its WSS TLS front, port+2), and the
+// kernel RTT of that session. The client may arrive over the GRE inner address
+// or the hub's public IP (dial route), so a match on either remote counts.
+func controlSession(port int, remotes ...string) (linked bool, rttMs float64) {
+	if port <= 0 {
+		return false, -1
+	}
+	ss := sessionsOn(parseSS(ssEstablished()), []int{port, port + 2, port - 2}, remotes...)
+	return len(ss) > 0, minRTT(ss)
+}
+
+func controlLinked(port int, remotePub, peerGre string) bool {
+	l, _ := controlSession(port, remotePub, peerGre)
+	return l
+}
+
+// linkedFromSS is the pure helper used by tests.
+func linkedFromSS(out string, ports []int, remotes ...string) bool {
+	return len(sessionsOn(parseSS(out), ports, remotes...)) > 0
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }

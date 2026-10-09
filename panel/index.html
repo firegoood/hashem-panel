@@ -1518,6 +1518,15 @@
                 <div class="qs-hint u-mt-2" >Strips custom FRP TLS header. Keep OFF (recommended) inside GRE tunnel to prevent handshake mismatches between servers.</div>
               </div>
             </label>
+
+            <label class="wd-radio-opt u-items-start" >
+              <input type="checkbox" id="perfMuxCheck" class="u-checkbox-ac">
+              <div>
+                <b class="u-color-tx" data-i18n="perf_mux_title">TCP Multiplexing (transport.tcpMux)</b>
+                <div class="qs-hint u-mt-2" data-i18n="perf_mux_hint">Packs every user stream into ONE TCP connection between frpc and frps. Measured over GRE it roughly halves tunnel throughput (e.g. 460 vs 1010 Mbit on Finland). Keep OFF for speed. It must be identical on the Iran hub AND every foreign server, otherwise frpc cannot log in.</div>
+                <div class="qs-hint u-mt-2" id="perfMuxLive">Live: —</div>
+              </div>
+            </label>
           </div>
 
           <div class="qs-actions u-mt-16" >
@@ -2743,6 +2752,8 @@ const I18N = {
     nav_setup: "Setup",
     nav_logs: "Logs",
     nav_perf: "Performance",
+    perf_mux_title: "TCP Multiplexing (transport.tcpMux)",
+    perf_mux_hint: "Packs every user stream into ONE TCP connection between frpc and frps. Measured over GRE it roughly halves tunnel throughput (e.g. 460 vs 1010 Mbit on Finland). Keep OFF for speed. It must be identical on the Iran hub AND every foreign server, otherwise frpc cannot log in.",
     nav_watchdog: "Watchdog",
     nav_doctor: "Diagnostics",
     nav_benchmark: "Benchmark",
@@ -3146,6 +3157,8 @@ const I18N = {
     nav_setup: "راه‌اندازی (Setup)",
     nav_logs: "گزارش‌ها (Logs)",
     nav_perf: "عملکرد سیستم",
+    perf_mux_title: "TCP Multiplexing (transport.tcpMux)",
+    perf_mux_hint: "همه‌ی اتصال‌های کاربران را داخل «یک» اتصال TCP بین frpc و frps جمع می‌کند. روی GRE اندازه‌گیری شد: سرعت تونل را تقریباً نصف می‌کند (فنلاند ۴۶۰ در برابر ۱۰۱۰ Mbit). برای سرعت خاموش بماند. باید روی هاب ایران و «همه» سرورهای خارج یکسان باشد، وگرنه frpc لاگین نمی‌شود.",
     nav_watchdog: "دیده‌بان و زمان‌بندی",
     nav_doctor: "عیب‌یابی شبکه",
     nav_benchmark: "بنچمارک کیفیت",
@@ -5857,7 +5870,7 @@ async function loadPerf() {
     const cVal = $('perfCryptoVal');
     if (cVal) cVal.textContent = s.force_tls ? 'TLS: On' : 'TLS: Off';
     const cSub = $('perfCryptoSub');
-    if (cSub) cSub.textContent = `Enc: ${s.proxy_encryption ? 'On' : 'Off'} · Comp: ${s.proxy_compression ? 'On' : 'Off'}`;
+    if (cSub) cSub.textContent = `Enc: ${s.proxy_encryption ? 'On' : 'Off'} · Comp: ${s.proxy_compression ? 'On' : 'Off'} · Mux: ${s.tcp_mux_live ? s.tcp_mux_live : (s.tcp_mux ? 'On' : 'Off')}`;
 
     const chVal = $('perfChaffVal');
     if (chVal) chVal.textContent = s.chaff_profile ? s.chaff_profile.toUpperCase() : 'OFF';
@@ -5873,6 +5886,14 @@ async function loadPerf() {
     if ($('perfEncCheck')) $('perfEncCheck').checked = !!s.proxy_encryption;
     if ($('perfCompCheck')) $('perfCompCheck').checked = !!s.proxy_compression;
     if ($('perfTlsCheck')) $('perfTlsCheck').checked = !!s.force_tls;
+    if ($('perfMuxCheck')) $('perfMuxCheck').checked = !!s.tcp_mux;
+    if ($('perfMuxLive')) {
+      const live = s.tcp_mux_live || 'n/a';
+      const want = s.tcp_mux_set ? (s.tcp_mux ? 'on' : 'off') : 'not set';
+      const warn = (s.tcp_mux_set && s.tcp_mux_live && live !== (s.tcp_mux ? 'on' : 'off')) ? ' — differs, press Apply & restart' : '';
+      $('perfMuxLive').textContent = 'Setting: ' + want + ' · Live toml: ' + live + warn + (live === 'on' ? ' · slower path active' : '');
+      $('perfMuxLive').style.color = (live === 'on' || warn) ? 'var(--warn, #f0a020)' : '';
+    }
 
     // Role badge
     if ($('perfRoleBadge')) {
@@ -6008,11 +6029,13 @@ async function doPerfApply(btnEl) {
     const enc = $('perfEncCheck') ? $('perfEncCheck').checked : perfState.proxy_encryption;
     const comp = $('perfCompCheck') ? $('perfCompCheck').checked : perfState.proxy_compression;
     const tls = $('perfTlsCheck') ? $('perfTlsCheck').checked : perfState.force_tls;
+    const mux = $('perfMuxCheck') ? $('perfMuxCheck').checked : !!perfState.tcp_mux;
     const res = await api('/api/perf', {
       action: 'apply',
       proxy_encryption: enc,
       proxy_compression: comp,
-      force_tls: tls
+      force_tls: tls,
+      tcp_mux: mux
     });
     toastOk('Settings applied', res.detail || 'Live tunnels updated and restarted.');
     if (msgEl) msgEl.textContent = 'Applied successfully.';
@@ -6029,12 +6052,14 @@ async function doPerfSaveOnly() {
   const enc = $('perfEncCheck') ? $('perfEncCheck').checked : perfState.proxy_encryption;
   const comp = $('perfCompCheck') ? $('perfCompCheck').checked : perfState.proxy_compression;
   const tls = $('perfTlsCheck') ? $('perfTlsCheck').checked : perfState.force_tls;
+  const mux = $('perfMuxCheck') ? $('perfMuxCheck').checked : !!perfState.tcp_mux;
   try {
     await api('/api/perf', {
       action: 'update',
       proxy_encryption: enc,
       proxy_compression: comp,
-      force_tls: tls
+      force_tls: tls,
+      tcp_mux: mux
     });
     toastOk('Settings saved', 'Remember to Apply & restart tunnels to make them active.');
     await loadPerf();

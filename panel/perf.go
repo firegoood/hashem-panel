@@ -25,6 +25,9 @@ type perfConfig struct {
 	FRPMaxPool       int    `json:"frp_max_pool"`
 	AutoTune         bool   `json:"auto_tune"`
 	TuningProfile    string `json:"tuning_profile"`
+	// TCPMux: nil = never configured (live tomls are left untouched on apply);
+	// false = speed-first (default for new tunnels); true = frp tcpMux on.
+	TCPMux *bool `json:"tcp_mux,omitempty"`
 }
 
 type perfStatusResponse struct {
@@ -39,6 +42,9 @@ type perfStatusResponse struct {
 	FRPMaxPool       int             `json:"frp_max_pool"`
 	AutoTune         bool            `json:"auto_tune"`
 	TuningProfile    string          `json:"tuning_profile"`
+	TCPMux           bool            `json:"tcp_mux"`
+	TCPMuxSet        bool            `json:"tcp_mux_set"`
+	TCPMuxLive       string          `json:"tcp_mux_live"`
 	InSync           bool            `json:"in_sync"`
 	SyncDetails      string          `json:"sync_details"`
 	Role             string          `json:"role"`
@@ -60,6 +66,7 @@ type perfPostRequest struct {
 	FRPMaxPool       *int    `json:"frp_max_pool,omitempty"`
 	AutoTune         *bool   `json:"auto_tune,omitempty"`
 	TuningProfile    *string `json:"tuning_profile,omitempty"`
+	TCPMux           *bool   `json:"tcp_mux,omitempty"`
 }
 
 func perfConfigPath() string {
@@ -82,6 +89,8 @@ func defaultPerfConfig() perfConfig {
 	}
 }
 
+func boolPtr(b bool) *bool { return &b }
+
 func loadPerfConfig() perfConfig {
 	def := defaultPerfConfig()
 	data, err := os.ReadFile(perfConfigPath())
@@ -100,6 +109,7 @@ func loadPerfConfig() perfConfig {
 		FRPMaxPool       *int    `json:"frp_max_pool"`
 		AutoTune         *bool   `json:"auto_tune"`
 		TuningProfile    *string `json:"tuning_profile"`
+		TCPMux           *bool   `json:"tcp_mux"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return def
@@ -141,7 +151,64 @@ func loadPerfConfig() perfConfig {
 	if raw.TuningProfile != nil && strings.TrimSpace(*raw.TuningProfile) != "" {
 		c.TuningProfile = strings.TrimSpace(*raw.TuningProfile)
 	}
+	if raw.TCPMux != nil {
+		v := *raw.TCPMux
+		c.TCPMux = &v
+	}
 	return c
+}
+
+// tcpMuxEnabled is the value NEW frps/frpc tomls get: speed-first default is OFF
+// (measured: tcpMux halves FRP throughput over GRE) unless the operator turned it on.
+func tcpMuxEnabled() bool {
+	c := loadPerfConfig()
+	return c.TCPMux != nil && *c.TCPMux
+}
+
+// tcpMuxTomlLines renders the tcpMux lines for a freshly written toml.
+func tcpMuxTomlLines() string {
+	if tcpMuxEnabled() {
+		return "transport.tcpMux = true\ntransport.tcpMuxKeepaliveInterval = 30\n"
+	}
+	return "transport.tcpMux = false\n"
+}
+
+// liveTCPMux reports the tcpMux value found in the live frp tomls: "on", "off",
+// "mixed" (hub and peers disagree) or "" when no toml exists. frp treats a missing
+// key as true, so only an explicit "false" counts as off.
+func liveTCPMux() string {
+	files, _ := filepath.Glob("/etc/frp/frp[sc]*.toml")
+	seenOn, seenOff := false, false
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		off := false
+		for _, ln := range strings.Split(string(data), "\n") {
+			ln = strings.TrimSpace(ln)
+			if strings.HasPrefix(ln, "transport.tcpMux") && !strings.HasPrefix(ln, "transport.tcpMuxKeepalive") {
+				parts := strings.SplitN(ln, "=", 2)
+				if len(parts) == 2 && strings.TrimSpace(parts[1]) == "false" {
+					off = true
+				}
+			}
+		}
+		if off {
+			seenOff = true
+		} else {
+			seenOn = true
+		}
+	}
+	switch {
+	case seenOn && seenOff:
+		return "mixed"
+	case seenOff:
+		return "off"
+	case seenOn:
+		return "on"
+	}
+	return ""
 }
 
 func savePerfConfig(c perfConfig) error {
@@ -184,6 +251,21 @@ func effectivePerfConfig() (perfConfig, map[string]bool) {
 }
 
 func checkLiveTomlSync(c perfConfig) (bool, string, string) {
+	if c.TCPMux != nil {
+		want := "on"
+		if !*c.TCPMux {
+			want = "off"
+		}
+		if live := liveTCPMux(); live != "" && live != want {
+			role := "none"
+			if _, err := os.Stat("/etc/frp/frpc.toml"); err == nil {
+				role = "foreign"
+			} else if matches, _ := filepath.Glob("/etc/frp/frps*.toml"); len(matches) > 0 {
+				role = "iran"
+			}
+			return false, fmt.Sprintf("TCP multiplexing (%s) does not match live toml (%s)", want, live), role
+		}
+	}
 	role := "none"
 	if _, err := os.Stat("/etc/frp/frpc.toml"); err == nil {
 		role = "foreign"
@@ -272,6 +354,9 @@ func handlePerfGet(w http.ResponseWriter, r *http.Request) {
 		FRPMaxPool:       c.FRPMaxPool,
 		AutoTune:         c.AutoTune,
 		TuningProfile:    c.TuningProfile,
+		TCPMux:           c.TCPMux != nil && *c.TCPMux,
+		TCPMuxSet:        c.TCPMux != nil,
+		TCPMuxLive:       liveTCPMux(),
 		InSync:           inSync,
 		SyncDetails:      details,
 		Role:             role,
@@ -322,6 +407,10 @@ func handlePerfPost(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.FRPMaxPool != nil && *body.FRPMaxPool >= 10 {
 			c.FRPMaxPool = *body.FRPMaxPool
+		}
+		if body.TCPMux != nil {
+			v := *body.TCPMux
+			c.TCPMux = &v
 		}
 		if body.AutoTune != nil {
 			c.AutoTune = *body.AutoTune
@@ -387,6 +476,10 @@ func handlePerfPost(w http.ResponseWriter, r *http.Request) {
 		if body.DPIBurst != nil && *body.DPIBurst > 0 {
 			c.DPIBurst = *body.DPIBurst
 		}
+		if body.TCPMux != nil {
+			v := *body.TCPMux
+			c.TCPMux = &v
+		}
 		if err := savePerfConfig(c); err != nil {
 			writeAPIError(w, r, "E-PERF-02", "failed to save config: "+err.Error())
 			return
@@ -448,6 +541,7 @@ func handlePerfPost(w http.ResponseWriter, r *http.Request) {
 
 	case "reset":
 		c = defaultPerfConfig()
+		c.TCPMux = boolPtr(false) // safe/speed-first defaults pin tcpMux off explicitly
 		if err := savePerfConfig(c); err != nil {
 			writeAPIError(w, r, "E-PERF-02", "failed to save config: "+err.Error())
 			return
