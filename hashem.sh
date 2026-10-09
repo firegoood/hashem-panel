@@ -4762,7 +4762,9 @@ cli_stress_test() {
 
     echo -e "  - ulimit -n: ${GREEN}${NOFILE_VAL}${NC} (target: >=65536)"
     echo -e "  - somaxconn: ${GREEN}${SOMAXCONN_VAL}${NC} (target: >=65535)"
-    echo -e "  - nf_conntrack_max: ${GREEN}${CONNTRACK_VAL}${NC} (target: >=1048576)"
+    tune_scale_values "$(tune_mem_mb)"
+    local CT_TARGET="$TUNE_CT_MAX"
+    echo -e "  - nf_conntrack_max: ${GREEN}${CONNTRACK_VAL}${NC} (target: >=${CT_TARGET} for ${TUNE_MEM_MB}MB RAM)"
 
     for svc in frps frpc backhaul-server backhaul-client; do
         if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1; then
@@ -4867,6 +4869,7 @@ uninstall_all_force() {
               /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-chaff*.service \
               /etc/systemd/system/hashem-watchdog.* /etc/systemd/system/hashem-dpi.service
         rm -f /var/lock/hashem-watchdog.lock
+        remove_legacy_units
         systemctl daemon-reload
         systemctl reset-failed >/dev/null 2>&1 || true
 
@@ -5001,7 +5004,9 @@ tune_backup_once() {
              net.ipv4.tcp_slow_start_after_idle net.ipv4.tcp_window_scaling net.ipv4.tcp_mtu_probing \
              net.ipv4.tcp_keepalive_time net.ipv4.tcp_keepalive_intvl net.ipv4.tcp_keepalive_probes \
              net.core.default_qdisc net.ipv4.tcp_congestion_control \
-             net.ipv4.tcp_fastopen net.ipv4.ip_local_port_range; do
+             net.ipv4.tcp_fastopen net.ipv4.ip_local_port_range \
+             net.ipv4.tcp_max_tw_buckets net.ipv4.tcp_max_orphans \
+             net.netfilter.nf_conntrack_max net.netfilter.nf_conntrack_tcp_timeout_established; do
         v=$(sysctl -n "$k" 2>/dev/null) || v=""
         echo "$k=$v" >> "$TUNE_BACKUP"
     done
@@ -5017,7 +5022,36 @@ tune_backup_once() {
     echo -e "${CYAN}[*] Current settings backed up to ${TUNE_BACKUP}.${NC}"
 }
 
+# tune_scale_values <mem_mb>: RAM-scaled kernel targets (sets TUNE_* globals).
+# Fixed 1MB per-socket defaults / 1M conntrack made 30k sockets exhaust a 1-2GB box.
+tune_scale_values() {
+    local mem_mb="${1:-0}"
+    [[ "$mem_mb" =~ ^[0-9]+$ ]] && (( mem_mb > 0 )) || mem_mb=1024
+    TUNE_MEM_MB="$mem_mb"
+    TUNE_RMEM_DEFAULT=262144
+    TUNE_TCP_RMEM="4096 131072 16777216"
+    TUNE_TCP_WMEM="4096 131072 16777216"
+    TUNE_CT_MAX=$(( mem_mb * 128 ))
+    (( TUNE_CT_MAX < 65536 )) && TUNE_CT_MAX=65536
+    (( TUNE_CT_MAX > 1048576 )) && TUNE_CT_MAX=1048576
+    TUNE_CT_BUCKETS=$(( TUNE_CT_MAX / 4 ))
+    TUNE_CT_EST_TIMEOUT=3600
+    TUNE_TW_BUCKETS=$(( mem_mb * 256 ))
+    (( TUNE_TW_BUCKETS < 65536 )) && TUNE_TW_BUCKETS=65536
+    (( TUNE_TW_BUCKETS > 2000000 )) && TUNE_TW_BUCKETS=2000000
+    TUNE_MAX_ORPHANS=$(( mem_mb * 32 ))
+    (( TUNE_MAX_ORPHANS < 8192 )) && TUNE_MAX_ORPHANS=8192
+    (( TUNE_MAX_ORPHANS > 262144 )) && TUNE_MAX_ORPHANS=262144
+}
+
+tune_mem_mb() {
+    local kb
+    kb=$(awk '/^MemTotal:/{print $2; exit}' /proc/meminfo 2>/dev/null)
+    [[ "$kb" =~ ^[0-9]+$ ]] && echo $(( kb / 1024 )) || echo 1024
+}
+
 tune_apply() {
+    tune_scale_values "$(tune_mem_mb)"
     tune_backup_once
     echo -e "${CYAN}[*] Optimizing network stack for tunnel throughput & stability...${NC}"
 
@@ -5033,12 +5067,12 @@ tune_apply() {
     # 2. Bigger socket buffers (16MB) and full TCP window scaling
     sysctl -w net.core.rmem_max=16777216 >/dev/null 2>&1
     sysctl -w net.core.wmem_max=16777216 >/dev/null 2>&1
-    sysctl -w net.core.rmem_default=1048576 >/dev/null 2>&1
-    sysctl -w net.core.wmem_default=1048576 >/dev/null 2>&1
-    sysctl -w net.ipv4.tcp_rmem="4096 1048576 16777216" >/dev/null 2>&1
-    sysctl -w net.ipv4.tcp_wmem="4096 1048576 16777216" >/dev/null 2>&1
+    sysctl -w net.core.rmem_default="$TUNE_RMEM_DEFAULT" >/dev/null 2>&1
+    sysctl -w net.core.wmem_default="$TUNE_RMEM_DEFAULT" >/dev/null 2>&1
+    sysctl -w net.ipv4.tcp_rmem="$TUNE_TCP_RMEM" >/dev/null 2>&1
+    sysctl -w net.ipv4.tcp_wmem="$TUNE_TCP_WMEM" >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_window_scaling=1 >/dev/null 2>&1
-    echo -e "${GREEN}[✔️] Socket buffers → 16MB (rmem/wmem max + window scaling)${NC}"
+    echo -e "${GREEN}[✔️] Socket buffers → max 16MB, default ${TUNE_RMEM_DEFAULT}/tcp 131072 (RAM ${TUNE_MEM_MB}MB)${NC}"
 
     # 3. Deeper NIC queue and high connection backlog
     sysctl -w net.core.netdev_max_backlog=65535 >/dev/null 2>&1
@@ -5054,7 +5088,8 @@ tune_apply() {
     sysctl -w net.ipv4.tcp_keepalive_probes=5 >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_fin_timeout=15 >/dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_max_tw_buckets=2000000 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_max_tw_buckets="$TUNE_TW_BUCKETS" >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_max_orphans="$TUNE_MAX_ORPHANS" >/dev/null 2>&1 || true
     sysctl -w fs.file-max=2097152 >/dev/null 2>&1 || true
     sysctl -w fs.nr_open=2097152 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
@@ -5066,12 +5101,17 @@ tune_apply() {
 
     # Conntrack table size & timeout optimization for high concurrent conns
     modprobe nf_conntrack >/dev/null 2>&1 || true
-    sysctl -w net.netfilter.nf_conntrack_max=1048576 >/dev/null 2>&1 || sysctl -w net.nf_conntrack_max=1048576 >/dev/null 2>&1 || true
-    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=7200 >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_max="$TUNE_CT_MAX" >/dev/null 2>&1 || sysctl -w net.nf_conntrack_max="$TUNE_CT_MAX" >/dev/null 2>&1 || true
+    # buckets: runtime-settable only via module param (ignore failure)
+    if [[ -w /sys/module/nf_conntrack/parameters/hashsize ]] && \
+       [[ "$(cat /sys/module/nf_conntrack/parameters/hashsize 2>/dev/null || echo 0)" -lt "$TUNE_CT_BUCKETS" ]]; then
+        echo "$TUNE_CT_BUCKETS" > /sys/module/nf_conntrack/parameters/hashsize 2>/dev/null || true
+    fi
+    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established="$TUNE_CT_EST_TIMEOUT" >/dev/null 2>&1 || true
     sysctl -w net.netfilter.nf_conntrack_tcp_timeout_close_wait=60 >/dev/null 2>&1 || true
     sysctl -w net.netfilter.nf_conntrack_tcp_timeout_fin_wait=60 >/dev/null 2>&1 || true
     sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=60 >/dev/null 2>&1 || true
-    echo -e "${GREEN}[✔️] TCP keepalive (30s) + Fast Open + TW reuse + Conntrack (1M) + port range 1024-65535${NC}"
+    echo -e "${GREEN}[✔️] TCP keepalive (30s) + Fast Open + TW reuse + Conntrack (${TUNE_CT_MAX}) + port range 1024-65535${NC}"
 
     # OS limits configuration for high concurrency
     mkdir -p /etc/security/limits.d
@@ -5110,16 +5150,16 @@ EOF
 
     # 7. Persist across reboots
     mkdir -p /etc/sysctl.d
-    cat > /etc/sysctl.d/99-gre-tune.conf <<'EOF'
+    cat > /etc/sysctl.d/99-gre-tune.conf <<EOF
 # Hashem tunnel optimization (applied by Optimize button / tune command)
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
-net.core.rmem_default = 1048576
-net.core.wmem_default = 1048576
-net.ipv4.tcp_rmem = 4096 1048576 16777216
-net.ipv4.tcp_wmem = 4096 1048576 16777216
+net.core.rmem_default = ${TUNE_RMEM_DEFAULT}
+net.core.wmem_default = ${TUNE_RMEM_DEFAULT}
+net.ipv4.tcp_rmem = ${TUNE_TCP_RMEM}
+net.ipv4.tcp_wmem = ${TUNE_TCP_WMEM}
 net.core.netdev_max_backlog = 65535
 net.core.somaxconn = 65535
 net.ipv4.tcp_max_syn_backlog = 65535
@@ -5131,14 +5171,15 @@ net.ipv4.tcp_keepalive_intvl = 10
 net.ipv4.tcp_keepalive_probes = 5
 net.ipv4.tcp_tw_reuse = 1
 net.ipv4.tcp_fin_timeout = 15
-net.ipv4.tcp_max_tw_buckets = 2000000
+net.ipv4.tcp_max_tw_buckets = ${TUNE_TW_BUCKETS}
+net.ipv4.tcp_max_orphans = ${TUNE_MAX_ORPHANS}
 fs.file-max = 2097152
 fs.nr_open = 2097152
 net.ipv4.ip_forward = 1
 net.ipv4.tcp_fastopen = 3
 net.ipv4.ip_local_port_range = 1024 65535
-net.netfilter.nf_conntrack_max = 1048576
-net.netfilter.nf_conntrack_tcp_timeout_established = 7200
+net.netfilter.nf_conntrack_max = ${TUNE_CT_MAX}
+net.netfilter.nf_conntrack_tcp_timeout_established = ${TUNE_CT_EST_TIMEOUT}
 net.netfilter.nf_conntrack_tcp_timeout_close_wait = 60
 net.netfilter.nf_conntrack_tcp_timeout_fin_wait = 60
 net.netfilter.nf_conntrack_tcp_timeout_time_wait = 60
@@ -5184,6 +5225,10 @@ tune_status() {
     echo "CC:        $(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo ?) ($(sysctl -n net.core.default_qdisc 2>/dev/null || echo ?))"
     echo "rmem_max:  $(sysctl -n net.core.rmem_max 2>/dev/null || echo ?)"
     echo "wmem_max:  $(sysctl -n net.core.wmem_max 2>/dev/null || echo ?)"
+    tune_scale_values "$(tune_mem_mb)"
+    echo "RAM:       ${TUNE_MEM_MB}MB -> targets: tcp_rmem/wmem=[${TUNE_TCP_RMEM}] conntrack_max=${TUNE_CT_MAX} tw_buckets=${TUNE_TW_BUCKETS} orphans=${TUNE_MAX_ORPHANS}"
+    echo "tcp_rmem:  $(sysctl -n net.ipv4.tcp_rmem 2>/dev/null || echo ?)"
+    echo "conntrack: $(sysctl -n net.netfilter.nf_conntrack_max 2>/dev/null || echo ?)"
     echo "backlog:   $(sysctl -n net.core.netdev_max_backlog 2>/dev/null || echo ?)"
     echo "forward:   $(sysctl -n net.ipv4.ip_forward 2>/dev/null || echo ?)"
     echo "GRE MTU:   $(ip link show "$TUNNEL_NAME" 2>/dev/null | grep -o 'mtu [0-9]*' | awk '{print $2}' || echo 'no interface')"
@@ -6759,6 +6804,28 @@ except Exception:
     esac
 }
 
+# remove_legacy_units: older releases installed hashem-monitor.service and
+# hashem-webui.service (ExecStart=hashem --monitor / --webui). Those verbs no
+# longer exist, so the units crash-looped forever (Restart=always) and flooded
+# journald. Remove them (idempotent; only when ExecStart really is the dead verb).
+# HASHEM_SYSTEMD_DIR is overridable for tests.
+remove_legacy_units() {
+    local dir="${HASHEM_SYSTEMD_DIR:-/etc/systemd/system}" name unit removed=0
+    for name in hashem-monitor hashem-webui; do
+        unit="${dir}/${name}.service"
+        [[ -f "$unit" ]] || continue
+        grep -Eq '^ExecStart=.*/hashem(\.sh)? +--(monitor|webui)([[:space:]]|$)' "$unit" || continue
+        systemctl stop "${name}.service" >/dev/null 2>&1 || true
+        systemctl disable "${name}.service" >/dev/null 2>&1 || true
+        rm -f "$unit" "${dir}/multi-user.target.wants/${name}.service"
+        systemctl reset-failed "${name}.service" >/dev/null 2>&1 || true
+        echo -e "${GREEN}[✔️] Removed obsolete unit ${name}.service${NC}"
+        removed=1
+    done
+    (( removed )) && { systemctl daemon-reload >/dev/null 2>&1 || true; }
+    return 0
+}
+
 update_all() {
     echo -e "${CYAN}[*] Updating Hashem (script + panel binary)...${NC}"
     TMP_U="$(mktemp -d)"
@@ -6774,6 +6841,7 @@ update_all() {
     else
         echo -e "${GREEN}[✔️] New hashem.sh downloaded and syntax-checked.${NC}"
     fi
+    remove_legacy_units
     # 2. reinstall panel binary from latest release (downloads prebuilt, restarts service)
     echo -e "${CYAN}[*] Updating panel binary...${NC}"
     # backup panel config so a failed update can be rolled back
@@ -7845,6 +7913,7 @@ if [[ $# -gt 0 ]]; then
         backup) shift; cli_backup "$@" ;;
         tgsend) shift; watchdog_send "$1" ;;
         update|update-all) update_all ;;
+        cleanup-legacy) remove_legacy_units ;;
         peer-token)
             shift; ID=""
             while [[ $# -gt 0 ]]; do case "$1" in --id) ID="$2"; shift 2 ;; *) shift ;; esac; done
