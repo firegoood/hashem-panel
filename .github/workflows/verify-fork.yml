@@ -1,0 +1,24 @@
+name: Verify managed GRE FRP fork
+on:
+  push:
+    branches: ['fix/multipeer-gre-kcp', 'codex/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t hashem-qa -f tests/integration/Dockerfile .
+      - run: docker run --rm --privileged -v "$PWD:/work" hashem-qa bash tests/integration/run.sh
+      - name: Check dependency vulnerabilities
+        run: docker run --rm -v "$PWD:/work" hashem-qa bash -c 'go install golang.org/x/vuln/cmd/govulncheck@v1.8.0 && cd panel && /go/bin/govulncheck ./...'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sanitized-acceptance
+          path: build/qa/integration-report.json
+          if-no-files-found: ignore

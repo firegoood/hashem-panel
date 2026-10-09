@@ -1285,7 +1285,7 @@
                       <option value="wss">WSS TLS (Obfuscated / پوشش امنیتی کامل)</option>
                     </select>
                   </div>
-                  <div class="fg hidden" id="wrapIranPorts">
+                  <div class="fg" id="wrapIranPorts">
                     <label for="sIranPorts" data-i18n="setup_forward_ports">Forwarded Ports (single, ranges, mappings)</label>
                     <input class="hashem-input" id="sIranPorts" placeholder="e.g. 443, 10000-10050, 2083=8443">
                   </div>
@@ -2410,7 +2410,7 @@
       <div style="display:flex;gap:8px;align-items:flex-end">
         <div class="fg" style="flex:1">
           <label class="u-label-up" for="editPortsNew">Add Port / Range / Mapping</label>
-          <input class="hashem-input u-mt-6" id="editPortsNew" type="text" placeholder="e.g. 8080, 10000-10050, 2083=8443">
+          <input class="hashem-input u-mt-6" id="editPortsNew" type="text" placeholder="e.g. tcp:8080=80, udp:2052, 10000-10050">
         </div>
         <button class="hashem-btn hashem-btn-secondary" id="editPortsAddBtn" type="button" style="height:38px;padding:0 14px;font-size:13px;flex-shrink:0">&#xFF0B; Add</button>
       </div>
@@ -3675,10 +3675,11 @@ async function removePeer(peerId, name) {
   } catch(e) { toastErr('remove failed', e.message); refresh(); }
 }
 async function showPeerToken(peerId, name) {
+  name = name || ('peer-' + peerId);
   try {
     const r = await api('/api/peers?id=' + peerId);
     const show = r.bundle || r.token || '';
-    toastOk(`bundle for '${name}'`, show + ' (also in logs)');
+    toastOk(`bundle for '${name}'`, 'Copy this secret only to the intended foreign peer.');
     $('actOut').classList.remove('hidden');
     $('actOut').textContent = `Bundle for '${name}': ${show}\nForeign side: paste it into the token field (fills everything). Legacy token: ${r.token || '—'}`;
   } catch(e) { toastErr('token lookup failed', e.message); }
@@ -3694,7 +3695,7 @@ function renderPeers(peers) {
   }
   const stBadge = (ok, label) => `<span class="badge ${ok ? 'ok' : 'err'}"><span class="dot"></span>${esc(label)}</span>`;
   box.innerHTML = peers.map(p => {
-    const up = !!(p.gre_up || p.frp_up);
+    const up = p.managed ? p.state === 'CONNECTED' && p.authenticated : !!(p.gre_up && p.frp_up && p.ping_ok);
     const nm = p.name || ('peer-' + p.id);
     const traffic = (p.rx != null && p.tx != null)
       ? ('↓ ' + fmtBytes(p.rx) + ' · ↑ ' + fmtBytes(p.tx))
@@ -3706,7 +3707,7 @@ function renderPeers(peers) {
       : (isGreBh
          ? `<span class="badge u-pill-violet">⚡ GRE+Backhaul</span>`
          : `<span class="badge" style="background:rgba(234,179,8,0.15);color:#facc15;border:1px solid rgba(234,179,8,0.3)">🚀 FRP</span>`);
-    const transBadge = p.transport ? `<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--mu);font-size:12px">${esc(p.transport)}</span>` : '';
+    const transBadge = (p.observed_transport || p.frp_transport || p.transport) ? `<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--mu);font-size:12px">${esc(p.observed_transport || p.frp_transport || p.transport)}${p.managed && !p.observed_transport ? ' (pending)' : ''}</span>` : '';
     const fwdPorts = p.raw_ports || (p.ports || []).join(', ') || '—';
     const greIfLabel = isBh ? 'N/A (Standalone)' : (p.gre_if || 'gre-t' + p.id);
     const svcTitle = (isBh || isGreBh) ? 'Backhaul & Traffic' : 'FRP & Traffic';
@@ -3718,7 +3719,7 @@ function renderPeers(peers) {
           <span class="qs-hint mono">#${p.id}</span>
           ${engBadge}
           ${transBadge}
-          <span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${up ? 'active' : 'down'}</span>
+          <span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${esc(p.state || (up ? 'active' : 'UNKNOWN'))}</span>
         </div>
       </div>
       <div class="det-grid">
@@ -3737,6 +3738,7 @@ function renderPeers(peers) {
         <div class="det-card">
           <div class="det-card-head">${(isBh || isGreBh) ? '⚡' : ICO_FRP} <span>${svcTitle}</span></div>
           <div class="det-row"><span class="det-k">Service</span><span class="det-v">${stBadge(p.frp_up, p.frps_svc || 'service')}</span></div>
+          <div class="det-row"><span class="det-k">Forwarding verification</span><span class="det-v">${esc(p.forwarding_health || 'UNKNOWN')}</span></div>
           <div class="det-row"><span class="det-k">Control Port</span><span class="det-v mono">${esc(String(p.frp_port || '—'))}<button type="button" class="det-copy" data-copy="${esc(String(p.frp_port || ''))}" title="Copy" aria-label="Copy">⧉</button></span></div>
           <div class="det-row"><span class="det-k">Traffic</span><span class="det-v mono">${esc(traffic)}</span></div>
         </div>
@@ -3744,9 +3746,10 @@ function renderPeers(peers) {
       <div class="peer-acts u-peer-acts-bar">
         <button class="hashem-btn hashem-btn-secondary u-btn-30" data-peer-act="ping-${p.id}" onclick="peerAct('ping', ${p.id})">Ping</button>
         <button class="hashem-btn hashem-btn-secondary u-btn-30" onclick="editPeerPortsClick(${p.id})">✏️ Edit Peer</button>
-        <button class="hashem-btn hashem-btn-secondary u-btn-30" onclick="showPeerToken(${p.id}, '${esc(nm)}')">📦 Bundle</button>
+        <button class="hashem-btn hashem-btn-secondary u-btn-30" onclick="showPeerToken(${p.id})">📦 Bundle</button>
         <button class="hashem-btn hashem-btn-secondary u-btn-30" data-peer-act="restart-frps-${p.id}" onclick="peerAct('restart-frps', ${p.id})">Restart</button>
-        <button class="hashem-btn hashem-btn-danger peer-remove-btn u-btn-30" data-peer-remove="${p.id}" onclick="peerRemoveClick(${p.id}, '${esc(nm)}')">Remove</button>
+        ${p.managed ? `<button class="hashem-btn hashem-btn-secondary u-btn-30" data-peer-act="${p.disabled ? 'enable-peer' : 'disable-peer'}-${p.id}" onclick="peerAct('${p.disabled ? 'enable-peer' : 'disable-peer'}', ${p.id})">${p.disabled ? 'Enable' : 'Disable'}</button>` : ''}
+        <button class="hashem-btn hashem-btn-danger peer-remove-btn u-btn-30" data-peer-remove="${p.id}" onclick="peerRemoveClick(${p.id})">Remove</button>
       </div>
       <div id="peer-confirm-${p.id}" class="peer-confirm warnbox hidden"></div>
     </div>`;
@@ -3763,6 +3766,7 @@ function renderPeers(peers) {
 // Two-step remove (inline confirm, no modal): 1st click arms 5s + Undo,
 // 2nd click while armed deletes. Same from Tunnel tab or Dashboard summary.
 function peerRemoveClick(peerId, name) {
+  name = name || ('peer-' + peerId);
   const armed = document.querySelector(`[data-peer-remove="${peerId}"].armed`);
   if (armed) removePeer(peerId, name);
   else armRemovePeer(peerId, name);
@@ -3786,7 +3790,7 @@ function renderTunnel(st) {
           <span class="status-indicator ${up ? 'active' : 'offline'}"><span class="dot"></span></span>
           <b class="u-fs-16-tx">Main tunnel</b>
           <span class="badge" style="border-color:color-mix(in srgb, var(--wr) 45%, transparent);color:var(--wr)"><span class="dot"></span>main</span>
-          <span class="badge ${up ? 'ok' : 'err'}"><span class="dot"></span>${up ? 'active' : 'down'}</span>
+          <span class="badge dim"><span class="dot"></span>UNKNOWN</span>
         </div>
       </div>
       <div class="det-grid">
@@ -3856,7 +3860,7 @@ function renderTunChips(st) {
     });
   }
   (tunPeerCache || []).forEach((p, i) => {
-    const up = !!(p.gre_up || p.frp_up);
+    const up = p.managed ? p.state === 'CONNECTED' && p.authenticated : !!(p.gre_up && p.frp_up && p.ping_ok);
     const traffic = (p.rx != null && p.tx != null)
       ? ('↓ ' + fmtBytes(p.rx) + ' · ↑ ' + fmtBytes(p.tx)) : null;
     chips.push({
@@ -4817,7 +4821,7 @@ function drawActivityChart(hist, isDown) {
 function dashPeersCard(peers) {
   if (!peers || !peers.length) return '';
   const rows = peers.map(p => {
-    const up = !!(p.gre_up || p.frp_up);
+    const up = p.managed ? p.state === 'CONNECTED' && p.authenticated : !!(p.gre_up && p.frp_up && p.ping_ok);
     const nm = p.name || ('peer-' + p.id);
     const pingTxt = p.ping_ok ? (p.ping_ms || 'ok') : tr('status_down', 'down');
     const pingCls = p.ping_ok ? 'ok' : 'err';
@@ -5013,7 +5017,7 @@ async function doSetup() {
       t.innerHTML = '🔑 Token (legacy 32-char, for old panels): <b>' + esc(r.token) + '</b>';
       t.classList.remove('hidden');
     }
-    toastOk('setup done', 'iran');
+    toastWarn('Local setup applied', r.state || 'PENDING — import the bundle on the foreign peer and verify its registration');
     setupUnlocked = false;
   } catch(e) {
     toastErr('setup failed', e.message);
@@ -5037,11 +5041,8 @@ function updateTransportSelect(selId, eng) {
     el.innerHTML = `
       <option value="tcp">TCP Multiplexed (Default / استاندارد)</option>
       <option value="kcp">KCP ARQ UDP (Anti-Loss / ضد پکت‌لاس)</option>
-      <option value="quic">QUIC UDP Stream (High-Speed / پرسرعت)</option>
-      <option value="websocket">WebSocket (HTTP Upgrade / عبور اختلال)</option>
-      <option value="wss">WSS TLS (Obfuscated / پوشش امنیتی کامل)</option>
     `;
-    if (['tcp', 'kcp', 'quic', 'websocket', 'wss'].includes(cur)) el.value = cur;
+    if (['tcp', 'kcp'].includes(cur)) el.value = cur;
     else el.value = 'tcp';
   } else {
     el.innerHTML = `
@@ -5068,7 +5069,7 @@ function setIranEngine(eng) {
   if ($('wrapPeerGre')) $('wrapPeerGre').classList.toggle('hidden', isBh);
   if ($('wrapTransport')) $('wrapTransport').classList.remove('hidden');
   updateTransportSelect('sTransport', eng);
-  if ($('wrapIranPorts')) $('wrapIranPorts').classList.toggle('hidden', eng === 'frp');
+  if ($('wrapIranPorts')) $('wrapIranPorts').classList.remove('hidden');
   if ($('engHint')) {
     if (eng === 'frp') {
       $('engHint').textContent = 'High-stability Linux GRE kernel tunnel paired with FRP reverse proxy.';
@@ -5096,6 +5097,14 @@ if ($('pEngine')) {
 
 // Foreign join: bundle-first UX supporting hsh1_, bh1_, and gh1_ bundles.
 function parseBundleClient(s) {
+  if ((s || '').trim().startsWith('hsh2_')) {
+    try {
+      const encoded = s.trim().slice(5).replace(/-/g,'+').replace(/_/g,'/');
+      const b = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(encoded), c => c.charCodeAt(0))));
+      return {engine:'frp', transport:b.frp_transport, iranPub:b.local_pub, port:b.frp_port, iranGre:b.local_gre, foreignGre:b.peer_gre, token:b.token, ports:b.raw_ports, fouPorts:[]};
+    } catch(e) { return null; }
+  }
+
   s = (s || '').trim();
   const v4 = ip => /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) && ip.split('.').every(o => +o <= 255);
   if (s.startsWith('bh1_')) {
@@ -5124,7 +5133,7 @@ function parseBundleClient(s) {
   }
   if (s.startsWith('hsh1_')) {
     const parts = s.slice(5).split('_');
-    if (parts.length < 5 || parts.length > 7) return {error: 'bundle must have 5, 6, or 7 underscore parts'};
+    if (parts.length < 5 || parts.length > 8) return {error: 'bundle must have 5 to 8 underscore parts'};
     const [iranPub, portS, iranGre, foreignGre, token] = parts;
     if (!v4(iranPub)) return {error: 'bad Iran public IP in bundle'};
     const port = parseInt(portS, 10);
@@ -5134,10 +5143,14 @@ function parseBundleClient(s) {
     if (!token || token.length > 128) return {error: 'bad token in bundle'};
     let ports = [];
     let fouPorts = [];
+    let transport = 'tcp';
     for (let i = 5; i < parts.length; i++) {
       const p = parts[i];
       if (!p) continue;
-      if (p.startsWith('fou')) {
+      if (p.startsWith('tr-')) {
+        transport = p.slice(3);
+        if (!['tcp','kcp','quic','websocket','wss'].includes(transport)) return {error:'unsupported FRP transport'};
+      } else if (p.startsWith('fou')) {
         const fps = p.slice(3).split('-').map(x => parseInt(x.trim(), 10)).filter(x => x >= 1 && x <= 65535);
         if (fps.length) fouPorts = fps;
       } else {
@@ -5145,7 +5158,7 @@ function parseBundleClient(s) {
         if (parsed.length) ports = parsed;
       }
     }
-    return {engine: 'frp', iranPub, port, iranGre, foreignGre, token, ports, fouPorts};
+    return {engine: 'frp', transport, iranPub, port, iranGre, foreignGre, token, ports, fouPorts};
   }
   return null;
 }
@@ -5154,7 +5167,7 @@ function parseBundleClient(s) {
 $('jToken').addEventListener('input', () => {
   const w = $('joinWarn');
   const raw = $('jToken').value.trim();
-  const isBundle = raw.startsWith('hsh1_') || raw.startsWith('bh1_') || raw.startsWith('gh1_');
+  const isBundle = raw.startsWith('hsh2_') || raw.startsWith('hsh1_') || raw.startsWith('bh1_') || raw.startsWith('gh1_');
   if (!isBundle) return;
   const b = parseBundleClient(raw);
   if (!b || b.error) {
@@ -5186,6 +5199,7 @@ $('jToken').addEventListener('input', () => {
     w.style.color = '#c084fc';
   } else {
     forceSet('jPorts', b.ports.length ? b.ports.join(', ') : '');
+    forceSet('jFRPTransport', b.transport || 'tcp');
     forceSet('fRemotePub', b.iranPub);
     forceSet('fLocalGre', b.foreignGre);
     forceSet('fPeerGre', b.iranGre);
@@ -5211,7 +5225,7 @@ $('joinBtn').onclick = async () => {
     const d = await api('/api/setup').catch(() => ({}));
     const rawToken = $('jToken').value.trim();
     let token = rawToken, bundle = null;
-    const isBundle = rawToken.startsWith('hsh1_') || rawToken.startsWith('bh1_') || rawToken.startsWith('gh1_');
+    const isBundle = rawToken.startsWith('hsh2_') || rawToken.startsWith('hsh1_') || rawToken.startsWith('bh1_') || rawToken.startsWith('gh1_');
     if (isBundle) {
       bundle = parseBundleClient(rawToken);
       if (!bundle || bundle.error) {
@@ -5279,7 +5293,7 @@ $('joinBtn').onclick = async () => {
     const out = $('joinOut');
     out.classList.remove('hidden');
     out.textContent = (r.steps || []).join('\n');
-    toastOk('connected to Iran');
+    toastWarn('Local setup applied', r.state || 'PENDING — peer authentication and forwarding still need verification');
     refresh(); loadSetupDefaults();
   } catch(e) {
     const w = $('joinWarn');
@@ -7705,17 +7719,26 @@ function renderEditPortsChips() {
     box.innerHTML = '<span style="color:var(--dim);font-size:12px">No ports \u2014 add one below.</span>';
     return;
   }
-  box.innerHTML = _editPortsList.map(p =>
+  box.innerHTML = _editPortsList.map((p, index) =>
     `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--s2);border:1px solid var(--ln);border-radius:8px;padding:4px 10px;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums">` +
     esc(String(p)) +
-    `<button type="button" onclick="removeEditPort('${esc(String(p))}')" title="Remove port ${esc(String(p))}" ` +
+    `<button type="button" onclick="removeEditPortAt(${index})" title="Remove port ${esc(String(p))}" ` +
     `style="background:none;border:none;color:var(--er);cursor:pointer;padding:0 0 0 4px;font-size:14px;line-height:1;display:inline-flex">\u00d7</button></span>`
   ).join('');
 }
 
-function removeEditPort(port) {
-  _editPortsList = _editPortsList.filter(p => String(p) !== String(port));
+function removeEditPortAt(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= _editPortsList.length) return;
+  _editPortsList.splice(index, 1);
   renderEditPortsChips();
+}
+
+function validManagedPortInput(value) {
+  const match = /^(?:(tcp|udp):)?(\d{1,5}(?:-\d{1,5})?)(?:=(\d{1,5}(?:-\d{1,5})?))?$/i.exec(value);
+  if (!match) return false;
+  const range = text => { const a=text.split('-').map(Number); return [a[0],a[1] ?? a[0]]; };
+  const publicRange=range(match[2]), localRange=range(match[3] || match[2]);
+  return [publicRange,localRange].every(([start,end]) => start>=1 && end<=65535 && end>=start && end-start<1024) && publicRange[1]-publicRange[0]===localRange[1]-localRange[0];
 }
 
 function addEditPort() {
@@ -7723,37 +7746,11 @@ function addEditPort() {
   const warnEl = $('editPortsWarn');
   const val    = inp.value.trim();
   warnEl.classList.add('hidden');
-  const portRe = /^(\d{1,5}|\d{1,5}-\d{1,5}|\d{1,5}=\d{1,5})$/;
-  if (!portRe.test(val)) {
-    warnEl.textContent = 'Enter a valid port (e.g. 8080), range (10000-10050), or mapping (2083=8443).';
+  if (!validManagedPortInput(val)) {
+    warnEl.textContent = 'Enter a valid TCP/UDP port, range, or mapping (e.g. tcp:8080=80, udp:2052).';
     warnEl.classList.remove('hidden');
     inp.focus();
     return;
-  }
-  if (val.includes('-')) {
-    const [s, e] = val.split('-').map(Number);
-    if (s < 1 || s > 65535 || e < 1 || e > 65535 || s >= e) {
-      warnEl.textContent = 'Invalid port range: start must be less than end (1-65535).';
-      warnEl.classList.remove('hidden');
-      inp.focus();
-      return;
-    }
-  } else if (val.includes('=')) {
-    const [s, e] = val.split('=').map(Number);
-    if (s < 1 || s > 65535 || e < 1 || e > 65535) {
-      warnEl.textContent = 'Invalid port mapping: ports must be 1-65535.';
-      warnEl.classList.remove('hidden');
-      inp.focus();
-      return;
-    }
-  } else {
-    const n = Number(val);
-    if (n < 1 || n > 65535) {
-      warnEl.textContent = 'Port must be between 1 and 65535.';
-      warnEl.classList.remove('hidden');
-      inp.focus();
-      return;
-    }
   }
   if (_editPortsList.includes(val)) {
     warnEl.textContent = 'Port/range "' + val + '" is already in the list.';
@@ -7812,7 +7809,7 @@ async function saveEditPorts() {
     if (remoteVal) payload.remote_pub = remoteVal;
     if (carrierVal) payload.carrier = carrierVal;
     if (engineVal) payload.engine = engineVal;
-    if (transportVal) payload.transport = transportVal;
+    if (transportVal && engineVal !== 'frp') payload.transport = transportVal;
     if (ppVal) payload.proxy_protocol = ppVal;
     if (frpTransVal) payload.frp_transport = frpTransVal;
     payload.use_encryption = encVal;
@@ -7824,6 +7821,8 @@ async function saveEditPorts() {
     }
     if (res && res.warning) {
       toastWarn('Saved with note', res.warning);
+    } else if (res && res.status === 'pending') {
+      toastWarn('Local revision applied', 'Remote registration and application forwarding still need verification.');
     } else {
       toastOk('Tunnel updated', 'Tunnel configuration saved \u2014 changes take effect immediately.');
     }

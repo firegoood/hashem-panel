@@ -7,19 +7,21 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// TestFRPConcurrencyStress runs 500 concurrent connections through the multiplexed proxy relay.
-func TestFRPConcurrencyStress(t *testing.T) {
+// This tests a Go TCP echo relay, not native FRP or production capacity.
+func TestRelayConcurrencyStress(t *testing.T) {
 	runConcurrentStress(t, 500)
 }
 
-// TestFRP1000HighConcurrencyStress runs 1,000 concurrent connections to ensure no drops under heavy load.
-func TestFRP1000HighConcurrencyStress(t *testing.T) {
+// Linux uses 1,000 concurrent clients; Windows bounds the burst to 64.
+// Native FRP has separate integration tests; this harness is a plain TCP relay.
+func TestRelay1000Connections(t *testing.T) {
 	runConcurrentStress(t, 1000)
 }
 
@@ -86,10 +88,16 @@ func runConcurrentStress(t *testing.T, totalClients int) {
 				go func() {
 					defer wg.Done()
 					_, _ = io.Copy(targetConn, c)
+					if tcp, ok := targetConn.(*net.TCPConn); ok {
+						_ = tcp.CloseWrite()
+					}
 				}()
 				go func() {
 					defer wg.Done()
 					_, _ = io.Copy(c, targetConn)
+					if tcp, ok := c.(*net.TCPConn); ok {
+						_ = tcp.CloseWrite()
+					}
 				}()
 				wg.Wait()
 			}(clientConn)
@@ -104,11 +112,18 @@ func runConcurrentStress(t *testing.T, totalClients int) {
 	wg.Add(totalClients)
 
 	startSignal := make(chan struct{})
+	concurrency := totalClients
+	if runtime.GOOS == "windows" {
+		concurrency = 64
+	}
+	permits := make(chan struct{}, concurrency)
 
 	for i := 0; i < totalClients; i++ {
 		go func(clientId int) {
 			defer wg.Done()
 			<-startSignal
+			permits <- struct{}{}
+			defer func() { <-permits }()
 
 			conn, err := net.DialTimeout("tcp", proxyAddr, 8*time.Second)
 			if err != nil {

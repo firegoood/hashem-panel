@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -328,20 +329,20 @@ func detectPublicIP() string {
 // ---- POST /api/setup ----
 
 type setupRequest struct {
-	Role      string `json:"role"` // "iran" | "foreign" | "add-peer"
-	Engine    string `json:"engine,omitempty"` // "" | "frp" | "backhaul" | "gre-backhaul"
-	Transport string `json:"transport,omitempty"` // "tcpmux" (default), "tcp", "ws", "wss", "wsmux", "wssmux"
-	Name      string `json:"name"` // add-peer label
-	LocalPub  string `json:"local_public"`
-	RemotePub string `json:"remote_public"`
-	LocalGre  string `json:"local_gre"`
-	PeerGre   string `json:"peer_gre"`
-	FrpPort   int    `json:"frp_port"`
-	Token     string `json:"token"` // foreign/add-peer (manual or auto)
-	Ports         string `json:"ports"` // foreign/add-peer, e.g. "443, 2083, 8080"
-	Force         bool   `json:"force"`
-	Autogen        bool   `json:"autogen"` // add-peer: generate token server-side
-	ProxyProtocol  string `json:"proxy_protocol,omitempty"` // "off" | "v2" | "v1"
+	Role           string `json:"role"`                // "iran" | "foreign" | "add-peer"
+	Engine         string `json:"engine,omitempty"`    // "" | "frp" | "backhaul" | "gre-backhaul"
+	Transport      string `json:"transport,omitempty"` // "tcpmux" (default), "tcp", "ws", "wss", "wsmux", "wssmux"
+	Name           string `json:"name"`                // add-peer label
+	LocalPub       string `json:"local_public"`
+	RemotePub      string `json:"remote_public"`
+	LocalGre       string `json:"local_gre"`
+	PeerGre        string `json:"peer_gre"`
+	FrpPort        int    `json:"frp_port"`
+	Token          string `json:"token"` // foreign/add-peer (manual or auto)
+	Ports          string `json:"ports"` // foreign/add-peer, e.g. "443, 2083, 8080"
+	Force          bool   `json:"force"`
+	Autogen        bool   `json:"autogen"`                   // add-peer: generate token server-side
+	ProxyProtocol  string `json:"proxy_protocol,omitempty"`  // "off" | "v2" | "v1"
 	FRPTransport   string `json:"frp_transport,omitempty"`   // "tcp" | "kcp" | "quic" | "websocket" | "wss"
 	UseEncryption  bool   `json:"use_encryption,omitempty"`  // transport.useEncryption
 	UseCompression bool   `json:"use_compression,omitempty"` // transport.useCompression
@@ -353,9 +354,14 @@ type setupRequest struct {
 }
 
 func handleSetupPost(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 65536)
 	var body setupRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeAPIError(w, r, "E-SETUP-01", "")
+		return
+	}
+	if body.Engine == "" || body.Engine == "frp" {
+		handleManagedSetup(w, r, body)
 		return
 	}
 	body.LocalPub = strings.TrimSpace(body.LocalPub)
@@ -805,6 +811,16 @@ func handlePeersGet(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, r, "E-PEER-05", "")
 			return
 		}
+		if p := findPeer(id); p != nil && p.Managed {
+			bundle, err := makeManagedBundle(*p)
+			if err != nil {
+				writeAPIError(w, r, "E-PEER-04", err.Error())
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, map[string]string{"id": idStr, "bundle": bundle})
+			return
+		}
 		script, err := greScriptPath()
 		if err != nil {
 			writeAPIError(w, r, "E-INSTALL-01", err.Error())
@@ -854,9 +870,9 @@ func handlePeersPost(w http.ResponseWriter, r *http.Request) {
 // PATCH /api/peers — edit the configuration of an existing peer tunnel or main tunnel.
 // Body: { "id": N, "name": "...", "remote_pub": "...", "carrier": "...", "ports": [443, 2083] }
 // Strategy (graceful degradation):
-//   1. Try hashem.sh edit-peer --id N ... (or edit-peer-ports).
-//   2. Fallback to direct edit: update peers.json, adjust kernel GRE remote endpoint,
-//      persist systemd unit, apply carrier mode, rewrite TOML proxy blocks, reload service, and allow UFW.
+//  1. Try hashem.sh edit-peer --id N ... (or edit-peer-ports).
+//  2. Fallback to direct edit: update peers.json, adjust kernel GRE remote endpoint,
+//     persist systemd unit, apply carrier mode, rewrite TOML proxy blocks, reload service, and allow UFW.
 type peerPatchRequest struct {
 	ID             int       `json:"id"`
 	Name           string    `json:"name,omitempty"`
@@ -899,6 +915,9 @@ func (p *peerPatchRequest) UnmarshalJSON(data []byte) error {
 	if raw.ID != nil {
 		switch v := raw.ID.(type) {
 		case float64:
+			if v != math.Trunc(v) || v < 0 || v > 2147483647 {
+				return fmt.Errorf("id must be a nonnegative integer")
+			}
 			p.ID = int(v)
 		case string:
 			v = strings.TrimSpace(v)
@@ -959,6 +978,9 @@ func (p *peerPatchRequest) UnmarshalJSON(data []byte) error {
 			for _, item := range slice {
 				switch v := item.(type) {
 				case float64:
+					if v != math.Trunc(v) || v < 1 || v > 65535 {
+						return nil, nil, false
+					}
 					n := int(v)
 					nums = append(nums, n)
 					raws = append(raws, strconv.Itoa(n))
@@ -970,6 +992,8 @@ func (p *peerPatchRequest) UnmarshalJSON(data []byte) error {
 							nums = append(nums, n)
 						}
 					}
+				default:
+					return nil, nil, false
 				}
 			}
 			return nums, raws, true
@@ -979,6 +1003,9 @@ func (p *peerPatchRequest) UnmarshalJSON(data []byte) error {
 
 	if len(raw.RawPorts) > 0 {
 		nums, raws, ok := parsePorts(raw.RawPorts)
+		if !ok && string(raw.RawPorts) != "null" {
+			return fmt.Errorf("invalid raw_ports type or value")
+		}
 		if ok {
 			p.RawPorts = &raws
 			if len(nums) > 0 {
@@ -989,6 +1016,9 @@ func (p *peerPatchRequest) UnmarshalJSON(data []byte) error {
 
 	if len(raw.Ports) > 0 {
 		nums, raws, ok := parsePorts(raw.Ports)
+		if !ok && string(raw.Ports) != "null" {
+			return fmt.Errorf("invalid ports type or value")
+		}
 		if ok {
 			if p.Ports == nil || len(*p.Ports) == 0 {
 				p.Ports = &nums
@@ -1003,6 +1033,7 @@ func (p *peerPatchRequest) UnmarshalJSON(data []byte) error {
 }
 
 func handlePeersPatch(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 65536)
 	var body peerPatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeAPIError(w, r, "E-PEER-07", "bad request body: "+err.Error())
@@ -1029,7 +1060,7 @@ func handlePeersPatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Must provide at least one field to update
-	if body.Name == "" && body.RemotePub == "" && body.Carrier == "" && body.Engine == "" && body.Transport == "" && body.Ports == nil && body.RawPorts == nil {
+	if body.Name == "" && body.RemotePub == "" && body.Carrier == "" && body.Engine == "" && body.Transport == "" && body.Ports == nil && body.RawPorts == nil && body.FRPTransport == "" && body.ProxyProtocol == "" && body.UseEncryption == nil && body.UseCompression == nil {
 		writeAPIError(w, r, "E-PEER-07", "no fields to update")
 		return
 	}
@@ -1037,7 +1068,7 @@ func handlePeersPatch(w http.ResponseWriter, r *http.Request) {
 	// Validate raw ports if provided
 	if body.RawPorts != nil {
 		for _, rp := range *body.RawPorts {
-			if !isValidPortOrRangeOrMapping(rp) {
+			if _, err := normalizedPorts([]string{rp}); err != nil {
 				writeAPIError(w, r, "E-PEER-07", fmt.Sprintf("invalid port/range/mapping: %s", rp))
 				return
 			}
@@ -1097,6 +1128,19 @@ func handlePeersPatch(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if legacyPeer == nil || legacyPeer.Engine == "" || legacyPeer.Engine == "frp" {
+			if legacyPeer == nil {
+				writeAPIError(w, r, "E-PEER-05", "no registered FRP peer; import or create a peer first")
+				return
+			}
+			result, err := applyManagedPatch(*legacyPeer, body)
+			if err != nil {
+				writeAPIError(w, r, "E-PEER-07", err.Error())
+				return
+			}
+			writeJSON(w, map[string]any{"status": "pending", "peer": publicManagedPeer(result)})
+			return
+		}
 		warnMsg, err := editMainTunnelDirect(body, legacyPeer)
 		if err != nil {
 			writeAPIError(w, r, "E-PEER-07", err.Error())
@@ -1120,6 +1164,7 @@ func handlePeersPatch(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, "E-PEER-05", fmt.Sprintf("peer %d not found", body.ID))
 		return
 	}
+
 	if body.Ports != nil {
 		if clash := peerPortClash(*body.Ports, body.ID); clash != "" {
 			writeAPIError(w, r, "E-PEER-02", "port "+clash+" is already served by another tunnel")
@@ -1127,6 +1172,15 @@ func handlePeersPatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if peer.Managed || peer.Engine == "" || peer.Engine == "frp" {
+		result, err := applyManagedPatch(*peer, body)
+		if err != nil {
+			writeAPIError(w, r, "E-PEER-07", err.Error())
+			return
+		}
+		writeJSON(w, map[string]any{"status": "pending", "peer": publicManagedPeer(result)})
+		return
+	}
 	// 1. Try installer if it supports edit-peer or edit-peer-ports (for standard FRP peers without transport/raw-port changes)
 	if peer.Engine != "backhaul" && body.Transport == "" && body.RawPorts == nil {
 		if out, err := editPeerViaInstaller(body); err == nil {
@@ -1232,6 +1286,14 @@ func editPeerViaInstaller(body peerPatchRequest) (string, error) {
 
 // editPeerDirect updates peers.json, GRE remote endpoint, systemd unit, carrier, and TOML proxy blocks.
 func editPeerDirect(peer *peerRecord, req peerPatchRequest) (string, error) {
+	unlock, err := lockPeers()
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	if _, err := readPeerRegistry(); err != nil {
+		return "", err
+	}
 	var warning string
 
 	// 1. Rewrite peers.json
@@ -1278,11 +1340,7 @@ func editPeerDirect(peer *peerRecord, req peerPatchRequest) (string, error) {
 			}
 		}
 	}
-	data, err := json.MarshalIndent(map[string]any{"peers": peers}, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal peers: %w", err)
-	}
-	if err := os.WriteFile(peersFile(), append(data, '\n'), 0600); err != nil {
+	if err := writePeerRegistry(peers); err != nil {
 		return "", fmt.Errorf("write peers.json: %w", err)
 	}
 
@@ -1381,6 +1439,14 @@ func editMainTunnelDirect(req peerPatchRequest, legacyPeer *peerRecord) (string,
 
 	// 1. If legacy peer exists in peers.json, update it
 	if legacyPeer != nil {
+		unlock, err := lockPeers()
+		if err != nil {
+			return "", err
+		}
+		if _, err := readPeerRegistry(); err != nil {
+			unlock()
+			return "", err
+		}
 		peers := loadPeers()
 		for i := range peers {
 			if peers[i].Legacy || peers[i].ID == 1 {
@@ -1412,8 +1478,10 @@ func editMainTunnelDirect(req peerPatchRequest, legacyPeer *peerRecord) (string,
 				}
 			}
 		}
-		if data, err := json.MarshalIndent(map[string]any{"peers": peers}, "", "  "); err == nil {
-			_ = os.WriteFile(peersFile(), append(data, '\n'), 0600)
+		err = writePeerRegistry(peers)
+		unlock()
+		if err != nil {
+			return "", err
 		}
 	}
 
@@ -1668,12 +1736,18 @@ func testPing(ip string, timeoutSec int) bool {
 	return cmd.Run() == nil
 }
 
-
-
 // editMainTunnelPortsDirect updates configuration for the main tunnel (id 0)
 // across peers.json (if legacy peer 1 exists), /etc/frp/frpc.toml, /etc/frp/frps.toml,
 // and system firewall.
 func editMainTunnelPortsDirect(newPorts []int) error {
+	unlock, err := lockPeers()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if _, err := readPeerRegistry(); err != nil {
+		return err
+	}
 	editedAny := false
 
 	// 1. If legacy peer exists in peers.json, update it
@@ -1685,9 +1759,8 @@ func editMainTunnelPortsDirect(newPorts []int) error {
 		}
 	}
 	if editedAny {
-		data, err := json.MarshalIndent(map[string]any{"peers": peers}, "", "  ")
-		if err == nil {
-			_ = os.WriteFile(peersFile(), append(data, '\n'), 0600)
+		if err := writePeerRegistry(peers); err != nil {
+			return err
 		}
 	}
 
@@ -1750,6 +1823,20 @@ func rewriteTomlPorts(src string, ports []int) string {
 		}
 	}
 	result := strings.TrimRight(header.String(), "\n") + "\n"
+	if !strings.Contains(src, "serverAddr") && strings.Contains(src, "bindPort") {
+		var lines []string
+		for _, line := range strings.Split(result, "\n") {
+			if !strings.HasPrefix(strings.TrimSpace(line), "allowPorts") {
+				lines = append(lines, line)
+			}
+		}
+		result = strings.Join(lines, "\n")
+		var allowed []string
+		for _, port := range ports {
+			allowed = append(allowed, fmt.Sprintf("{single = %d}", port))
+		}
+		return "allowPorts = [" + strings.Join(allowed, ", ") + "]\n" + result
+	}
 	for _, port := range ports {
 		result += fmt.Sprintf("\n[[proxies]]\nname = \"tcp_%d\"\ntype = \"tcp\"\nlocalIP = \"127.0.0.1\"\nlocalPort = %d\nremotePort = %d\n\n[[proxies]]\nname = \"udp_%d\"\ntype = \"udp\"\nlocalIP = \"127.0.0.1\"\nlocalPort = %d\nremotePort = %d\n", port, port, port, port, port, port)
 	}
@@ -2026,8 +2113,8 @@ func randomFrpPort() int {
 // setupBundle is a parsed
 // hsh1_<IRAN_PUB>_<FRP_PORT>_<IRAN_GRE>_<FOREIGN_GRE>_<TOKEN>[_<PORTS>][_fou<P1>-<P2>]
 type setupBundle struct {
-	Engine     string   // "frp" | "backhaul" | "gre-backhaul"
-	Transport  string   // for backhaul: "tcpmux", "tcp", "ws", "wss", "wsmux", "wssmux"
+	Engine     string // "frp" | "backhaul" | "gre-backhaul"
+	Transport  string // for backhaul: "tcpmux", "tcp", "ws", "wss", "wsmux", "wssmux"
 	IranPub    string
 	FrpPort    int
 	IranGre    string

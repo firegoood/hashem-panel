@@ -682,4 +682,3 @@ func trafficHistory(rng string) []trafficPoint {
 	out = append(out, in[len(in)-1])
 	return out
 }
-

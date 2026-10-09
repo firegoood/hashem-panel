@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -199,7 +200,7 @@ func TestEnableOriginThenDisableLeavesNothing(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s missing: %v", f, err)
 		}
-		if fi.Mode().Perm() != 0600 {
+		if runtime.GOOS != "windows" && fi.Mode().Perm() != 0600 {
 			t.Fatalf("%s has mode %v, want 0600 (contains secrets)", f, fi.Mode().Perm())
 		}
 	}

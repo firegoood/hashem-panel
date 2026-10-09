@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -77,17 +78,16 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	allowed := map[string]bool{"frps": true, "frpc": true, "gre-panel": true,
 		"gre-tunnel": true, "gre-tunnel.service": true, "hashem-watchdog": true,
 		"backhaul": true, "backhaul-server": true, "backhaul-client": true}
-	if !allowed[svc] {
-		if strings.HasPrefix(svc, "frps-") || strings.HasPrefix(svc, "gre-t") || strings.HasPrefix(svc, "backhaul-") {
-			allowed[svc] = true
+	for _, p := range loadPeers() {
+		if p.Managed && validateManagedPeer(p, nil) == nil {
+			allowed[p.GreIf], allowed[p.FrpsSvc] = true, true
+		} else if validateLegacyNames(p) == nil {
+			allowed[p.GreIf], allowed[p.FrpsSvc] = true, true
 		}
 	}
 	if !allowed[svc] {
-		// unknown? fall back to whichever FRP side exists
-		svc = "frps"
-		if _, err := os.Stat("/etc/frp/frpc.toml"); err == nil {
-			svc = "frpc"
-		}
+		writeAPIError(w, r, "E-PEER-07", "unknown service")
+		return
 	}
 	unit := svc
 	if _, err := exec.LookPath("journalctl"); err == nil {
@@ -123,7 +123,7 @@ func handleAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch body.Action {
-	case "restart-frps", "restart-frpc", "restart-gre", "ping", "remove-tunnel":
+	case "restart-frps", "restart-frpc", "restart-gre", "disable-peer", "enable-peer", "ping", "remove-tunnel":
 		out, err := runAction(body.Action, body.PeerID)
 		if err != nil {
 			writeAPIError(w, r, "E-ACTION-03", err.Error())
@@ -151,6 +151,23 @@ func handleAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func runAction(action string, peerID int) (string, error) {
+	if peerID > 0 {
+		p := findPeer(peerID)
+		if p == nil {
+			return "", fmt.Errorf("peer not found")
+		}
+		if p.Managed && action != "ping" && action != "remove-tunnel" {
+			op := "restart"
+			if action == "disable-peer" {
+				op = "disable"
+			}
+			if action == "enable-peer" {
+				op = "enable"
+			}
+			result, err := managedPeerMutation(op, *p)
+			return "local peer state: " + result.State, err
+		}
+	}
 	switch action {
 	case "restart-frps":
 		if localStatus().FrpSvc == "frpc" {
@@ -244,54 +261,65 @@ func removeViaInstaller() (string, error) {
 // a registry fall back to the old single-tunnel view.
 
 type peerRecord struct {
-	ID        int      `json:"id"`
-	Name      string   `json:"name"`
-	LocalPub  string   `json:"local_pub"`
-	RemotePub string   `json:"remote_pub"`
-	FrpPort   int      `json:"frp_port"`
-	LocalGre  string   `json:"local_gre"`
-	PeerGre   string   `json:"peer_gre"`
-	Ports     []int    `json:"ports"`
-	RawPorts  []string `json:"raw_ports,omitempty"`
-	Token     string   `json:"token,omitempty"`
-	GreIf     string   `json:"gre_if"`
-	FrpsSvc   string   `json:"frps_svc"`
-	Carrier   string   `json:"carrier,omitempty"`
-	Engine    string   `json:"engine,omitempty"`    // "frp" | "backhaul" | "gre-backhaul"
-	Transport string   `json:"transport,omitempty"` // "tcpmux" | "wssmux" | "tcp" | etc.
-	NoGre          bool     `json:"no_gre,omitempty"`
-	Legacy         bool     `json:"legacy,omitempty"`
-	ProxyProtocol  string   `json:"proxy_protocol,omitempty"`  // "off" | "v2" | "v1"
-	FRPTransport   string   `json:"frp_transport,omitempty"`   // "tcp" | "kcp" | "quic" | "websocket" | "wss"
-	UseEncryption  bool     `json:"use_encryption,omitempty"`  // transport.useEncryption
-	UseCompression bool     `json:"use_compression,omitempty"` // transport.useCompression
+	ID               int      `json:"id"`
+	Name             string   `json:"name"`
+	LocalPub         string   `json:"local_pub"`
+	RemotePub        string   `json:"remote_pub"`
+	FrpPort          int      `json:"frp_port"`
+	LocalGre         string   `json:"local_gre"`
+	PeerGre          string   `json:"peer_gre"`
+	Ports            []int    `json:"ports"`
+	RawPorts         []string `json:"raw_ports,omitempty"`
+	Token            string   `json:"token,omitempty"`
+	GreIf            string   `json:"gre_if"`
+	FrpsSvc          string   `json:"frps_svc"`
+	Carrier          string   `json:"carrier,omitempty"`
+	Engine           string   `json:"engine,omitempty"`    // "frp" | "backhaul" | "gre-backhaul"
+	Transport        string   `json:"transport,omitempty"` // "tcpmux" | "wssmux" | "tcp" | etc.
+	NoGre            bool     `json:"no_gre,omitempty"`
+	Legacy           bool     `json:"legacy,omitempty"`
+	ProxyProtocol    string   `json:"proxy_protocol,omitempty"`  // "off" | "v2" | "v1"
+	FRPTransport     string   `json:"frp_transport,omitempty"`   // "tcp" | "kcp" | "quic" | "websocket" | "wss"
+	UseEncryption    bool     `json:"use_encryption,omitempty"`  // transport.useEncryption
+	UseCompression   bool     `json:"use_compression,omitempty"` // transport.useCompression
+	Managed          bool     `json:"managed,omitempty"`
+	Role             string   `json:"role,omitempty"`
+	Revision         uint64   `json:"revision,omitempty"`
+	OperationID      string   `json:"operation_id,omitempty"`
+	AppliedRevision  uint64   `json:"applied_revision,omitempty"`
+	State            string   `json:"state,omitempty"`
+	Disabled         bool     `json:"disabled,omitempty"`
+	LastVerified     int64    `json:"last_verified,omitempty"`
+	LastError        string   `json:"last_error,omitempty"`
+	ManagementSecret string   `json:"management_secret,omitempty"`
+	MasterURL        string   `json:"master_url,omitempty"`
+	MasterPin        string   `json:"master_pin,omitempty"`
+	ServerCA         string   `json:"server_ca,omitempty"`
 }
 
 type peerLive struct {
 	peerRecord
-	GreUp    bool    `json:"gre_up"`
-	GreInner string  `json:"gre_inner"`
-	FrpUp    bool    `json:"frp_up"`
-	PingOK   bool    `json:"ping_ok"`
-	PingMs   string  `json:"ping_ms"`
-	Rx       *uint64 `json:"rx"`
-	Tx       *uint64 `json:"tx"`
+	GreUp             bool    `json:"gre_up"`
+	GreInner          string  `json:"gre_inner"`
+	FrpUp             bool    `json:"frp_up"`
+	PingOK            bool    `json:"ping_ok"`
+	PingMs            string  `json:"ping_ms"`
+	Rx                *uint64 `json:"rx"`
+	Tx                *uint64 `json:"tx"`
+	Authenticated     bool    `json:"authenticated"`
+	ProxyRegistration string  `json:"proxy_registration"`
+	ForwardingHealth  string  `json:"forwarding_health"`
+	ObservedTransport string  `json:"observed_transport,omitempty"`
 }
 
 func peersFile() string { return configDir + "/peers.json" }
 
 func loadPeers() []peerRecord {
-	data, err := os.ReadFile(peersFile())
+	peers, err := readPeerRegistry()
 	if err != nil {
-		return nil
+		log.Printf("peer registry: %v", err)
 	}
-	var v struct {
-		Peers []peerRecord `json:"peers"`
-	}
-	if json.Unmarshal(data, &v) != nil {
-		return nil
-	}
-	return v.Peers
+	return peers
 }
 
 func findPeer(id int) *peerRecord {
@@ -391,7 +419,18 @@ func livePeers() []peerLive {
 	}
 	out := make([]peerLive, 0, len(recs))
 	for _, p := range recs {
-		l := peerLive{peerRecord: p}
+		l := peerLive{peerRecord: publicManagedPeer(p)}
+		l.ForwardingHealth = "UNKNOWN"
+		l.ProxyRegistration = "UNKNOWN"
+		if p.Managed && !p.Disabled && p.State == "CONNECTED" && p.AppliedRevision == p.Revision && p.LastVerified > 0 && time.Now().Unix()-p.LastVerified <= 60 {
+			l.Authenticated = true
+			l.ProxyRegistration = "REGISTERED"
+			l.ObservedTransport = p.FRPTransport
+		}
+		if p.Managed && p.LastVerified > 0 && time.Now().Unix()-p.LastVerified > 60 {
+			l.State = "UNKNOWN"
+			l.LastError = "last peer verification is stale"
+		}
 		if p.NoGre {
 			l.GreInner = "standalone"
 			l.GreUp = true
@@ -401,6 +440,13 @@ func livePeers() []peerLive {
 			l.GreUp = l.GreInner != ""
 		}
 		l.FrpUp = svcActive(p.FrpsSvc)
+		if p.Managed && !p.Disabled && (!l.GreUp || !l.FrpUp) {
+			l.State = "FAILED"
+			l.Authenticated = false
+			l.ProxyRegistration = "UNKNOWN"
+			l.ObservedTransport = ""
+			l.LastError = "owned GRE or FRP process is unavailable"
+		}
 		pingTarget := p.PeerGre
 		if pingTarget == "" && p.NoGre {
 			pingTarget = p.RemotePub
@@ -421,6 +467,10 @@ func livePeers() []peerLive {
 }
 
 func removePeerViaInstaller(id int) (string, error) {
+	if p := findPeer(id); p != nil && (p.Managed || p.Engine == "" || p.Engine == "frp") {
+		_, err := managedPeerMutation("remove", peerRecord{ID: id})
+		return fmt.Sprintf("peer %d removed", id), err
+	}
 	script, err := greScriptPath()
 	if err != nil {
 		return "", err
@@ -477,8 +527,17 @@ func stripANSI(s string) string {
 // its units, delete unit files + frps toml + GRE iface, drop the record.
 // Legacy peer 1 also drops the old single tunnel (same as remove_tunnel_force).
 func removePeerDirect(p *peerRecord) (string, error) {
-	if p.Legacy {
-		return removeViaInstaller()
+	if p.Managed || p.Engine == "" || p.Engine == "frp" {
+		_, err := managedPeerMutation("remove", peerRecord{ID: p.ID})
+		return fmt.Sprintf("peer %d removed", p.ID), err
+	}
+	unlock, err := lockPeers()
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	if _, err := readPeerRegistry(); err != nil {
+		return "", err
 	}
 	greSvc := p.GreIf
 	if greSvc == "" {
@@ -503,8 +562,7 @@ func removePeerDirect(p *peerRecord) (string, error) {
 			keep = append(keep, q)
 		}
 	}
-	data, _ := json.MarshalIndent(map[string]any{"peers": keep}, "", "  ")
-	if err := os.WriteFile(peersFile(), append(data, '\n'), 0600); err != nil {
+	if err := writePeerRegistry(keep); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("peer '%s' (id %d) removed", p.Name, p.ID), nil
@@ -690,60 +748,60 @@ func localStatus() tunnelStatus {
 			st.Engine = "frp"
 		}
 		tomlPath := "/etc/frp/frps.toml"
-	if st.FrpSvc == "frpc" {
-		tomlPath = "/etc/frp/frpc.toml"
-	}
-	if data, err := os.ReadFile(tomlPath); err == nil {
-		inProxy := false
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "serverAddr = ") {
-				addr := strings.Trim(strings.TrimPrefix(line, "serverAddr = "), `"' `)
-				st.RemotePub = addr
-				if st.Gre.PeerIP == "" {
-					st.Gre.PeerIP = addr
-				}
-			}
-			if strings.HasPrefix(line, "bindPort") || strings.HasPrefix(line, "serverPort") {
-				// "bindPort = 7000" / "serverPort = 7000" — split on '='
-				// (fmt.Sscanf with %*s is not supported by Go and left this 0).
-				if parts := strings.SplitN(line, "=", 2); len(parts) == 2 {
-					if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && v > 0 {
-						st.BindPort = v
-						st.FrpPort = v
+		if st.FrpSvc == "frpc" {
+			tomlPath = "/etc/frp/frpc.toml"
+		}
+		if data, err := os.ReadFile(tomlPath); err == nil {
+			inProxy := false
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "serverAddr = ") {
+					addr := strings.Trim(strings.TrimPrefix(line, "serverAddr = "), `"' `)
+					st.RemotePub = addr
+					if st.Gre.PeerIP == "" {
+						st.Gre.PeerIP = addr
 					}
 				}
-				continue
-			}
-			// TOML table headers: [[proxies]] opens a proxy block, and any
-			// other [section] closes it. remotePort/localPort lines are only
-			// meaningful inside a proxies block.
-			if strings.HasPrefix(line, "[[proxies]]") {
-				// open a new proxy block (name filled by the next name = line)
-				inProxy = true
-				continue
-			}
-			if strings.HasPrefix(line, "[") {
-				inProxy = false // any other section closes the proxy block
-				continue
-			}
-			if strings.HasPrefix(line, "name = ") {
-				name := strings.Trim(strings.TrimPrefix(line, "name = "), `"`)
-				if inProxy {
-					st.Proxies = append(st.Proxies, name)
+				if strings.HasPrefix(line, "bindPort") || strings.HasPrefix(line, "serverPort") {
+					// "bindPort = 7000" / "serverPort = 7000" — split on '='
+					// (fmt.Sscanf with %*s is not supported by Go and left this 0).
+					if parts := strings.SplitN(line, "=", 2); len(parts) == 2 {
+						if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && v > 0 {
+							st.BindPort = v
+							st.FrpPort = v
+						}
+					}
+					continue
 				}
-				continue
-			}
-			// per-proxy ports: shown in the FRP card next to the bind port.
-			if inProxy && (strings.HasPrefix(line, "remotePort") || strings.HasPrefix(line, "localPort")) {
-				if parts := strings.SplitN(line, "=", 2); len(parts) == 2 {
-					if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && v > 0 {
-						st.ProxyPorts = append(st.ProxyPorts, v)
+				// TOML table headers: [[proxies]] opens a proxy block, and any
+				// other [section] closes it. remotePort/localPort lines are only
+				// meaningful inside a proxies block.
+				if strings.HasPrefix(line, "[[proxies]]") {
+					// open a new proxy block (name filled by the next name = line)
+					inProxy = true
+					continue
+				}
+				if strings.HasPrefix(line, "[") {
+					inProxy = false // any other section closes the proxy block
+					continue
+				}
+				if strings.HasPrefix(line, "name = ") {
+					name := strings.Trim(strings.TrimPrefix(line, "name = "), `"`)
+					if inProxy {
+						st.Proxies = append(st.Proxies, name)
+					}
+					continue
+				}
+				// per-proxy ports: shown in the FRP card next to the bind port.
+				if inProxy && (strings.HasPrefix(line, "remotePort") || strings.HasPrefix(line, "localPort")) {
+					if parts := strings.SplitN(line, "=", 2); len(parts) == 2 {
+						if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && v > 0 {
+							st.ProxyPorts = append(st.ProxyPorts, v)
+						}
 					}
 				}
 			}
 		}
-	}
 	}
 	// de-duplicate proxy ports (each proxy has local+remote for the same port)
 	st.ProxyPorts = uniqInts(st.ProxyPorts)
@@ -1116,4 +1174,3 @@ func ensureFRPServiceUnits(svcName string) {
 		_ = exec.Command("systemctl", "daemon-reload").Run()
 	}
 }
-

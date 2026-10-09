@@ -90,7 +90,7 @@ backup_configs() {
     
     # Backup relevant systemd units
     mkdir -p "$bdir/systemd" 2>/dev/null || true
-    for u in /etc/systemd/system/gre-*.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc*.service /etc/systemd/system/gre-panel.service; do
+    for u in /etc/systemd/system/gre-*.service /etc/systemd/system/frps.service /etc/systemd/system/frpc.service /etc/systemd/system/gre-panel.service; do
         [[ -f "$u" ]] && cp -p "$u" "$bdir/systemd/" 2>/dev/null || true
     done
     
@@ -831,10 +831,9 @@ carrier_apply() {
         IFS_TO_APPLY+=("$SPECIFIC_IF")
     else
         local dev
-        for dev in $(ip -o link show type gre 2>/dev/null | awk -F': ' '{print $2}' | cut -d'@' -f1); do
-            [[ "$dev" == "gre0" || "$dev" == "gretap0" ]] && continue
-            IFS_TO_APPLY+=("$dev")
-        done
+        # Global carrier preferences apply only to the legacy base tunnel.
+        # Additional peers must be selected explicitly.
+        if ip link show "$TUNNEL_NAME" >/dev/null 2>&1; then IFS_TO_APPLY+=("$TUNNEL_NAME"); fi
         if [[ ${#IFS_TO_APPLY[@]} -eq 0 ]]; then
             IFS_TO_APPLY+=("$TUNNEL_NAME")
         fi
@@ -2739,9 +2738,6 @@ EOF
     systemctl daemon-reload
     systemctl reset-failed frps >/dev/null 2>&1 || true
     systemctl enable frps >/dev/null 2>&1
-    if command -v fuser >/dev/null 2>&1; then
-        fuser -k "${BIND_PORT}/tcp" >/dev/null 2>&1 || true
-    fi
     systemctl restart frps
 
     local _frps_ok=0
@@ -3576,9 +3572,6 @@ WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
     systemctl enable "$SVC" >/dev/null 2>&1
-    if command -v fuser >/dev/null 2>&1; then
-        fuser -k "${BIND_PORT}/tcp" >/dev/null 2>&1 || true
-    fi
     systemctl restart "$SVC"
     if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
         ufw allow "${BIND_PORT}/tcp" >/dev/null 2>&1
@@ -3744,7 +3737,7 @@ cli_remove_peer() {
     echo -e "${GREEN}[✔️] Peer '${NAME}' (id ${ID}) removed.${NC}"
 }
 
-cli_add_backhaul_peer() {
+cli_add_backhaul_peer_unlocked() {
     local NAME="" LOCAL_PUB="" REMOTE_PUB="" PORT="" TOKEN="" LOCAL_GRE="" PEER_GRE="" PORTS="" TRANSPORT="tcpmux" NO_GRE=0 FORCE=0 BUNDLE=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -3862,9 +3855,18 @@ d.setdefault("peers", []).append({
   "id": int(iid), "name": name, "local_pub": lip, "remote_pub": rip,
   "frp_port": int(fport), "token": tok, "local_gre": lgre, "peer_gre": pgre,
   "ports": json.loads(pjson), "gre_if": gif, "frps_svc": svc, "legacy": False,
-  "engine": eng, "transport": trans, "no_gre": nogre == "1", "raw_ports": raw_p
+  "engine": eng, "transport": trans, "no_gre": nogre == "1", "raw_ports": [p.strip() for p in raw_p.replace(" ", ",").split(",") if p.strip()]
 })
-json.dump(d, open(f, "w"), indent=2)
+import tempfile
+fd, temporary = tempfile.mkstemp(prefix=".hashem-backhaul-", dir=os.path.dirname(f))
+try:
+    with os.fdopen(fd, "w") as output:
+        json.dump(d, output, indent=2)
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(temporary, f)
+finally:
+    if os.path.exists(temporary): os.unlink(temporary)
 PYEOF
 
     echo -e "${GREEN}[✔️] Backhaul Peer '${NAME}' (id ${ID}) added [Engine: ${ENGINE}, Transport: ${TRANSPORT}]!${NC}"
@@ -4343,7 +4345,7 @@ show_logs() {
 restart_all() {
     echo -e "\n${CYAN}[*] Restarting GRE and FRP/Backhaul services (all tunnels)...${NC}"
     local u
-    for u in /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-tunnel.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/backhaul*.service /etc/systemd/system/gre-chaff*.service; do
+    for u in /etc/systemd/system/gre-tunnel.service /etc/systemd/system/gre-tunnel.service /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service /etc/systemd/system/backhaul-server.service /etc/systemd/system/backhaul-client.service /etc/systemd/system/gre-chaff*.service; do
         [[ -f "$u" ]] || continue
         systemctl restart "$(basename "$u")" >/dev/null 2>&1 && echo -e "${GREEN}[✔️] $(basename "$u") restarted.${NC}"
     done
@@ -4579,7 +4581,6 @@ doctor_start_server() {
 }
 
 doctor_stop_server() {
-    pkill -f "iperf3 -s" >/dev/null 2>&1 || true
     echo -e "${GREEN}[✔️] iperf3 server stopped.${NC}"
 }
 
@@ -4846,74 +4847,12 @@ uninstall_all() {
 # (/usr/local/bin/hashem + /usr/local/bin/hashem.sh + legacy gre.sh) so
 # `hashem` stops working.
 uninstall_all_force() {
-        echo -e "${CYAN}[*] Performing complete uninstallation of Hashem...${NC}"
-        # 1. Stop & disable all services & timers
-        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-chaff hashem-watchdog.timer hashem-watchdog.service backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
-        systemctl stop 'frps*' 'frpc*' 'backhaul*' 'gre-t*' 'gre-chaff*' 'hashem-chaff*' >/dev/null 2>&1 || true
-        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-panel gre-chaff hashem-chaff hashem-watchdog.timer hashem-watchdog.service backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
-        systemctl disable 'frps*' 'frpc*' 'backhaul*' 'gre-t*' 'gre-chaff*' 'hashem-chaff*' >/dev/null 2>&1 || true
-
-        # 2. Terminate any leftover processes
-        pkill -9 -f "${INSTALL_DIR}/frps" >/dev/null 2>&1 || true
-        pkill -9 -f "${INSTALL_DIR}/frpc" >/dev/null 2>&1 || true
-        pkill -9 -f "${INSTALL_DIR}/backhaul" >/dev/null 2>&1 || true
-        pkill -9 -f "${INSTALL_DIR}/gre-panel" >/dev/null 2>&1 || true
-        pkill -9 -f "hashem-chaff.sh" >/dev/null 2>&1 || true
-
-        # 3. Remove all systemd files
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc*.service \
-              /etc/systemd/system/backhaul*.service /etc/systemd/system/${TUNNEL_NAME}.service \
-              /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-panel.service \
-              /etc/systemd/system/gre-chaff*.service /etc/systemd/system/hashem-chaff*.service \
-              /etc/systemd/system/hashem-watchdog.* /etc/systemd/system/hashem-dpi.service
-        rm -f /var/lock/hashem-watchdog.lock
-        systemctl daemon-reload
-        systemctl reset-failed >/dev/null 2>&1 || true
-
-        # 4. Remove all GRE and FOU interfaces
-        local gif
-        for gif in "$TUNNEL_NAME" $(ip tunnel show 2>/dev/null | awk -F: '{print $1}') $(ip -d link show type gre 2>/dev/null | awk -F: '/^[0-9]+: / {print $2}' | tr -d ' '); do
-            [[ -n "$gif" ]] && { ip link del "$gif" >/dev/null 2>&1 || ip tunnel del "$gif" >/dev/null 2>&1 || true; }
-        done
-        if command -v ip >/dev/null 2>&1; then
-            ip fou show 2>/dev/null | awk '{print $3}' | while read -r fp; do
-                [[ -n "$fp" ]] && ip fou del port "$fp" 2>/dev/null || true
-            done
-            ip fou del port 19998 >/dev/null 2>&1 || true
-        fi
-
-        # 5. Clean iptables / firewall rules
-        if command -v iptables >/dev/null 2>&1; then
-            iptables -D INPUT -j HASHEM-DPI 2>/dev/null || true
-            iptables -F HASHEM-DPI 2>/dev/null || true
-            iptables -X HASHEM-DPI 2>/dev/null || true
-            iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
-            iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340 2>/dev/null || true
-            iptables -t nat -D OUTPUT -p udp --dport 19999 -j DNAT --to-destination 127.0.0.1:19999 2>/dev/null || true
-            iptables -D INPUT -p tcp --dport 8443 -j ACCEPT 2>/dev/null || true
-        fi
-
-        # 6. Revert network tuning
-        tune_restore >/dev/null 2>&1 || true
-        rm -f /etc/sysctl.d/99-hashem.conf /etc/sysctl.d/99-gre-panel.conf
-        command -v sysctl >/dev/null 2>&1 && sysctl --system >/dev/null 2>&1 || true
-
-        # 7. Remove all binaries
-        rm -f "${INSTALL_DIR}/frps" "${INSTALL_DIR}/frpc" "${INSTALL_DIR}/backhaul"
-        rm -f /usr/local/bin/gre-panel /usr/local/bin/grepanel
-        rm -f /usr/local/bin/hashem-chaff.sh /usr/local/bin/gre-chaff.sh
-
-        # 8. Remove configs, data, registries, logs, cron
-        rm -rf "$CONFIG_DIR" "$BACKHAUL_CONFIG_DIR"
-        rm -rf /etc/gre-panel /usr/local/gre-panel
-        rm -rf /var/log/hashem* /var/log/gre-panel* /var/lock/hashem* /tmp/hashem*
-        rm -f /etc/cron.d/hashem* /etc/cron.daily/hashem*
-        crontab -l 2>/dev/null | grep -v 'hashem' | crontab - 2>/dev/null || true
-
-        # 9. Remove entrypoints last
-        rm -f /usr/local/bin/hashem /usr/local/bin/hashem.sh /usr/local/bin/gre.sh
-
-        echo -e "${GREEN}[✔️] Complete uninstallation finished: all tunnels, services, panel, and files removed.${NC}"
+    remove_tunnel_force || return 1
+    echo "Owned tunnels removed. Shared binaries, configurations and backups retained for safe recovery."
+    systemctl stop gre-panel.service || return 1
+    systemctl disable gre-panel.service || return 1
+    rm -f /etc/systemd/system/gre-panel.service
+    systemctl daemon-reload
 }
 
 remove_tunnel() {
@@ -4929,60 +4868,9 @@ remove_tunnel() {
 # Non-interactive core: stop/disable units, drop interface, remove FRP files.
 # Panel files/services are never touched here.
 remove_tunnel_force() {
-        echo -e "${CYAN}[*] Removing all tunnel components...${NC}"
-        # Stop & disable services
-        systemctl stop frps frpc "${TUNNEL_NAME}.service" gre-chaff hashem-chaff backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
-        systemctl stop 'frps*' 'frpc*' 'backhaul*' 'gre-t*' 'gre-chaff*' 'hashem-chaff*' >/dev/null 2>&1 || true
-        systemctl disable frps frpc "${TUNNEL_NAME}.service" gre-chaff hashem-chaff backhaul-server backhaul-client backhaul hashem-dpi >/dev/null 2>&1 || true
-        systemctl disable 'frps*' 'frpc*' 'backhaul*' 'gre-t*' 'gre-chaff*' 'hashem-chaff*' >/dev/null 2>&1 || true
-
-        # Kill stray tunnel processes
-        pkill -9 -f "${INSTALL_DIR}/frps" >/dev/null 2>&1 || true
-        pkill -9 -f "${INSTALL_DIR}/frpc" >/dev/null 2>&1 || true
-        pkill -9 -f "${INSTALL_DIR}/backhaul" >/dev/null 2>&1 || true
-        pkill -9 -f "hashem-chaff.sh" >/dev/null 2>&1 || true
-
-        # Remove systemd files
-        rm -f /etc/systemd/system/frps*.service /etc/systemd/system/frpc.service \
-              /etc/systemd/system/backhaul*.service /etc/systemd/system/${TUNNEL_NAME}.service \
-              /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-chaff*.service \
-              /etc/systemd/system/hashem-chaff*.service /etc/systemd/system/hashem-dpi.service
-        systemctl daemon-reload
-        systemctl reset-failed >/dev/null 2>&1 || true
-
-        # Remove GRE interfaces
-        local gif
-        for gif in "$TUNNEL_NAME" $(ip tunnel show 2>/dev/null | awk -F: '{print $1}') $(ip -d link show type gre 2>/dev/null | awk -F: '/^[0-9]+: / {print $2}' | tr -d ' '); do
-            [[ -n "$gif" ]] && { ip link del "$gif" >/dev/null 2>&1 || ip tunnel del "$gif" >/dev/null 2>&1 || true; }
-        done
-        if command -v ip >/dev/null 2>&1; then
-            ip fou show 2>/dev/null | awk '{print $3}' | while read -r fp; do
-                [[ -n "$fp" ]] && ip fou del port "$fp" 2>/dev/null || true
-            done
-            ip fou del port 19998 >/dev/null 2>&1 || true
-        fi
-
-        # Clean firewall rules
-        if command -v iptables >/dev/null 2>&1; then
-            iptables -D INPUT -j HASHEM-DPI 2>/dev/null || true
-            iptables -F HASHEM-DPI 2>/dev/null || true
-            iptables -X HASHEM-DPI 2>/dev/null || true
-            iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
-            iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340 2>/dev/null || true
-            iptables -t nat -D OUTPUT -p udp --dport 19999 -j DNAT --to-destination 127.0.0.1:19999 2>/dev/null || true
-            iptables -D INPUT -p tcp --dport 8443 -j ACCEPT 2>/dev/null || true
-        fi
-
-        # Remove configs
-        rm -rf "$CONFIG_DIR" "$BACKHAUL_CONFIG_DIR"
-        rm -f "$PEERS_FILE"
-        rm -f /usr/local/bin/hashem-chaff.sh /usr/local/bin/gre-chaff.sh
-
-        echo -e "${GREEN}[✔️] Tunnel removed — GRE interface, FRP/Backhaul services, binaries and configs gone. Panel still running.${NC}"
+    [[ -x /usr/local/bin/gre-panel ]] || { echo "Owned peer manager unavailable; no cleanup attempted." >&2; return 1; }
+    /usr/local/bin/gre-panel peer-manage remove-all-owned
 }
-
-PANEL_DIR="/usr/local/gre-panel"
-PANEL_BIN="/usr/local/bin/gre-panel"
 
 # ---- Network optimization for tunnel throughput ----
 # Same on both roles (auto-detects nothing: these are role-independent).
@@ -5534,44 +5422,10 @@ reset_panel_password() {
 
 cli_set_panel_password() {
     local PASS="$1"
-    if [[ ${#PASS} -lt 12 ]]; then
-        echo -e "${RED}[!] Password must be at least 12 characters long (NIST 800-63B).${NC}"
-        return 1
-    fi
-
-    local HASH
-    HASH=$(echo -n "$PASS" | sha256sum | awk '{print $1}')
-    if [[ -z "$HASH" ]] || ! command -v python3 >/dev/null 2>&1; then
-        echo -e "${RED}[!] Cannot hash password (requires python3 + sha256sum).${NC}"
-        return 1
-    fi
-
-    mkdir -p /etc/gre-panel
-    python3 - "$HASH" <<'PYEOF'
-import json, sys
-p = '/etc/gre-panel/panel.json'
-try:
-    with open(p) as f:
-        d = json.load(f)
-except Exception:
-    d = {"username": "admin", "port": 7777, "base_path": "panel"}
-d['pass_hash'] = sys.argv[1]
-with open(p + ".tmp", "w") as f:
-    json.dump(d, f, indent=2)
-import os
-os.replace(p + ".tmp", p)
-os.chmod(p, 0o600)
-PYEOF
-
-    chmod 600 /etc/gre-panel/panel.json 2>/dev/null || true
-    systemctl restart gre-panel 2>/dev/null || true
-    PANEL_PASS="$PASS"
-    echo ""
-    echo -e "${GREEN}[✔️] Web panel password successfully updated!${NC}"
-    echo -e "${GREEN}Username:     ${CYAN}admin${NC}"
-    echo -e "${GREEN}New Password: ${CYAN}${PASS}${NC}"
-    echo -e "${YELLOW}Please save this password securely.${NC}"
-    echo ""
+    [[ -x /usr/local/bin/gre-panel ]] || return 1
+    printf '%s' "$PASS" | /usr/local/bin/gre-panel password-set || return 1
+    systemctl restart gre-panel.service || return 1
+    echo "Administrator password updated securely."
 }
 
 # Dedicated backup key for encrypted backups (CWE-256: decouples backup key from login password)
@@ -5592,34 +5446,12 @@ ensure_backup_key() {
 
 # make sure panel config exists. Passwords are never stored as plaintext on disk (CWE-256).
 ensure_panel_pass() {
-    ensure_backup_key
-    if [[ -f /etc/gre-panel/panel.json ]]; then
-        return 0
+    if [[ ! -f "$PANEL_CONFIG_DIR/panel.json" ]]; then
+        local initial_password
+        initial_password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))') || return 1
+        printf '%s' "$initial_password" | /usr/local/bin/gre-panel init-panel || return 1
+        printf 'Initial password (record securely): %s\n' "$initial_password"
     fi
-    echo -e "${YELLOW}[*] No panel config found — generating initial credentials...${NC}"
-    local NEWPASS HASH
-    NEWPASS=$(tr -dc 'A-Za-z0-9!@#$%' </dev/urandom | head -c 16)
-    HASH=$(echo -n "$NEWPASS" | sha256sum | awk '{print $1}')
-    if [[ -z "$HASH" ]] || ! command -v python3 >/dev/null 2>&1; then
-        echo -e "${RED}[!] Cannot initialize panel config (need sha256sum + python3).${NC}"
-        return 1
-    fi
-    python3 - "$HASH" <<'PYEOF'
-import json, sys
-p = '/etc/gre-panel/panel.json'
-try:
-    d = json.load(open(p))
-except Exception:
-    d = {"username": "admin", "port": 7777, "base_path": "panel"}
-d['pass_hash'] = sys.argv[1]
-json.dump(d, open(p, 'w'), indent=2)
-PYEOF
-    chmod 600 /etc/gre-panel/panel.json
-    systemctl restart gre-panel 2>/dev/null || true
-    PANEL_PASS="$NEWPASS"
-    echo -e "${GREEN}[✔️] Initial password generated: ${CYAN}${NEWPASS}${NC}"
-    echo -e "${YELLOW}[!] NOTE: Passwords are not saved in plaintext on disk (CWE-256). Record it now!${NC}"
-    return 0
 }
 
 # save_panel_pass: deprecated for CWE-256 compliance
@@ -5692,6 +5524,10 @@ except Exception:
 }
 
 watchdog_check() {
+    if grep -Eq '"managed"[[:space:]]*:[[:space:]]*true' "$PEERS_FILE" 2>/dev/null; then
+        /usr/local/bin/gre-panel peer-manage health-check
+        return $?
+    fi
     init_watchdog_json
     autotune_tick
     local PEER_GRE
@@ -5844,7 +5680,7 @@ restart_all_lite() {
     # active client/user sessions across ALL other healthy connected spokes simultaneously.
     # Only restart GRE tunnel interfaces on the hub.
     if [[ -f /etc/frp/frps.toml ]] || systemctl list-unit-files 2>/dev/null | grep -q "^frps\.service"; then
-        for u in /etc/systemd/system/gre-t*.service /etc/systemd/system/gre-tunnel.service; do
+        for u in /etc/systemd/system/gre-tunnel.service /etc/systemd/system/gre-tunnel.service; do
             [[ -f "$u" ]] || continue
             systemctl restart "$(basename "$u")" >/dev/null 2>&1
         done
@@ -5883,6 +5719,10 @@ autotune_tick() {
 }
 
 watchdog_tick() {
+    if grep -Eq '"managed"[[:space:]]*:[[:space:]]*true' "$PEERS_FILE" 2>/dev/null; then
+        /usr/local/bin/gre-panel peer-manage health-check
+        return $?
+    fi
     local LOCKFILE="/var/lock/hashem-watchdog.lock"
     mkdir -p /var/lock 2>/dev/null || true
     exec 200>"$LOCKFILE" 2>/dev/null || exec 200>/tmp/hashem-watchdog.lock
@@ -6052,6 +5892,14 @@ except Exception:
 }
 
 backup_now() {
+    if grep -Eq '"managed"[[:space:]]*:[[:space:]]*true' "$PEERS_FILE" 2>/dev/null; then
+        mkdir -p "$BACKUP_DIR" || return 1
+        chmod 700 "$BACKUP_DIR"
+        local archive="$BACKUP_DIR/hashem-backup-$(date +%Y%m%d-%H%M%S)-${RANDOM}.enc"
+        /usr/local/bin/gre-panel peer-manage backup --file "$archive" || return 1
+        printf 'BACKUP path=%s (authenticated encryption; key kept separately)\n' "$archive"
+        return 0
+    fi
     local OUTDIR="$BACKUP_DIR"
     local KEEP=7
     while [[ $# -gt 0 ]]; do
@@ -6120,6 +5968,11 @@ backup_now() {
 }
 
 backup_restore() {
+    if [[ -f "${1:-}" ]] && [[ $(head -n 1 -- "$1") == HASHEM-BACKUP-2 ]]; then
+        local archive="$1"; shift
+        /usr/local/bin/gre-panel peer-manage restore-backup --file "$archive" "$@"
+        return $?
+    fi
     local FILE=""
     local DRY_RUN=0
     while [[ $# -gt 0 ]]; do
@@ -6760,6 +6613,9 @@ except Exception:
 }
 
 update_all() {
+    echo "Fork updates require a reviewed checkout and install-fork.sh; see AGENTS.md." >&2
+    return 1
+
     echo -e "${CYAN}[*] Updating Hashem (script + panel binary)...${NC}"
     TMP_U="$(mktemp -d)"
     trap 'rm -rf "$TMP_U"' RETURN
@@ -7285,7 +7141,6 @@ menu_uninstall() {
                 if [[ "$C_P" =~ ^[Yy]$ ]]; then
                     systemctl stop gre-panel 2>/dev/null || true
                     systemctl disable gre-panel 2>/dev/null || true
-                    pkill -9 -f "${INSTALL_DIR}/gre-panel" >/dev/null 2>&1 || true
                     rm -f /etc/systemd/system/gre-panel.service /usr/local/bin/gre-panel /usr/local/bin/grepanel
                     rm -rf /etc/gre-panel/tls /var/log/gre-panel*
                     systemctl daemon-reload
@@ -7806,6 +7661,55 @@ cli_carrier() {
             ;;
     esac
 }
+
+cli_add_peer() { /usr/local/bin/gre-panel peer-manage add-peer "$@"; }
+cli_remove_peer() { /usr/local/bin/gre-panel peer-manage remove-peer "$@"; }
+cli_edit_peer() { /usr/local/bin/gre-panel peer-manage edit-peer "$@"; }
+cli_edit_peer_ports() { /usr/local/bin/gre-panel peer-manage edit-peer-ports "$@"; }
+
+cli_add_backhaul_peer() {
+    (
+        mkdir -p "$PANEL_CONFIG_DIR" || exit 1
+        exec 202>"$PEERS_FILE.lock"
+        flock -x -w 30 202 || exit 1
+        cli_add_backhaul_peer_unlocked "$@"
+    )
+}
+
+# Interactive setup uses the same native lifecycle as the WebUI.
+setup_iran_server() {
+    local local_pub remote_pub local_gre peer_gre ports transport control
+    read -r -p 'Iran public IPv4: ' local_pub
+    read -r -p 'Foreign public IPv4: ' remote_pub
+    read -r -p 'Iran GRE IPv4 [10.70.1.1]: ' local_gre
+    read -r -p 'Foreign GRE IPv4 [10.70.1.2]: ' peer_gre
+    read -r -p 'Control port [17001]: ' control
+    read -r -p 'Forward ports (e.g. 8888,8889 or tcp:8080=80): ' ports
+    read -r -p 'FRP transport [kcp]: ' transport
+    /usr/local/bin/gre-panel peer-manage setup-iran --local-pub "$local_pub" --remote-pub "$remote_pub" \
+        --local-gre "${local_gre:-10.70.1.1}" --peer-gre "${peer_gre:-10.70.1.2}" \
+        --frp-port "${control:-17001}" --ports "$ports" --frp-transport "${transport:-kcp}"
+}
+
+setup_foreign_server() {
+    local pairing local_pub
+    read -r -s -p 'Secure hsh2 pairing bundle: ' pairing; printf '\n'
+    read -r -p 'This server public IPv4: ' local_pub
+    HASHEM_PAIRING="$pairing" HASHEM_LOCAL_PUB="$local_pub" python3 -c \
+        'import os,json; print(json.dumps({"bundle":os.environ["HASHEM_PAIRING"],"local_pub":os.environ["HASHEM_LOCAL_PUB"]}))' | \
+        /usr/local/bin/gre-panel peer-manage setup-foreign --request-file -
+}
+
+# Shared FRP peer lifecycle. Installed by install-fork.sh from this checkout.
+case "${1:-}" in
+    setup-iran|setup-foreign|add-peer|edit-peer|edit-peer-ports|remove-peer|peer-list|peer-token|disable-peer|enable-peer|restart-peer|reconcile|recover|health-check)
+        if [[ -x /usr/local/bin/gre-panel ]]; then
+            exec /usr/local/bin/gre-panel peer-manage "$@"
+        fi
+        echo "Install the reviewed fork with install-fork.sh before managing FRP peers." >&2
+        exit 1
+        ;;
+esac
 
 if [[ $# -gt 0 ]]; then
     case "$1" in

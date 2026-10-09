@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -153,13 +152,23 @@ func authed(r *http.Request) bool {
 	if err != nil || c.Value == "" {
 		return false
 	}
-	mac := sha256.Sum256(append(nonce[:], []byte(cfg.PassHash)...))
-	want := hex.EncodeToString(mac[:])
+	want := sessionToken()
 	if subtle.ConstantTimeCompare([]byte(c.Value), []byte(want)) == 1 {
 		return true
 	}
 	// persistent server-side sessions (survive restarts, 24h absolute)
 	return validSession(c.Value)
+}
+
+func sessionToken() string {
+	mu.Lock()
+	defer mu.Unlock()
+	return sessionTokenLocked()
+}
+
+func sessionTokenLocked() string {
+	mac := sha256.Sum256(append(append([]byte{}, nonce[:]...), []byte(cfg.PassHash)...))
+	return hex.EncodeToString(mac[:])
 }
 
 func requireAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -178,6 +187,7 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 8192)
 	ip := clientIP(r)
 	if checkLocked(ip) {
 		writeAPIError(w, r, "E-AUTH-02", "Too many failed attempts. Temporarily locked.")
@@ -191,19 +201,51 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, "E-AUTH-03", "")
 		return
 	}
-	h := sha256.Sum256([]byte(body.Password))
-	got := hex.EncodeToString(h[:])
-	if subtle.ConstantTimeCompare([]byte(body.Username), []byte(cfg.Username)) != 1 ||
-		subtle.ConstantTimeCompare([]byte(got), []byte(cfg.PassHash)) != 1 {
+	mu.Lock()
+	loginHash, loginUser := cfg.PassHash, cfg.Username
+	mu.Unlock()
+	valid, legacy := verifyPassword(loginHash, body.Password)
+	if subtle.ConstantTimeCompare([]byte(body.Username), []byte(loginUser)) != 1 ||
+		!valid {
 		recordLoginFailure(ip)
 		LogSecurityAudit("login_failed", body.Username, ip, "invalid credentials")
 		writeAPIError(w, r, "E-AUTH-02", "")
 		return
 	}
+	if legacy {
+		hash, err := hashPassword(body.Password)
+		if err != nil {
+			writeAPIError(w, r, "E-AUTH-05", "")
+			return
+		}
+		mu.Lock()
+		if cfg.PassHash != loginHash {
+			mu.Unlock()
+			writeAPIError(w, r, "E-AUTH-05", "credentials changed; sign in again")
+			return
+		}
+		previous := cfg.PassHash
+		cfg.PassHash = hash
+		if err = atomicPrivateFile(cfgPath(), mustJSON(cfg), 0600); err != nil {
+			cfg.PassHash = previous
+			mu.Unlock()
+			writeAPIError(w, r, "E-AUTH-05", "")
+			return
+		}
+		loginHash = hash
+		sessionStore{Tokens: map[string]int64{}}.save()
+		mu.Unlock()
+	}
 	recordLoginSuccess(ip)
-	mac := sha256.Sum256(append(nonce[:], []byte(cfg.PassHash)...))
-	tok := hex.EncodeToString(mac[:])
-	addSession(tok) // persistent: survives restarts, 24h absolute expiry
+	mu.Lock()
+	if cfg.PassHash != loginHash {
+		mu.Unlock()
+		writeAPIError(w, r, "E-AUTH-05", "credentials changed; sign in again")
+		return
+	}
+	tok := sessionTokenLocked()
+	addSessionLocked(tok)
+	mu.Unlock()
 
 	csrfTok := GenerateCSRFToken(tok)
 	http.SetCookie(w, sessionCookie(r, tok, 86400))
@@ -227,6 +269,7 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePassword(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16384)
 	var body struct {
 		CurrentPassword string `json:"current_password"`
 		NewPassword     string `json:"new_password"`
@@ -240,9 +283,11 @@ func handlePassword(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 
 	// Verify current password
-	currH := sha256.Sum256([]byte(body.CurrentPassword))
-	gotCurr := hex.EncodeToString(currH[:])
-	if subtle.ConstantTimeCompare([]byte(gotCurr), []byte(cfg.PassHash)) != 1 {
+	mu.Lock()
+	currentHash := cfg.PassHash
+	mu.Unlock()
+	valid, _ := verifyPassword(currentHash, body.CurrentPassword)
+	if !valid {
 		recordLoginFailure(ip)
 		LogSecurityAudit("password_change_rejected", cfg.Username, ip, "incorrect current password")
 		writeAPIError(w, r, "E-AUTH-07", "current password does not match")
@@ -261,24 +306,35 @@ func handlePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hash, err := hashPassword(targetPass)
+	if err != nil {
+		writeAPIError(w, r, "E-AUTH-05", "")
+		return
+	}
+	var replacementNonce [32]byte
+	if _, err := rand.Read(replacementNonce[:]); err != nil {
+		writeAPIError(w, r, "E-AUTH-05", "")
+		return
+	}
 	mu.Lock()
-	h := sha256.Sum256([]byte(targetPass))
-	cfg.PassHash = hex.EncodeToString(h[:])
-	_ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600)
-	// CWE-256: Plaintext passwords are NEVER stored on disk!
-	if _, err := rand.Read(nonce[:]); err != nil {
+	if cfg.PassHash != currentHash {
+		mu.Unlock()
+		writeAPIError(w, r, "E-AUTH-07", "credentials changed; sign in again")
+		return
+	}
+	previous := cfg.PassHash
+	cfg.PassHash = hash
+	if err = atomicPrivateFile(cfgPath(), mustJSON(cfg), 0600); err != nil {
+		cfg.PassHash = previous
 		mu.Unlock()
 		writeAPIError(w, r, "E-AUTH-05", "")
 		return
 	}
+	nonce = replacementNonce
+	sessionStore{Tokens: map[string]int64{}}.save()
+	tok := sessionTokenLocked()
+	addSessionLocked(tok)
 	mu.Unlock()
-
-	// Invalidate all existing sessions
-	dropAllSessions()
-
-	mac := sha256.Sum256(append(nonce[:], []byte(cfg.PassHash)...))
-	tok := hex.EncodeToString(mac[:])
-	addSession(tok) // Keep the changer logged in with a fresh session
 	csrfTok := GenerateCSRFToken(tok)
 
 	http.SetCookie(w, sessionCookie(r, tok, 86400))

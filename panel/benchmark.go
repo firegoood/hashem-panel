@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +35,7 @@ type CarrierMetric struct {
 	IsActive      bool    `json:"is_active"`      // Currently active carrier
 	IsRecommended bool    `json:"is_recommended"` // Recommended winner by benchmark
 	ErrorDetail   string  `json:"error_detail,omitempty"`
+	Measurement   string  `json:"measurement"`
 }
 
 type BenchmarkReport struct {
@@ -63,8 +66,8 @@ type BenchmarkAutoPilotRequest struct {
 }
 
 var (
-	benchmarkMu          sync.RWMutex
-	lastBenchmarkReport  *BenchmarkReport
+	benchmarkMu           sync.RWMutex
+	lastBenchmarkReport   *BenchmarkReport
 	autoPilotTriggerCount int
 	lastAutoPilotSwitch   string
 )
@@ -265,9 +268,17 @@ func probeUDP(target string, count int, timeout time.Duration) (avg, min, max, l
 			lost++
 			continue
 		}
-		// Send a dummy datagram
+		// Require a matching echo response before recording an RTT.
+		payload := []byte(randomToken(32))
 		_ = conn.SetDeadline(time.Now().Add(timeout))
-		_, _ = conn.Write([]byte{0x00, 0x01})
+		_, writeErr := conn.Write(payload)
+		reply := make([]byte, len(payload)+1)
+		n, readErr := conn.Read(reply)
+		if writeErr != nil || readErr != nil || !bytes.Equal(reply[:n], payload) {
+			_ = conn.Close()
+			lost++
+			continue
+		}
 		_ = conn.Close()
 		duration := float64(time.Since(start).Microseconds()) / 1000.0
 		rtts = append(rtts, duration)
@@ -339,11 +350,26 @@ func probePing(host string, count int) (avgRTT, minRTT, maxRTT, loss, jitter flo
 				jitter, _ = strconv.ParseFloat(parts[3], 64)
 			}
 		}
-	} else if strings.Contains(str, "time=") {
-		// Single or fallback parse
-		avgRTT = 15.0
-		minRTT = 15.0
-		maxRTT = 15.0
+	} else {
+		samples := regexp.MustCompile(`time[=<]([0-9.]+)`).FindAllStringSubmatch(str, -1)
+		if len(samples) == 0 {
+			return 0, 0, 0, 100, 0, fmt.Errorf("ping returned no measured RTT")
+		}
+		minRTT = math.MaxFloat64
+		for _, sample := range samples {
+			v, e := strconv.ParseFloat(sample[1], 64)
+			if e != nil {
+				return 0, 0, 0, 100, 0, e
+			}
+			avgRTT += v
+			if v < minRTT {
+				minRTT = v
+			}
+			if v > maxRTT {
+				maxRTT = v
+			}
+		}
+		avgRTT /= float64(len(samples))
 	}
 
 	return avgRTT, minRTT, maxRTT, loss, jitter, nil
@@ -507,169 +533,43 @@ func runCarrierBenchmark() *BenchmarkReport {
 	}
 
 	isIran := strings.Contains(strings.ToLower(localSt.Role), "iran")
-	baseLatency := peerCfg.LatencyMs
-	if baseLatency <= 0 {
-		pAvg, _, _, pLoss, _, pErr := probePing(grePeer, 2)
-		if pErr == nil && pLoss < 100 {
-			baseLatency = pAvg
-		} else {
-			pAvg, _, _, pLoss, _, pErr = probePing(remotePub, 2)
-			if pErr == nil && pLoss < 100 {
-				baseLatency = pAvg
-			}
-		}
-	}
-	if baseLatency <= 0 && isIran {
-		baseLatency = 1.0
-	}
-
 	for i := range candidates {
 		c := &candidates[i]
-		probeCount := 4
-		timeout := 2 * time.Second
-
+		host := remotePub
+		if isIran {
+			host = "127.0.0.1"
+		}
+		addr := net.JoinHostPort(host, strconv.Itoa(c.Port))
+		var avg, lo, hi, loss, jitter float64
+		var err error
 		switch c.Type {
 		case "gre":
-			avg, min, max, loss, jit, err := probePing(grePeer, probeCount)
-			if err != nil {
-				// Fallback probe to remote public IP if GRE link down
-				avg, min, max, loss, jit, _ = probePing(remotePub, probeCount)
-			}
-			if err != nil && isIran {
-				avg, min, max, loss, jit = 0.5, 0.4, 0.6, 0.0, 0.1
-				err = nil
-			} else if err != nil && baseLatency > 0 {
-				avg, min, max, loss, jit = baseLatency, baseLatency-0.5, baseLatency+0.5, 0.0, 0.5
-				err = nil
-			}
-			c.AvgRTTMs = math.Round(avg*10) / 10
-			c.MinRTTMs = math.Round(min*10) / 10
-			c.MaxRTTMs = math.Round(max*10) / 10
-			c.PacketLoss = math.Round(loss*10) / 10
-			c.JitterMs = math.Round(jit*10) / 10
-			if err != nil {
-				c.ErrorDetail = err.Error()
-			}
-
-		case "fou":
-			targetHost := remotePub
-			if isIran {
-				targetHost = "127.0.0.1"
-			}
-			addr := net.JoinHostPort(targetHost, strconv.Itoa(c.Port))
-			avg, min, max, loss, jit, err := probeTCP(addr, probeCount, timeout)
-			if err != nil {
-				if baseLatency > 0 {
-					avg = baseLatency + float64(c.Port%5)*0.2
-					min = avg - 0.5
-					max = avg + 0.8
-					loss = 0.0
-					jit = 0.8
-					err = nil
-				}
-			}
-			c.AvgRTTMs = math.Round(avg*10) / 10
-			c.MinRTTMs = math.Round(min*10) / 10
-			c.MaxRTTMs = math.Round(max*10) / 10
-			c.PacketLoss = math.Round(loss*10) / 10
-			c.JitterMs = math.Round(jit*10) / 10
-			if err != nil {
-				c.ErrorDetail = err.Error()
-			}
-
+			avg, lo, hi, loss, jitter, err = probePing(grePeer, 4)
+			c.Measurement = "icmp_rtt"
 		case "wss":
-			targetHost := remotePub
-			if isIran {
-				targetHost = "127.0.0.1"
-			}
-			addr := net.JoinHostPort(targetHost, strconv.Itoa(c.Port))
-			avg, min, max, loss, jit, err := probeTLS(addr, probeCount, timeout)
-			if err != nil {
-				avg, min, max, loss, jit, err = probeTCP(addr, probeCount, timeout)
-			}
-			if err != nil && isIran {
-				wssSt := getWSSStatus()
-				if wssSt.Running {
-					avg = 1.2
-					min = 0.8
-					max = 1.6
-					loss = 0.0
-					jit = 0.4
-					err = nil
-				}
-			}
-			if err != nil && baseLatency > 0 {
-				avg = baseLatency + 2.0
-				min = avg - 0.5
-				max = avg + 1.2
-				loss = 0.0
-				jit = 1.0
-				err = nil
-			}
-			c.AvgRTTMs = math.Round(avg*10) / 10
-			c.MinRTTMs = math.Round(min*10) / 10
-			c.MaxRTTMs = math.Round(max*10) / 10
-			c.PacketLoss = math.Round(loss*10) / 10
-			c.JitterMs = math.Round(jit*10) / 10
-			if err != nil {
-				c.ErrorDetail = err.Error()
-			}
-
-		case "frp_kcp", "frp_quic":
-			targetHost := remotePub
-			if isIran {
-				targetHost = "127.0.0.1"
-			}
-			addr := net.JoinHostPort(targetHost, strconv.Itoa(c.Port))
-			avg, min, max, loss, jit, err := probeUDP(addr, probeCount, timeout)
-			if err != nil && baseLatency > 0 {
-				offset := 0.4
-				if c.Type == "frp_kcp" {
-					offset = 0.2 // KCP ARQ typically has superior stability
-				}
-				avg = baseLatency + offset
-				min = avg - 0.2
-				max = avg + 0.5
-				loss = 0.0
-				jit = 0.6
-				err = nil
-			}
-			c.AvgRTTMs = math.Round(avg*10) / 10
-			c.MinRTTMs = math.Round(min*10) / 10
-			c.MaxRTTMs = math.Round(max*10) / 10
-			c.PacketLoss = math.Round(loss*10) / 10
-			c.JitterMs = math.Round(jit*10) / 10
-			if err != nil {
-				c.ErrorDetail = err.Error()
-			}
-
+			avg, lo, hi, loss, jitter, err = probeTLS(addr, 4, 2*time.Second)
+			c.Measurement = "tls_handshake"
 		case "frp_tcp", "frp_ws", "backhaul", "frp":
-			targetHost := remotePub
-			if isIran {
-				targetHost = "127.0.0.1"
-			}
-			addr := net.JoinHostPort(targetHost, strconv.Itoa(c.Port))
-			avg, min, max, loss, jit, err := probeTCP(addr, probeCount, timeout)
-			if err != nil && baseLatency > 0 {
-				avg = baseLatency + 0.8
-				min = avg - 0.3
-				max = avg + 0.9
-				loss = 0.0
-				jit = 0.9
-				err = nil
-			}
-			c.AvgRTTMs = math.Round(avg*10) / 10
-			c.MinRTTMs = math.Round(min*10) / 10
-			c.MaxRTTMs = math.Round(max*10) / 10
-			c.PacketLoss = math.Round(loss*10) / 10
-			c.JitterMs = math.Round(jit*10) / 10
-			if err != nil {
-				c.ErrorDetail = err.Error()
-			}
+			avg, lo, hi, loss, jitter, err = probeTCP(addr, 4, 2*time.Second)
+			c.Measurement = "tcp_connect"
+		default:
+			err = fmt.Errorf("protocol-aware end-to-end probe unavailable; a UDP send is not connectivity evidence")
+			c.Measurement = "unavailable"
 		}
-
-		c.Score = calculateScore(c.PacketLoss, c.AvgRTTMs, c.JitterMs)
-		c.Status = determineStatus(c.Score, c.PacketLoss)
+		c.AvgRTTMs = math.Round(avg*10) / 10
+		c.MinRTTMs = math.Round(lo*10) / 10
+		c.MaxRTTMs = math.Round(hi*10) / 10
+		c.PacketLoss = math.Round(loss*10) / 10
+		c.JitterMs = math.Round(jitter*10) / 10
+		if err != nil {
+			c.ErrorDetail = err.Error()
+			c.PacketLoss = 100
+			c.Score = 0
+			c.Status = "unknown"
+		} else {
+			c.Score = calculateScore(c.PacketLoss, c.AvgRTTMs, c.JitterMs)
+			c.Status = determineStatus(c.Score, c.PacketLoss)
+		}
 	}
 
 	// Sort candidates by score descending
@@ -688,10 +588,6 @@ func runCarrierBenchmark() *BenchmarkReport {
 				break
 			}
 		}
-	}
-	if bestCarrier == "" && len(candidates) > 0 {
-		bestCarrier = candidates[0].ID
-		candidates[0].IsRecommended = true
 	}
 
 	duration := float64(time.Since(startTime).Milliseconds()) / 1000.0

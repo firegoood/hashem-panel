@@ -10,8 +10,8 @@ import (
 )
 
 func TestRewriteTomlPorts(t *testing.T) {
-	initial := `bindAddr = "0.0.0.0"
-bindPort = 7000
+	initial := `serverAddr = "10.70.1.1"
+serverPort = 7000
 auth.token = "secret123"
 
 [[proxies]]
@@ -31,7 +31,7 @@ remotePort = 80
 
 	updated := rewriteTomlPorts(initial, []int{443, 2083})
 
-	if !strings.Contains(updated, "bindPort = 7000") {
+	if !strings.Contains(updated, "serverPort = 7000") {
 		t.Errorf("expected header preserved, got:\n%s", updated)
 	}
 	if !strings.Contains(updated, "auth.token = \"secret123\"") {
@@ -51,6 +51,13 @@ remotePort = 80
 	}
 	if !strings.Contains(updated, "name = \"udp_2083\"") {
 		t.Errorf("expected udp_2083 present, got:\n%s", updated)
+	}
+}
+
+func TestRewriteFRPSPortsNeverCreatesClientProxies(t *testing.T) {
+	updated := rewriteTomlPorts("bindAddr = \"10.70.1.1\"\nbindPort = 17001\n[[proxies]]\nname = \"wrong\"\n", []int{8888, 8889})
+	if strings.Contains(updated, "[[proxies]]") || !strings.Contains(updated, "allowPorts = [{single = 8888}, {single = 8889}]") {
+		t.Fatal(updated)
 	}
 }
 
@@ -133,7 +140,7 @@ func TestHandlePeersPatchValidation(t *testing.T) {
 	}
 }
 
-func TestHandlePeersPatchFullUpdate(t *testing.T) {
+func TestHandlePeersPatchRefusesUnownedLegacyUpdate(t *testing.T) {
 	oldConfigDir := configDir
 	tmpDir := t.TempDir()
 	configDir = tmpDir
@@ -186,8 +193,8 @@ func TestHandlePeersPatchFullUpdate(t *testing.T) {
 	w := httptest.NewRecorder()
 	handlePeersPatch(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("patch failed: status %d, body %s", w.Code, w.Body.String())
+	if w.Code == http.StatusOK {
+		t.Fatal("unsafe legacy metadata-only update was accepted")
 	}
 
 	// Verify peers.json was updated
@@ -196,17 +203,17 @@ func TestHandlePeersPatchFullUpdate(t *testing.T) {
 		t.Fatalf("expected 2 peers, got %d", len(updated))
 	}
 	p1 := updated[0]
-	if p1.Name != "germany-new" {
-		t.Errorf("expected name 'germany-new', got %q", p1.Name)
+	if p1.Name != "germany-old" {
+		t.Errorf("expected legacy name unchanged, got %q", p1.Name)
 	}
-	if p1.RemotePub != "198.51.100.50" {
-		t.Errorf("expected remote_pub '198.51.100.50', got %q", p1.RemotePub)
+	if p1.RemotePub != "198.51.100.1" {
+		t.Errorf("expected legacy remote unchanged, got %q", p1.RemotePub)
 	}
-	if p1.Carrier != "fou:443" {
-		t.Errorf("expected carrier 'fou:443', got %q", p1.Carrier)
+	if p1.Carrier != "" {
+		t.Errorf("expected legacy carrier unchanged, got %q", p1.Carrier)
 	}
-	if len(p1.Ports) != 2 || p1.Ports[0] != 443 || p1.Ports[1] != 2083 {
-		t.Errorf("expected ports [443, 2083], got %v", p1.Ports)
+	if len(p1.Ports) != 1 || p1.Ports[0] != 80 {
+		t.Errorf("expected legacy ports [80], got %v", p1.Ports)
 	}
 
 	// 2. Reject duplicate IP clash with peer 2
@@ -233,4 +240,3 @@ func TestHandlePeersPatchFullUpdate(t *testing.T) {
 		t.Errorf("expected 409 E-PEER-02 for port clash, got status %d body %s", w3.Code, w3.Body.String())
 	}
 }
-

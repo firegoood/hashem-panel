@@ -20,7 +20,7 @@ func TestPasswordStrengthValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{"empty", "", true},
-		{"short", "Ab1!abcd", true}, // 8 chars
+		{"short", "Ab1!abcd", true},           // 8 chars
 		{"eleven chars", "Abcdef123!@", true}, // 11 chars
 		{"no uppercase", "abcdefgh12345!@#", true},
 		{"no lowercase", "ABCDEFGH12345!@#", true},
@@ -263,8 +263,8 @@ func TestHandlePasswordSecurity(t *testing.T) {
 	}
 
 	// Verify password hash was updated
-	newExpectedHash := sha256.Sum256([]byte(newStrongPass))
-	if cfg.PassHash != hex.EncodeToString(newExpectedHash[:]) {
+	valid, legacy := verifyPassword(cfg.PassHash, newStrongPass)
+	if !valid || legacy {
 		t.Fatalf("expected pass hash to be updated")
 	}
 }

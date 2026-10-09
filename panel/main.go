@@ -8,9 +8,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/rand"
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -62,7 +60,13 @@ var (
 
 func cfgPath() string { return filepath.Join(configDir, "panel.json") }
 
-func saveCfg() { _ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600) }
+func saveCfg() {
+	mu.Lock()
+	defer mu.Unlock()
+	if err := atomicPrivateFile(cfgPath(), mustJSON(cfg), 0600); err != nil {
+		log.Printf("panel configuration could not be saved: %v", err)
+	}
+}
 
 // ---- auto port: never fail install when the HTTP/TLS port is taken ----
 
@@ -142,8 +146,11 @@ func loadOrInit() {
 	if err == nil && json.Unmarshal(data, &cfg) == nil && cfg.PassHash != "" {
 		// Test/dev override: fixed password via env (takes effect on restart).
 		if pw := os.Getenv("GRE_PANEL_PASSWORD"); pw != "" {
-			h := sha256.Sum256([]byte(pw))
-			cfg.PassHash = hex.EncodeToString(h[:])
+			hash, hashErr := hashPassword(pw)
+			if hashErr != nil {
+				log.Fatal(hashErr)
+			}
+			cfg.PassHash = hash
 			_ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600)
 			log.Printf("panel password updated from GRE_PANEL_PASSWORD environment variable")
 		}
@@ -153,17 +160,20 @@ func loadOrInit() {
 	if pass == "" {
 		pass = SecureRandomPassword(16)
 	}
-	h := sha256.Sum256([]byte(pass))
+	passHash, err := hashPassword(pass)
+	if err != nil {
+		log.Fatal(err)
+	}
 	cfg = panelConfig{
 		Username: "admin",
-		PassHash: hex.EncodeToString(h[:]),
+		PassHash: passHash,
 		Port:     7777,
 		BasePath: randomBase(12),
 	}
 	_ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600)
 	// CWE-256: Plaintext passwords are NEVER stored on disk!
 	log.Printf("==================================================================")
-	log.Printf("INITIAL PANEL PASSWORD: %s (user: %s)", pass, cfg.Username)
+	log.Printf("Initial password generated; set a known password using gre-panel password-set via stdin")
 	log.Printf("Please record this password now. Plaintext is not stored on disk.")
 	log.Printf("==================================================================")
 }
@@ -184,6 +194,12 @@ func randomBase(n int) string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "peer-firewall" {
+		if err := runManagedFirewallCLI(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "version") {
 		fmt.Println(panelVersion)
 		return
@@ -191,7 +207,47 @@ func main() {
 	if v := os.Getenv("GRE_PANEL_DIR"); v != "" {
 		configDir = v
 	}
+	if v := os.Getenv("HASHEM_UNIT_DIR"); v != "" {
+		managedUnitDir = v
+	}
+	if v := os.Getenv("HASHEM_FRP_DIR"); v != "" {
+		managedBinaryDir = v
+	}
+	if len(os.Args) > 1 && (os.Args[1] == "init-panel" || os.Args[1] == "password-set" || os.Args[1] == "hash-password") {
+		if err := runPasswordCLI(os.Args[1]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "peer-manage" {
+		if data, err := os.ReadFile(cfgPath()); err == nil {
+			if err = json.Unmarshal(data, &cfg); err != nil {
+				fmt.Fprintln(os.Stderr, "invalid panel configuration")
+				os.Exit(1)
+			}
+		} else if !os.IsNotExist(err) {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := runManagedCLI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	loadOrInit()
+	unlock, recoveryErr := lockPeers()
+	if recoveryErr == nil {
+		recoveryErr = recoverManagedTransactions()
+		unlock()
+	}
+	if recoveryErr != nil {
+		log.Fatal("managed transaction recovery failed: ", recoveryErr)
+	}
+	if _, err := ensureManagementCertificate(); err != nil {
+		log.Fatal("panel TLS certificate initialization failed: ", err)
+	}
 	ensureFreeHTTPPort()
 	if _, err := rand.Read(nonce[:]); err != nil {
 		log.Fatal(err)
@@ -199,6 +255,7 @@ func main() {
 
 	base := "/" + cfg.BasePath
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/managed-peer", handleManagedPeerSync)
 	panelMux = mux
 	mux.HandleFunc("GET "+base+"/", serveIndex)
 	mux.HandleFunc("GET "+base+"/tokens.css", serveAsset("tokens.css", "text/css; charset=utf-8"))
@@ -275,6 +332,8 @@ func main() {
 	go startHTTPSListener()
 	go startAutoPilotMonitor()
 	go startPeerSyncWorker()
+	go startManagedReconciler()
+	go startManagedWatchdog()
 	go startTrafficRecorder()
 	go startFleetSampler()
 	go startRescueMonitor()
@@ -298,7 +357,7 @@ func main() {
 		}
 	}
 	srv := &http.Server{
-		Handler:           securityMiddleware(mux),
+		Handler:           securePanelHandler(securityMiddleware(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}

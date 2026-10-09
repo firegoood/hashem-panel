@@ -5,9 +5,12 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -41,6 +44,7 @@ type wssConfig struct {
 	UseTLS         bool   `json:"use_tls"`          // default true
 	SNI            string `json:"sni"`              // custom SNI (e.g. "speedtest.net")
 	InsecureTLS    bool   `json:"insecure_tls"`     // allow self-signed
+	TLSFingerprint string `json:"tls_fingerprint,omitempty"`
 }
 
 type wssCarrierStatus struct {
@@ -128,7 +132,7 @@ func defaultWSSConfig() wssConfig {
 		AuthToken:      token,
 		UseTLS:         true,
 		SNI:            "",
-		InsecureTLS:    true,
+		InsecureTLS:    false,
 	}
 }
 
@@ -462,6 +466,8 @@ func (m *wssCarrierManager) runServer() {
 			}
 			return
 		}
+		m.setErr(fmt.Errorf("WSS TLS certificate setup failed: %w", certErr))
+		return
 	}
 
 	log.Printf("[WSS-Carrier] Server listening (WS plain) on :%d", m.cfg.ListenPort)
@@ -526,6 +532,20 @@ func (m *wssCarrierManager) runClient() {
 			dialer.TLSClientConfig = &tls.Config{
 				InsecureSkipVerify: m.cfg.InsecureTLS,
 				ServerName:         sni,
+				MinVersion:         tls.VersionTLS12,
+			}
+			if m.cfg.TLSFingerprint != "" {
+				dialer.TLSClientConfig.InsecureSkipVerify = true
+				dialer.TLSClientConfig.VerifyPeerCertificate = func(raw [][]byte, _ [][]*x509.Certificate) error {
+					if len(raw) == 0 {
+						return fmt.Errorf("missing WSS certificate")
+					}
+					sum := sha256.Sum256(raw[0])
+					if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(strings.ToLower(m.cfg.TLSFingerprint))) != 1 {
+						return fmt.Errorf("WSS certificate pin mismatch")
+					}
+					return nil
+				}
 			}
 		}
 

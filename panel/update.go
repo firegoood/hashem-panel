@@ -80,89 +80,7 @@ func latestReleaseTag() (string, error) {
 const panelScriptName = "hashem.sh"
 
 func handleUpdate(w http.ResponseWriter, r *http.Request) {
-	arch, asset, err := panelAsset()
-	if err != nil {
-		writeAPIError(w, r, "E-UPDATE-05", err.Error())
-		return
-	}
-	_ = arch
-	latest, _ := latestReleaseTag()
-	if latest == "" {
-		latest = "latest"
-	}
-	if latest != "latest" && latest == panelVersion {
-		writeJSON(w, map[string]string{"status": "ok", "detail": "already latest (" + panelVersion + ")"})
-		return
-	}
-
-	LogSecurityAudit("update_initiated", cfg.Username, ClientIP(r), "from="+panelVersion+" to="+latest+" asset="+asset)
-
-	var dlURL string
-	if latest == "latest" {
-		dlURL = "https://github.com/pdnczone/hashem-panel/releases/latest/download/" + asset
-	} else {
-		dlURL = "https://github.com/pdnczone/hashem-panel/releases/download/" + latest + "/" + asset
-	}
-	tmp, err := os.CreateTemp("", "gre-panel-update-*")
-	if err != nil {
-		writeAPIError(w, r, "E-UPDATE-04", "")
-		return
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	if err := downloadFile(dlURL, tmp); err != nil {
-		LogSecurityAudit("update_failed", cfg.Username, ClientIP(r), "download error: "+err.Error())
-		writeAPIError(w, r, "E-UPDATE-02", err.Error())
-		return
-	}
-
-	// Verify SHA256 checksum if available in official release manifest
-	manifest, _ := fetchChecksumManifest(latest)
-	if manifest != nil {
-		if expectedHash, ok := manifest[asset]; ok {
-			if err := VerifyFileSHA256(tmpPath, expectedHash); err != nil {
-				LogSecurityAudit("update_checksum_failed", cfg.Username, ClientIP(r), "asset="+asset+" err="+err.Error())
-				writeAPIError(w, r, "E-UPDATE-07", err.Error())
-				return
-			}
-			LogSecurityAudit("update_checksum_verified", cfg.Username, ClientIP(r), "asset="+asset+" sha256="+expectedHash)
-		}
-	}
-
-	if err := verifyELF(tmpPath); err != nil {
-		LogSecurityAudit("update_failed", cfg.Username, ClientIP(r), "ELF verification failed: "+err.Error())
-		writeAPIError(w, r, "E-UPDATE-03", err.Error())
-		return
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		writeAPIError(w, r, "E-UPDATE-04", "")
-		return
-	}
-	// Swap in the new binary. Keep a .bak so a bad binary can be rolled back.
-	bak := exe + ".bak"
-	_ = os.Remove(bak)
-	if err := os.Rename(exe, bak); err != nil {
-		writeAPIError(w, r, "E-UPDATE-04", err.Error())
-		return
-	}
-	if err := copyFile(tmpPath, exe); err != nil {
-		_ = os.Rename(bak, exe) // roll back
-		LogSecurityAudit("update_rollback", cfg.Username, ClientIP(r), "copy failed: "+err.Error())
-		writeAPIError(w, r, "E-UPDATE-04", err.Error())
-		return
-	}
-	_ = os.Chmod(exe, 0755)
-	// Keep hashem.sh in sync with the binary
-	syncPanelScript()
-
-	LogSecurityAudit("update_success", cfg.Username, ClientIP(r), "installed version "+latest)
-	writeJSON(w, map[string]string{"status": "ok", "detail": "updated to " + latest + " — restarting panel"})
-	go func() {
-		time.Sleep(1000 * time.Millisecond)
-		restartSelf()
-	}()
+	writeAPIError(w, r, "E-UPDATE-07", "Fork updates require a reviewed checkout and install-fork.sh; automatic upstream replacement is disabled")
 }
 
 // panelAsset maps runtime arch to the release asset name.
@@ -329,60 +247,7 @@ func sessionFile() string { return filepath.Join(configDir, "sessions.json") }
 // (next to the running binary on servers).
 // best-effort: never blocks the binary update.
 func syncPanelScript() {
-	target := greScriptTarget()
-	if target == "" {
-		return
-	}
-	dir := filepath.Dir(target)
-	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			recordError("E-UPDATE-06", "script-sync", "mkdir "+dir+": "+err.Error())
-			return
-		}
-	}
-	tmp, err := os.CreateTemp("", "hashem-*.sh")
-	if err != nil {
-		recordError("E-UPDATE-06", "script-sync", "tmpfile: "+err.Error())
-		return
-	}
-	tmpPath := tmp.Name()
-	_ = tmp.Close()
-	defer func() { _ = os.Remove(tmpPath) }()
-	if err := downloadFile(scriptURL, mustOpen(tmpPath)); err != nil {
-		recordError("E-UPDATE-06", "script-sync", "download: "+err.Error())
-		return
-	}
-	// Verify script integrity: minimum size and shebang check (CWE-95)
-	content, err := os.ReadFile(tmpPath)
-	if err != nil || len(content) < 500 || (!strings.HasPrefix(string(content), "#!/bin/bash") && !strings.HasPrefix(string(content), "#!/usr/bin/env bash")) {
-		recordError("E-UPDATE-06", "script-sync", "integrity check failed: invalid or corrupt script header")
-		return
-	}
-	chk := exec.Command("bash", "-n", tmpPath)
-	if out, err := chk.CombinedOutput(); err != nil {
-		recordError("E-UPDATE-06", "script-sync", "bash -n failed: "+string(out))
-		return
-	}
-	if err := copyFile(tmpPath, target); err != nil {
-		recordError("E-UPDATE-06", "script-sync", "install: "+err.Error())
-		return
-	}
-	_ = os.Chmod(target, 0755)
-	LogSecurityAudit("script_synced", "system", "local", "target="+target)
-	// Migrate servers to the new name: refresh the hashem copies + legacy
-	// gre.sh symlink, and drop a stale standalone gre.sh file (symlink wins
-	// so old lookup paths keep working).
-	for _, p := range []string{"/usr/local/bin/hashem.sh", "/usr/local/bin/hashem"} {
-		if p == target {
-			continue
-		}
-		if err := copyFile(tmpPath, p); err == nil {
-			_ = os.Chmod(p, 0755)
-		}
-	}
-	_ = os.Remove("/usr/local/bin/gre.sh")
-	_ = os.Symlink("/usr/local/bin/hashem.sh", "/usr/local/bin/gre.sh")
-	syncChaffScript()
+	recordError("E-UPDATE-06", "script-sync", "Automatic upstream script replacement is disabled for this maintained fork")
 }
 
 // syncChaffScript installs /usr/local/bin/hashem-chaff.sh from the repo.
@@ -495,6 +360,10 @@ func validSession(token string) bool {
 func addSession(token string) {
 	mu.Lock()
 	defer mu.Unlock()
+	addSessionLocked(token)
+}
+
+func addSessionLocked(token string) {
 	s := loadSessions()
 	s.pruneExpired()
 	s.Tokens[token] = time.Now().Unix() + sessionLifetime

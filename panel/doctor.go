@@ -17,21 +17,21 @@ import (
 )
 
 type doctorReport struct {
-	Timestamp       string          `json:"timestamp"`
-	Role            string          `json:"role"`
-	PeerGREIP       string          `json:"peer_gre_ip"`
-	TunnelName      string          `json:"tunnel_name"`
-	InterfaceUp     bool            `json:"interface_up"`
-	FRPUp           bool            `json:"frp_up"`
-	PingResult      pingSummary     `json:"ping_result"`
-	MTUResult       mtuSummary      `json:"mtu_result"`
-	KernelAudit     kernelAudit     `json:"kernel_audit"`
-	SpeedResult     speedSummary    `json:"speed_result"`
-	Score           int             `json:"score"`
-	Rating          string          `json:"rating"` // "excellent", "good", "warning", "critical"
-	Issues          []string        `json:"issues"`
-	Recommendations []string        `json:"recommendations"`
-	FixAvailable    bool            `json:"fix_available"`
+	Timestamp       string       `json:"timestamp"`
+	Role            string       `json:"role"`
+	PeerGREIP       string       `json:"peer_gre_ip"`
+	TunnelName      string       `json:"tunnel_name"`
+	InterfaceUp     bool         `json:"interface_up"`
+	FRPUp           bool         `json:"frp_up"`
+	PingResult      pingSummary  `json:"ping_result"`
+	MTUResult       mtuSummary   `json:"mtu_result"`
+	KernelAudit     kernelAudit  `json:"kernel_audit"`
+	SpeedResult     speedSummary `json:"speed_result"`
+	Score           int          `json:"score"`
+	Rating          string       `json:"rating"` // "excellent", "good", "warning", "critical"
+	Issues          []string     `json:"issues"`
+	Recommendations []string     `json:"recommendations"`
+	FixAvailable    bool         `json:"fix_available"`
 }
 
 type pingSummary struct {
@@ -146,15 +146,15 @@ func runFullDiagnostics() *doctorReport {
 	}
 
 	rep := &doctorReport{
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Role:        st.Role,
-		PeerGREIP:   peerIP,
-		TunnelName:  "gre-tunnel",
-		InterfaceUp: st.Gre.Exists,
-		FRPUp:       st.FrpUp,
-		Score:       100,
-		Rating:      "excellent",
-		Issues:      []string{},
+		Timestamp:       time.Now().UTC().Format(time.RFC3339),
+		Role:            st.Role,
+		PeerGREIP:       peerIP,
+		TunnelName:      "gre-tunnel",
+		InterfaceUp:     st.Gre.Exists,
+		FRPUp:           st.FrpUp,
+		Score:           100,
+		Rating:          "excellent",
+		Issues:          []string{},
 		Recommendations: []string{},
 	}
 
@@ -520,106 +520,60 @@ func isIperfServerRunning() bool {
 	return false
 }
 
+var doctorIperfMu sync.Mutex
+var doctorIperfCmd *exec.Cmd
+
 func startIperfServer() (string, error) {
-	if runtime.GOOS == "windows" {
-		return "Mock: iperf3 server started on :5201", nil
+	doctorIperfMu.Lock()
+	defer doctorIperfMu.Unlock()
+	if doctorIperfCmd != nil {
+		return "owned iperf3 server already running", nil
 	}
-	if isIperfServerRunning() {
-		return "iperf3 server already running on port 5201", nil
+	if err := listenerAvailable("tcp", "0.0.0.0", 5201); err != nil {
+		return "", fmt.Errorf("port 5201 is occupied; existing process left untouched")
 	}
-
-	// Ensure iperf3 is installed
 	if _, err := exec.LookPath("iperf3"); err != nil {
-		// Attempt automatic installation on Debian/Ubuntu
-		_ = exec.Command("apt-get", "update", "-qq").Run()
-		_ = exec.Command("apt-get", "install", "-y", "-qq", "iperf3").Run()
-		if _, err := exec.LookPath("iperf3"); err != nil {
-			return "", fmt.Errorf("iperf3 is not installed on this server. Run 'apt update && apt install -y iperf3'")
-		}
+		return "", fmt.Errorf("iperf3 is unavailable")
 	}
-
-	// Launch iperf3 as daemon
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "iperf3", "-s", "-D")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		time.Sleep(250 * time.Millisecond)
-		if isIperfServerRunning() {
-			return "iperf3 server active on port 5201", nil
-		}
-		errMsg := strings.TrimSpace(string(out))
-		if errMsg != "" {
-			return "", fmt.Errorf("%s", errMsg)
-		}
-		return "", fmt.Errorf("failed to start iperf3: %w", err)
+	cmd := exec.Command("iperf3", "-s", "-p", "5201")
+	if err := cmd.Start(); err != nil {
+		return "", err
 	}
-
-	time.Sleep(250 * time.Millisecond)
-	return "iperf3 daemon started on port 5201", nil
+	doctorIperfCmd = cmd
+	go func() {
+		_ = cmd.Wait()
+		doctorIperfMu.Lock()
+		if doctorIperfCmd == cmd {
+			doctorIperfCmd = nil
+		}
+		doctorIperfMu.Unlock()
+	}()
+	return "owned iperf3 server started", nil
 }
 
 func stopIperfServer() (string, error) {
-	if runtime.GOOS == "windows" {
-		return "Mock: iperf3 server stopped", nil
+	doctorIperfMu.Lock()
+	defer doctorIperfMu.Unlock()
+	if doctorIperfCmd == nil {
+		return "no owned iperf3 server; existing listeners left untouched", nil
 	}
-	_ = exec.Command("pkill", "-x", "iperf3").Run()
-	_ = exec.Command("killall", "-9", "iperf3").Run()
-	_ = exec.Command("fuser", "-k", "5201/tcp").Run()
-	time.Sleep(200 * time.Millisecond)
-	return "iperf3 daemon stopped", nil
+	if err := doctorIperfCmd.Process.Kill(); err != nil {
+		return "", err
+	}
+	return "owned iperf3 server stopped", nil
 }
 
 func applyDoctorFixes() map[string]any {
-	fixes := []string{}
-
-	if runtime.GOOS == "windows" {
-		return map[string]any{
-			"applied": []string{"Mock: BBR enabled", "Mock: TCPMSS clamp added"},
+	applied := []string{}
+	errors := []string{}
+	for _, p := range loadPeers() {
+		if p.Managed && !p.Disabled && !svcActive(p.FrpsSvc) {
+			if _, err := managedPeerMutation("restart", peerRecord{ID: p.ID}); err != nil {
+				errors = append(errors, err.Error())
+			} else {
+				applied = append(applied, fmt.Sprintf("restarted owned peer %d; connectivity still requires verification", p.ID))
+			}
 		}
 	}
-
-	// 1. Enable BBR & optimization via tuneViaInstaller
-	if out, err := tuneViaInstaller("optimize"); err == nil {
-		fixes = append(fixes, "Applied TCP BBR & sysctl optimization: "+out)
-	}
-
-	// 2. Ensure MSS Clamping rule
-	cmd := exec.Command("iptables", "-t", "mangle", "-C", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu")
-	if cmd.Run() != nil {
-		addCmd := exec.Command("iptables", "-t", "mangle", "-A", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu")
-		if err := addCmd.Run(); err == nil {
-			fixes = append(fixes, "Inserted TCPMSS clamp-to-pmtu rule into iptables")
-		}
-	} else {
-		fixes = append(fixes, "TCPMSS clamp-to-pmtu rule verified active")
-	}
-
-	// 3. Ensure IP Forwarding & socket sysctls
-	_ = exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
-	_ = exec.Command("sysctl", "-w", "net.core.somaxconn=65535").Run()
-	_ = exec.Command("sysctl", "-w", "net.ipv4.tcp_tw_reuse=1").Run()
-	fixes = append(fixes, "Enabled IPv4 packet forwarding & tuned socket limits (somaxconn=65535, tw_reuse=1)")
-
-	// 4. Ensure FRP services have high-concurrency limits (LimitNOFILE 1M)
-	ensureFRPServiceUnits("frps")
-	ensureFRPServiceUnits("frpc")
-	fixes = append(fixes, "Configured FRP systemd service limits (LimitNOFILE=1048576, LimitNPROC=512000, Restart=always)")
-
-	// 5. Interface & routing health check
-	st := localStatus()
-	if !st.Gre.Exists {
-		if err := exec.Command("systemctl", "restart", "gre-tunnel").Run(); err == nil {
-			fixes = append(fixes, "Restarted gre-tunnel service to bring interface UP")
-		}
-	} else if !st.PingOK && st.Gre.PeerIP != "" {
-		if err := exec.Command("systemctl", "restart", "gre-tunnel").Run(); err == nil {
-			fixes = append(fixes, "Refreshed gre-tunnel routing and interface link")
-		}
-	}
-
-	return map[string]any{
-		"applied": fixes,
-	}
+	return map[string]any{"applied": applied, "errors": errors}
 }

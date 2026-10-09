@@ -66,8 +66,10 @@ func TestBenchmarkExecutionAndEndpoints(t *testing.T) {
 	if len(rep.Metrics) == 0 {
 		t.Fatalf("expected carrier metrics in benchmark report")
 	}
-	if rep.BestCarrier == "" {
-		t.Fatalf("expected a best carrier to be recommended")
+	for _, m := range rep.Metrics {
+		if m.ErrorDetail != "" && (m.Score != 0 || m.IsRecommended) {
+			t.Fatalf("failed probes must not be recommended: %+v", m)
+		}
 	}
 
 	// Verify metrics include direct, wss, and frp transports
