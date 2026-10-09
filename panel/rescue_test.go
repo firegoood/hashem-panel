@@ -171,6 +171,10 @@ func fakeSystem(t *testing.T) (*[]string, string) {
 		return "", nil
 	}
 	// Default: the origin is unreachable from here, so every port is relayed.
+	oldFrp := rescueFrpConfigs
+	rescueFrpConfigs = []string{filepath.Join(dir, "frpc.toml")}
+	_ = os.WriteFile(rescueFrpConfigs[0], []byte("[[proxies]]\nlocalPort = 1020\nremotePort = 1020\n"), 0600)
+	t.Cleanup(func() { rescueFrpConfigs = oldFrp })
 	oldDial := rescueDial
 	rescueDial = func(string, time.Duration) (net.Conn, error) { return nil, os.ErrDeadlineExceeded }
 	t.Cleanup(func() {

@@ -49,6 +49,8 @@ var (
 	rescueUnitDir = "/etc/systemd/system"
 	rescueBinDir  = "/usr/local/bin"
 	rescueMu      sync.Mutex
+	// frp configs whose forwarded ports the rescue should carry (swappable for tests).
+	rescueFrpConfigs = []string{"/etc/frp/frpc.toml", "/etc/frp/frps.toml"}
 
 	// Swappable for tests.
 	runCmd = func(name string, args ...string) (string, error) {
@@ -598,7 +600,7 @@ func suggestRescuePorts() []int {
 		}
 	}
 
-	for _, f := range []string{"/etc/frp/frpc.toml", "/etc/frp/frps.toml"} {
+	for _, f := range rescueFrpConfigs {
 		if data, err := os.ReadFile(f); err == nil {
 			for _, line := range strings.Split(string(data), "\n") {
 				line = strings.TrimSpace(line)
