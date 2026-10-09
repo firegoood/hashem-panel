@@ -11,6 +11,9 @@ The first delivery integrated `dc9a6ee765b6b2a91505cb4f67b8c7a35a58fa81`.
 This follow-up starts at fork `c71305de528280306aaa0c0b345e7f4c1eff47c4` and
 integrates upstream `80bbb012919c0cc27ef1e8c311310f03ae126c51` (`panel-r146`).
 All three new upstream commits were reviewed with explicit resolutions; see the correction ledger for replacement decisions.
+The final upstream check found `af0c8ac2f916149011cb3abf5e0718d133445ed1`
+(`panel-r147`) after the r146 comparison; it was fetched and separately reviewed
+and integrated with the recorded global-performance and authenticated-health guards.
 The current delivery SHA is obtained with `git rev-parse HEAD`; this report does
 not contain a self-referential commit hash. AGPL-3.0 and upstream attribution remain.
 
@@ -81,10 +84,10 @@ native FRP verification and traffic, rather than README assertions, support thes
 - Upstream `52b41ad` already moved the rescue test to an unprivileged port. Its
   Windows POSIX-mode assertion was a separate remaining portability defect.
 
-## Follow-up findings R01-R08
+## Follow-up findings R01-R09
 
-All eight source/CI defects below are **CONFIRMED**. Combined with the original
-latest-upstream classification this is **CONFIRMED 37, ALREADY_FIXED 1,
+All nine source/CI defects below are **CONFIRMED**. Combined with the original
+latest-upstream classification this is **CONFIRMED 38, ALREADY_FIXED 1,
 NOT_APPLICABLE 0, NEEDS_RUNTIME_VERIFICATION 0** for counted defects. Operational
 acceptance remains separate; missing runtime gates are not counted as fixed.
 
@@ -98,6 +101,7 @@ acceptance remains separate; missing runtime gates are not counted as fixed.
 | R06 | Guided foreign setup uses wrong `local_pub` field and exports bundle to child environment | Canonical `local_public`, private stdin; capture fixture and real setup |
 | R07 | New upstream fleet labels established TCP socket as healthy without authenticated registration | Shared rollup requires managed authenticated registration; stale/pending/disabled/process-only never healthy; legacy socket-only DEGRADED |
 | R08 | Hosted run `37982018171` reproduced a WSS worker reading the TLS config path after the carrier API test restored `configDir`; stop did not join startup and could leave late listeners | Snapshot TLS paths before spawning, cancellation guards on resource publication, joined stop, atomic running/status timestamp synchronization and cancelable reconnect waits; API tests stop workers before config restore; repeated immediate server/client stop and race regression |
+| R09 | Global performance update/apply accepts managed peers without owned lifecycle/revision/ACK; new upstream mux toggle cannot keep both managed sides synchronized | Refuse before config save or Shell execution on managed/corrupt registry; disable mutating UI controls; legacy mux serialization and native verification retained; per-peer mux migration remains unsupported |
 
 The retained correction ledger records the exact new upstream decisions and
 removal conditions. No full managed FOU/WSS/QUIC failover or generic application

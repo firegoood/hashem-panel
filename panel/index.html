@@ -1518,6 +1518,15 @@
                 <div class="qs-hint u-mt-2" >Strips custom FRP TLS header. Keep OFF (recommended) inside GRE tunnel to prevent handshake mismatches between servers.</div>
               </div>
             </label>
+
+            <label class="wd-radio-opt u-items-start" >
+              <input type="checkbox" id="perfMuxCheck" class="u-checkbox-ac">
+              <div>
+                <b class="u-color-tx" data-i18n="perf_mux_title">TCP Multiplexing (transport.tcpMux)</b>
+                <div class="qs-hint u-mt-2" data-i18n="perf_mux_hint">Multiplexes user streams over shared FRP connections. New legacy tunnels default to off. Both sides must use the same setting; existing tunnels keep their setting until explicitly applied. Performance depends on the transport and network.</div>
+                <div class="qs-hint u-mt-2" id="perfMuxLive">Live: —</div>
+              </div>
+            </label>
           </div>
 
           <div class="qs-actions u-mt-16" >
@@ -2743,6 +2752,8 @@ const I18N = {
     nav_setup: "Setup",
     nav_logs: "Logs",
     nav_perf: "Performance",
+    perf_mux_title: "TCP Multiplexing (transport.tcpMux)",
+    perf_mux_hint: "Multiplexes user streams over shared FRP connections. New legacy tunnels default to off. Both sides must use the same setting; existing tunnels keep their setting until explicitly applied. Performance depends on the transport and network.",
     nav_watchdog: "Watchdog",
     nav_doctor: "Diagnostics",
     nav_benchmark: "Benchmark",
@@ -3146,6 +3157,8 @@ const I18N = {
     nav_setup: "راه‌اندازی (Setup)",
     nav_logs: "گزارش‌ها (Logs)",
     nav_perf: "عملکرد سیستم",
+    perf_mux_title: "TCP Multiplexing (transport.tcpMux)",
+    perf_mux_hint: "جریان‌های کاربران را روی اتصال‌های مشترک FRP منتقل می‌کند. برای تونل legacy جدید پیش‌فرض خاموش است. تنظیم دو سمت باید یکسان باشد؛ تونل موجود تا اعمال صریح تغییر، تنظیم خود را حفظ می‌کند. کارایی به نوع انتقال و شبکه بستگی دارد.",
     nav_watchdog: "دیده‌بان و زمان‌بندی",
     nav_doctor: "عیب‌یابی شبکه",
     nav_benchmark: "بنچمارک کیفیت",
@@ -5870,7 +5883,7 @@ async function loadPerf() {
     const cVal = $('perfCryptoVal');
     if (cVal) cVal.textContent = s.force_tls ? 'TLS: On' : 'TLS: Off';
     const cSub = $('perfCryptoSub');
-    if (cSub) cSub.textContent = `Enc: ${s.proxy_encryption ? 'On' : 'Off'} · Comp: ${s.proxy_compression ? 'On' : 'Off'}`;
+    if (cSub) cSub.textContent = `Enc: ${s.proxy_encryption ? 'On' : 'Off'} · Comp: ${s.proxy_compression ? 'On' : 'Off'} · Mux: ${s.tcp_mux_live ? s.tcp_mux_live : (s.tcp_mux ? 'On' : 'Off')}`;
 
     const chVal = $('perfChaffVal');
     if (chVal) chVal.textContent = s.chaff_profile ? s.chaff_profile.toUpperCase() : 'OFF';
@@ -5886,6 +5899,14 @@ async function loadPerf() {
     if ($('perfEncCheck')) $('perfEncCheck').checked = !!s.proxy_encryption;
     if ($('perfCompCheck')) $('perfCompCheck').checked = !!s.proxy_compression;
     if ($('perfTlsCheck')) $('perfTlsCheck').checked = !!s.force_tls;
+    if ($('perfMuxCheck')) $('perfMuxCheck').checked = !!s.tcp_mux;
+    if ($('perfMuxLive')) {
+      const live = s.tcp_mux_live || 'n/a';
+      const want = s.tcp_mux_set ? (s.tcp_mux ? 'on' : 'off') : 'not set';
+      const warn = (s.tcp_mux_set && s.tcp_mux_live && live !== (s.tcp_mux ? 'on' : 'off')) ? ' — differs, press Apply & restart' : '';
+      $('perfMuxLive').textContent = 'Setting: ' + want + ' · Live toml: ' + live + warn;
+      $('perfMuxLive').style.color = (live === 'on' || warn) ? 'var(--warn, #f0a020)' : '';
+    }
 
     // Role badge
     if ($('perfRoleBadge')) {
@@ -5922,6 +5943,14 @@ async function loadPerf() {
     if ($('perfPoolCount')) $('perfPoolCount').value = s.frp_pool_count || 20;
     if ($('perfMaxPool')) $('perfMaxPool').value = s.frp_max_pool || 60;
     updateTuningUI(!!s.auto_tune, s.tuning_profile || 'standard');
+    const globalPerfAvailable = s.global_available !== false;
+    ['perfApplyTopBtn', 'perfApplyBtn', 'perfSaveOnlyBtn', 'perfResetBtn', 'perfSaveTuningBtn', 'perfSaveChaffBtn', 'perfDpiToggleBtn', 'perfMuxCheck'].forEach(id => {
+      if ($(id)) $(id).disabled = !globalPerfAvailable;
+    });
+    if (!globalPerfAvailable && $('perfMuxLive')) {
+      $('perfMuxLive').textContent = 'Global tuning is unavailable for managed peers. Use supported per-peer settings.';
+      if ($('perfSyncTxt')) $('perfSyncTxt').textContent = 'Global tuning unavailable';
+    }
   } catch (e) {
     toastErr('performance error', e.message);
   }
@@ -6021,11 +6050,13 @@ async function doPerfApply(btnEl) {
     const enc = $('perfEncCheck') ? $('perfEncCheck').checked : perfState.proxy_encryption;
     const comp = $('perfCompCheck') ? $('perfCompCheck').checked : perfState.proxy_compression;
     const tls = $('perfTlsCheck') ? $('perfTlsCheck').checked : perfState.force_tls;
+    const mux = $('perfMuxCheck') ? $('perfMuxCheck').checked : !!perfState.tcp_mux;
     const res = await api('/api/perf', {
       action: 'apply',
       proxy_encryption: enc,
       proxy_compression: comp,
-      force_tls: tls
+      force_tls: tls,
+      tcp_mux: mux
     });
     toastOk('Settings applied', res.detail || 'Live tunnels updated and restarted.');
     if (msgEl) msgEl.textContent = 'Applied successfully.';
@@ -6042,12 +6073,14 @@ async function doPerfSaveOnly() {
   const enc = $('perfEncCheck') ? $('perfEncCheck').checked : perfState.proxy_encryption;
   const comp = $('perfCompCheck') ? $('perfCompCheck').checked : perfState.proxy_compression;
   const tls = $('perfTlsCheck') ? $('perfTlsCheck').checked : perfState.force_tls;
+  const mux = $('perfMuxCheck') ? $('perfMuxCheck').checked : !!perfState.tcp_mux;
   try {
     await api('/api/perf', {
       action: 'update',
       proxy_encryption: enc,
       proxy_compression: comp,
-      force_tls: tls
+      force_tls: tls,
+      tcp_mux: mux
     });
     toastOk('Settings saved', 'Remember to Apply & restart tunnels to make them active.');
     await loadPerf();

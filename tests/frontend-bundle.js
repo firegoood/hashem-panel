@@ -35,3 +35,27 @@ const render=vm.runInNewContext(html.slice(renderStart,renderEnd)+'; renderTunne
 render({role:'iran',gre:{exists:true,name:'gre-tunnel'},frp_up:true,proxy_ports:[8888],proxies:[]});
 assert.ok(!html.includes("peerRemoveClick(${p.id}, '${esc(nm)}')"));
 console.log('PASS inline JavaScript syntax, secure/legacy bundle transport, malformed bundle and peer-name handler');
+
+(async () => {
+  const perfStart = html.indexOf('async function loadPerf() {');
+  const perfEnd = html.indexOf('function updateTuningUI(', perfStart);
+  const controls = {};
+  let perfReply = {global_available:false, sync_details:'Managed peers', tcp_mux_live:''};
+  const load = vm.runInNewContext('let perfState;\n' + html.slice(perfStart, perfEnd) + '; loadPerf', {
+    $: id => controls[id] ||= {style:{}},
+    api: async () => perfReply,
+    updateTuningUI(){},
+    toastErr(title, message){ throw new Error(title + ': ' + message); }
+  });
+  await load();
+  for (const id of ['perfApplyBtn','perfApplyTopBtn','perfSaveOnlyBtn','perfResetBtn','perfSaveTuningBtn','perfSaveChaffBtn','perfDpiToggleBtn','perfMuxCheck']) {
+    assert.equal(controls[id].disabled, true, id);
+  }
+  assert.match(controls.perfMuxLive.textContent, /unavailable/);
+  perfReply = {global_available:true, tcp_mux:true, tcp_mux_set:true, tcp_mux_live:'on'};
+  await load();
+  assert.equal(controls.perfApplyBtn.disabled, false);
+  assert.equal(controls.perfMuxCheck.disabled, false);
+  assert.match(controls.perfMuxLive.textContent, /Live toml: on/);
+  console.log('PASS performance UI refuses global managed mutations and displays legacy live mux');
+})().catch(error => { console.error(error); process.exitCode = 1; });

@@ -86,3 +86,7 @@ This repository is the existing `firegoood/hashem-panel` fork of
 - Carrier stop/replacement must cancel and join startup/reconnect work before
   returning. Test cleanup must stop owned workers before restoring config paths;
   retain race tests for concurrent status and immediate start/stop.
+- Global legacy performance writers must refuse managed or corrupt registries
+  before mutation. Do not change managed TCP multiplexing through perf.json:
+  replacement requires per-peer schema, revision/ACK, migration and traffic tests.
+  Keep numerical performance claims out of the UI without applicable evidence.

@@ -385,6 +385,7 @@ init_perf_json() {
   "proxy_encryption": false,
   "proxy_compression": false,
   "force_tls": false,
+  "tcp_mux": false,
   "chaff_profile": "off",
   "dpi_enabled": false,
   "dpi_rate": "60/sec",
@@ -392,6 +393,43 @@ init_perf_json() {
 }
 EOF
         chmod 600 "$PERF_FILE" 2>/dev/null || true
+    fi
+}
+
+# tcp_mux: prints 1 / 0 when explicitly configured (env PERF_TCPMUX or perf.json "tcp_mux"),
+# prints an EMPTY string when unset so perf_apply leaves the live toml untouched.
+# Both FRP endpoints must use the same tcpMux setting. Transport/network performance
+# requires separate measurements; this integration makes no throughput claim.
+perf_get_tcpmux() {
+    if [[ -n "${PERF_TCPMUX:-}" ]]; then
+        [[ "$PERF_TCPMUX" == "1" || "$PERF_TCPMUX" == "true" ]] && echo 1 || echo 0
+        return 0
+    fi
+    if [[ -f "$PERF_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json
+try:
+    with open("'"$PERF_FILE"'") as f:
+        d = json.load(f)
+    print(("1" if d["tcp_mux"] else "0") if "tcp_mux" in d else "")
+except Exception:
+    print("")
+' 2>/dev/null && return 0
+    fi
+    echo ""
+}
+
+# value written into NEW frps/frpc tomls: speed-first default is OFF unless explicitly enabled
+perf_tcpmux_new() {
+    [[ "$(perf_get_tcpmux)" == "1" ]] && echo true || echo false
+}
+
+# toml lines for a new config (keepalive only has meaning with mux on)
+perf_tcpmux_lines() {
+    if [[ "$(perf_tcpmux_new)" == "true" ]]; then
+        printf 'transport.tcpMux = true\ntransport.tcpMuxKeepaliveInterval = 30'
+    else
+        printf 'transport.tcpMux = false'
     fi
 }
 
@@ -2463,10 +2501,15 @@ menu_dpi_shield() {
 # ---- Performance & Obfuscation Controls (CLI + Menu 22) ----
 
 perf_apply() {
+    if managed_registry_present; then
+        echo 'Global performance tuning cannot modify managed peers; use supported per-peer settings.' >&2
+        return 1
+    fi
     init_perf_json
     local EFF_ENC=$(perf_get_enc)
     local EFF_COMP=$(perf_get_comp)
     local EFF_TLS=$(perf_get_tls)
+    local EFF_MUX=$(perf_get_tcpmux)
 
     local IS_FOREIGN=0
     local IS_IRAN=0
@@ -2482,7 +2525,7 @@ perf_apply() {
         return 1
     fi
 
-    echo -e "${CYAN}[*] Applying performance settings (enc=${EFF_ENC} comp=${EFF_COMP} tls=${EFF_TLS})...${NC}"
+    echo -e "${CYAN}[*] Applying performance settings (enc=${EFF_ENC} comp=${EFF_COMP} tls=${EFF_TLS} tcpmux=${EFF_MUX:-unchanged})...${NC}"
 
     if [[ "$IS_FOREIGN" -eq 1 ]]; then
         local TOML_FILE="${CONFIG_DIR}/frpc.toml"
@@ -2492,6 +2535,7 @@ path = "'"$TOML_FILE"'"
 enc = ("'"$EFF_ENC"'".strip() in ("1", "true", "True"))
 comp = ("'"$EFF_COMP"'".strip() in ("1", "true", "True"))
 tls = ("'"$EFF_TLS"'".strip() in ("1", "true", "True"))
+mux_raw = "'"$EFF_MUX"'".strip()
 
 with open(path, "r") as f:
     lines = f.read().splitlines()
@@ -2517,6 +2561,8 @@ for i, sec in enumerate(sections):
             s = l.strip()
             if s.startswith("transport.tls.disableCustomTLSFirstByte"):
                 continue
+            if mux_raw in ("0", "1") and (s.startswith("transport.tcpMux ") or s.startswith("transport.tcpMux=") or s.startswith("transport.tcpMuxKeepaliveInterval")):
+                continue
             if s.startswith("transport.tls.enable"):
                 has_tls_enable = True
             new_sec.append(l)
@@ -2529,6 +2575,10 @@ for i, sec in enumerate(sections):
             if not has_tls_enable:
                 final_hdr.append("transport.tls.enable = true")
             final_hdr.append("transport.tls.disableCustomTLSFirstByte = true")
+        if mux_raw in ("0", "1"):
+            final_hdr.append("transport.tcpMux = true" if mux_raw == "1" else "transport.tcpMux = false")
+            if mux_raw == "1":
+                final_hdr.append("transport.tcpMuxKeepaliveInterval = 30")
         import json
         pool_cnt = ""
         try:
@@ -2585,6 +2635,7 @@ with open(path, "w") as f:
                 python3 -c '
 path = "'"$TOML_FILE"'"
 tls = ("'"$EFF_TLS"'".strip() in ("1", "true", "True"))
+mux_raw = "'"$EFF_MUX"'".strip()
 
 import json, os
 max_pool = "500"
@@ -2602,6 +2653,8 @@ for l in lines:
     s = l.strip()
     if s.startswith("transport.tls.force"):
         continue
+    if mux_raw in ("0", "1") and (s.startswith("transport.tcpMux ") or s.startswith("transport.tcpMux=") or s.startswith("transport.tcpMuxKeepaliveInterval")):
+        continue
     new_lines.append(l)
 
 final_lines = []
@@ -2616,6 +2669,12 @@ if tls:
         final_lines.append("transport.tls.force = true")
 else:
     final_lines = new_lines
+
+if mux_raw in ("0", "1"):
+    mux_lines = ["transport.tcpMux = true" if mux_raw == "1" else "transport.tcpMux = false"]
+    if mux_raw == "1":
+        mux_lines.append("transport.tcpMuxKeepaliveInterval = 30")
+    final_lines = final_lines + mux_lines
 
 # Update maxPoolCount
 out_lines = []
@@ -2667,6 +2726,14 @@ with open(path, "w") as f:
 
 cli_perf() {
     local SUB="${1:-status}"
+    if managed_registry_present && [[ "$SUB" != 'help' && "$SUB" != '-h' && "$SUB" != '--help' ]]; then
+        if [[ "$SUB" == 'status' ]]; then
+            echo 'Global legacy performance tuning is unavailable for managed peers.'
+            return 0
+        fi
+        echo 'Global performance tuning cannot modify managed peers; use supported per-peer settings.' >&2
+        return 1
+    fi
     case "$SUB" in
         status)
             init_perf_json
@@ -2685,6 +2752,8 @@ cli_perf() {
             echo -e "  Proxy Encryption:  $([[ "$ENC" == "1" ]] && echo -e "${GREEN}on${NC}" || echo -e "${YELLOW}off${NC}")"
             echo -e "  Proxy Compression: $([[ "$COMP" == "1" ]] && echo -e "${GREEN}on${NC}" || echo -e "${YELLOW}off${NC}")"
             echo -e "  Forced TLS:        $([[ "$TLS" == "1" ]] && echo -e "${GREEN}on${NC}" || echo -e "${YELLOW}off${NC}")"
+            local MUX_CFG=$(perf_get_tcpmux)
+            echo -e "  TCP Multiplexing:  $([[ "$MUX_CFG" == "1" ]] && echo -e "${YELLOW}on${NC}" || { [[ "$MUX_CFG" == "0" ]] && echo -e "${GREEN}off${NC}" || echo -e "${CYAN}not set (live toml unchanged)${NC}"; })"
             echo -e "  Chaff Profile:     ${CYAN}${CHAFF}${NC}"
             echo -e "  DPI Shield:        $([[ "$DPI_EN" == "1" ]] && echo -e "${GREEN}enabled${NC} (${DPI_R}, burst ${DPI_B})" || echo -e "${YELLOW}disabled${NC}")"
 
@@ -2702,10 +2771,18 @@ cli_perf() {
                 grep -E -q '^[[:space:]]*transport\.useCompression[[:space:]]*=[[:space:]]*true' "${CONFIG_DIR}/frpc.toml" && LIVE_COMP=1
                 grep -E -q '^[[:space:]]*transport\.tls\.disableCustomTLSFirstByte[[:space:]]*=[[:space:]]*true' "${CONFIG_DIR}/frpc.toml" && LIVE_TLS=1
 
+                if [[ "$MUX_CFG" == "0" || "$MUX_CFG" == "1" ]]; then
+                    local LIVE_MUX=1
+                    grep -E -q '^[[:space:]]*transport\.tcpMux[[:space:]]*=[[:space:]]*false' "${CONFIG_DIR}/frpc.toml" && LIVE_MUX=0
+                    echo -e "  Live TCP Multiplexing:  $([[ "$LIVE_MUX" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_MUX" == "$MUX_CFG" ]] && echo -e "${GREEN}[MATCH]${NC}" || echo -e "${RED}[MISMATCH]${NC}")"
+                fi
                 echo -e "  Role: Foreign client (frpc)"
-                echo -e "  Live Proxy Encryption:  $([[ "$LIVE_ENC" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_ENC" == "$ENC" ]] && echo -e "${GREEN}[MATCH]${NC}" || { echo -e "${RED}[MISMATCH]${NC}"; MATCH=0; })"
-                echo -e "  Live Proxy Compression: $([[ "$LIVE_COMP" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_COMP" == "$COMP" ]] && echo -e "${GREEN}[MATCH]${NC}" || { echo -e "${RED}[MISMATCH]${NC}"; MATCH=0; })"
-                echo -e "  Live Forced TLS:        $([[ "$LIVE_TLS" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_TLS" == "$TLS" ]] && echo -e "${GREEN}[MATCH]${NC}" || { echo -e "${RED}[MISMATCH]${NC}"; MATCH=0; })"
+                echo -e "  Live Proxy Encryption:  $([[ "$LIVE_ENC" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_ENC" == "$ENC" ]] && echo -e "${GREEN}[MATCH]${NC}" || echo -e "${RED}[MISMATCH]${NC}")"
+                echo -e "  Live Proxy Compression: $([[ "$LIVE_COMP" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_COMP" == "$COMP" ]] && echo -e "${GREEN}[MATCH]${NC}" || echo -e "${RED}[MISMATCH]${NC}")"
+                echo -e "  Live Forced TLS:        $([[ "$LIVE_TLS" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_TLS" == "$TLS" ]] && echo -e "${GREEN}[MATCH]${NC}" || echo -e "${RED}[MISMATCH]${NC}")"
+                # MATCH=0 inside $(...) is lost (subshell) - evaluate mismatches here instead
+                [[ "$LIVE_ENC" == "$ENC" && "$LIVE_COMP" == "$COMP" && "$LIVE_TLS" == "$TLS" ]] || MATCH=0
+                [[ "$MUX_CFG" != "0" && "$MUX_CFG" != "1" ]] || [[ "$LIVE_MUX" == "$MUX_CFG" ]] || MATCH=0
             elif [[ -f "${CONFIG_DIR}/frps.toml" ]] || ls "${CONFIG_DIR}"/frps*.toml >/dev/null 2>&1; then
                 local LIVE_TLS=0
                 local F
@@ -2713,8 +2790,18 @@ cli_perf() {
                     [[ -f "$F" ]] || continue
                     grep -E -q '^[[:space:]]*transport\.tls\.force[[:space:]]*=[[:space:]]*true' "$F" && LIVE_TLS=1
                 done
+                if [[ "$MUX_CFG" == "0" || "$MUX_CFG" == "1" ]]; then
+                    local LIVE_MUX=1
+                    for F in "${CONFIG_DIR}"/frps*.toml; do
+                        [[ -f "$F" ]] || continue
+                        grep -E -q '^[[:space:]]*transport\.tcpMux[[:space:]]*=[[:space:]]*false' "$F" && LIVE_MUX=0
+                    done
+                    echo -e "  Live TCP Multiplexing:  $([[ "$LIVE_MUX" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_MUX" == "$MUX_CFG" ]] && echo -e "${GREEN}[MATCH]${NC}" || echo -e "${RED}[MISMATCH]${NC}")"
+                fi
                 echo -e "  Role: Iran server (frps)"
-                echo -e "  Live Forced TLS:        $([[ "$LIVE_TLS" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_TLS" == "$TLS" ]] && echo -e "${GREEN}[MATCH]${NC}" || { echo -e "${RED}[MISMATCH]${NC}"; MATCH=0; })"
+                echo -e "  Live Forced TLS:        $([[ "$LIVE_TLS" == "1" ]] && echo "on" || echo "off") $([[ "$LIVE_TLS" == "$TLS" ]] && echo -e "${GREEN}[MATCH]${NC}" || echo -e "${RED}[MISMATCH]${NC}")"
+                [[ "$LIVE_TLS" == "$TLS" ]] || MATCH=0
+                [[ "$MUX_CFG" != "0" && "$MUX_CFG" != "1" ]] || [[ "$LIVE_MUX" == "$MUX_CFG" ]] || MATCH=0
                 echo -e "  (Proxy encryption & compression are client-side settings on Foreign VPS)"
             else
                 echo -e "  No live tunnel configs found."
@@ -2765,6 +2852,14 @@ cli_perf() {
                 *)   echo -e "${RED}[!] Usage: hashem perf tls on|off${NC}"; return 1 ;;
             esac
             ;;
+        tcpmux|mux)
+            local VAL="${2:-}"
+            case "$VAL" in
+                on)  perf_set_val "tcp_mux" "true" 1; echo -e "${GREEN}[✔️] TCP multiplexing set to 'on'. It MUST match on the Iran hub and every foreign spoke. Run 'hashem perf apply' on each server.${NC}" ;;
+                off) perf_set_val "tcp_mux" "false" 1; echo -e "${GREEN}[✔️] TCP multiplexing set to 'off' (speed-first). It MUST match on the Iran hub and every foreign spoke. Run 'hashem perf apply' on each server.${NC}" ;;
+                *)   echo -e "${RED}[!] Usage: hashem perf tcpmux on|off${NC}"; return 1 ;;
+            esac
+            ;;
         chaff)
             local VAL="${2:-}"
             case "$VAL" in
@@ -2811,6 +2906,7 @@ cli_perf() {
             perf_set_val "proxy_encryption" "false" 1
             perf_set_val "proxy_compression" "false" 1
             perf_set_val "force_tls" "false" 1
+            perf_set_val "tcp_mux" "false" 1
             perf_set_val "chaff_profile" "off" 0
             perf_set_val "dpi_enabled" "false" 1
             dpi_shield_off >/dev/null 2>&1 || true
@@ -2819,11 +2915,11 @@ cli_perf() {
             echo -e "${GREEN}[✔️] Performance & Obfuscation RESET to safe defaults (encryption: off, compression: off, TLS: standard, chaff: off, DPI shield: off).${NC}"
             ;;
         -h|--help|help)
-            echo "Usage: hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply|reset"
+            echo "Usage: hashem perf status|enc on|off|comp on|off|tls on|off|tcpmux on|off|chaff off|low|mid|dpi on|off|apply|reset"
             ;;
         *)
             echo -e "${RED}[!] Unknown subcommand: $SUB${NC}"
-            echo "Usage: hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply|reset"
+            echo "Usage: hashem perf status|enc on|off|comp on|off|tls on|off|tcpmux on|off|chaff off|low|mid|dpi on|off|apply|reset"
             return 1
             ;;
     esac
@@ -2839,9 +2935,10 @@ menu_perf() {
         echo "  4) Set Chaff Profile (off / low / mid)"
         echo "  5) Toggle DPI Shield (on/off)"
         echo "  6) Apply settings & restart tunnels"
+        echo "  7) Toggle TCP Multiplexing (tcpmux on/off - must match on hub AND spokes)"
         echo "  0) Back to main menu"
         echo ""
-        read -p "Select an option [0-6]: " P_OPT
+        read -p "Select an option [0-7]: " P_OPT
         case "$P_OPT" in
             1)
                 local cur=$(perf_get_enc)
@@ -2874,6 +2971,10 @@ menu_perf() {
                 ;;
             6)
                 cli_perf apply
+                ;;
+            7)
+                local cur=$(perf_get_tcpmux)
+                if [[ "$cur" == "1" ]]; then cli_perf tcpmux off; else cli_perf tcpmux on; fi
                 ;;
             0)
                 return 0
@@ -3003,8 +3104,7 @@ quicBindPort = ${QUIC_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
 ${TLS_LINE:+$TLS_LINE
-}transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 30
+}$(perf_tcpmux_lines)
 transport.tcpKeepalive = 30
 transport.heartbeatTimeout = 90
 transport.maxPoolCount = ${MAX_POOL}
@@ -3212,8 +3312,7 @@ ${TLS_ENABLE:+$TLS_ENABLE
 }${TLS_CUSTOM:+$TLS_CUSTOM
 }loginFailExit = false
 transport.protocol = "${FRP_TRANSPORT}"
-transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 30
+$(perf_tcpmux_lines)
 transport.heartbeatInterval = 30
 transport.heartbeatTimeout = 90
 transport.dialServerTimeout = 15
@@ -3857,8 +3956,7 @@ bindPort = ${BIND_PORT}
 auth.method = "token"
 auth.token = "${TOKEN}"
 ${TLS_LINE:+$TLS_LINE
-}transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 30
+}$(perf_tcpmux_lines)
 transport.tcpKeepalive = 30
 transport.heartbeatTimeout = 90
 transport.maxPoolCount = ${MAX_POOL}
@@ -7553,7 +7651,7 @@ Legacy/other-engine commands:
   hashem optimize | restore | tune-status
   hashem carrier [status|mode auto|direct|fou:P|wss:P|set direct|fou:P|wss:P|next] # multi-carrier failover
   hashem dial [status|auto|gre|public]         # foreign side: reach the Iran hub over GRE, its public IP, or auto (GRE if it works)
-  hashem perf status|enc on|off|comp on|off|tls on|off|chaff off|low|mid|dpi on|off|apply
+  hashem perf status|enc on|off|comp on|off|tls on|off|tcpmux on|off|chaff off|low|mid|dpi on|off|apply
   hashem chaff on|off|status                   # traffic obfuscation (idle-gap filler)
   hashem dpi-shield on|off|status              # rate-limit reverse ports against DPI flood
   hashem watchdog on|off|status|test|tick      # tunnel watchdog monitoring & alerts

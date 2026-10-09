@@ -5,6 +5,9 @@
 > define the verified scope. Legacy/alternate-carrier features below are retained
 > and have not all been certified. Future updates follow [AGENTS.md](AGENTS.md)
 > and the [upstream correction ledger](docs/audit/fixes-and-regressions.md).
+> Upstream `panel-r147` adds legacy TCP Multiplexing controls and link latency.
+> Global performance changes are unavailable for managed peers; their existing
+> synchronized mux configuration is preserved. No throughput gain is promised.
 
 <div align="center">
 

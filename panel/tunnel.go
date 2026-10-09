@@ -312,6 +312,8 @@ type peerLive struct {
 	ProxyRegistration string  `json:"proxy_registration"`
 	ForwardingHealth  string  `json:"forwarding_health"`
 	ObservedTransport string  `json:"observed_transport,omitempty"`
+	LatencyMs         float64 `json:"latency_ms"`
+	LatencyKind       string  `json:"latency_kind"`
 }
 
 func peersFile() string { return configDir + "/peers.json" }
@@ -442,6 +444,7 @@ func livePeers() []peerLive {
 			l.GreUp = l.GreInner != ""
 		}
 		l.FrpUp = svcActive(p.FrpsSvc)
+		var tcpRTT float64 = -1
 		if p.Managed && !p.Disabled && (!l.GreUp || !l.FrpUp) {
 			l.State = "FAILED"
 			l.Authenticated = false
@@ -451,8 +454,13 @@ func livePeers() []peerLive {
 		}
 		if p.Managed {
 			l.Linked = l.Authenticated && l.ProxyRegistration == "REGISTERED" && l.FrpUp && !p.Disabled
+			if l.Linked && p.FRPTransport == "tcp" {
+				_, tcpRTT = controlSession(p.FrpPort, p.PeerGre)
+			}
 		} else {
-			l.Linked = l.FrpUp && controlLinked(p.FrpPort, p.RemotePub, p.PeerGre)
+			if l.FrpUp {
+				l.Linked, tcpRTT = controlSession(p.FrpPort, p.RemotePub, p.PeerGre)
+			}
 		}
 		pingTarget := p.PeerGre
 		if pingTarget == "" && p.NoGre {
@@ -469,6 +477,7 @@ func livePeers() []peerLive {
 			l.Rx, l.Tx = ifaceTraffic(p.GreIf)
 		}
 		l.FrpOnly = l.Linked && !l.PingOK
+		l.LatencyMs, l.LatencyKind = pickLatency(l.PingOK, l.PingMs, tcpRTT)
 		out = append(out, l)
 	}
 	return out
@@ -1009,12 +1018,10 @@ func switchTunnelEngine(targetEngine, targetTransport string) (string, error) {
 bindPort = %d
 auth.method = "token"
 auth.token = %q%s
-transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 30
-transport.tcpKeepalive = 30
+%stransport.tcpKeepalive = 30
 transport.heartbeatTimeout = 90
 transport.maxPoolCount = 100
-`, port, token, tlsLine)
+`, port, token, tlsLine, tcpMuxTomlLines())
 			_ = os.MkdirAll("/etc/frp", 0755)
 			_ = os.WriteFile("/etc/frp/frps.toml", []byte(frpsToml), 0644)
 			ensureFRPServiceUnits("frps")
@@ -1074,14 +1081,12 @@ auth.method = "token"
 auth.token = %q
 loginFailExit = false
 transport.protocol = %q
-transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 30
-transport.heartbeatInterval = 30
+%stransport.heartbeatInterval = 30
 transport.heartbeatTimeout = 90
 transport.dialServerTimeout = 15
 transport.dialServerKeepalive = 30
 transport.poolCount = 20
-`, peerGre, effPort, token, frpProto))
+`, peerGre, effPort, token, frpProto, tcpMuxTomlLines()))
 
 			for _, p := range proxyPorts {
 				frpcBuf.WriteString(fmt.Sprintf(`
@@ -1181,4 +1186,18 @@ func ensureFRPServiceUnits(svcName string) {
 		_ = os.WriteFile(unitPath, []byte(content), 0644)
 		_ = exec.Command("systemctl", "daemon-reload").Run()
 	}
+}
+
+// pickLatency chooses the per-link latency: ICMP when the GRE inner address
+// answers, else the TCP RTT of the live control session, else none (-1).
+func pickLatency(pingOK bool, pingMs string, tcpRTT float64) (float64, string) {
+	if pingOK {
+		if v := parsePingMs(pingMs); v >= 0 {
+			return v, "icmp"
+		}
+	}
+	if tcpRTT >= 0 {
+		return round1(tcpRTT), "tcp"
+	}
+	return -1, ""
 }

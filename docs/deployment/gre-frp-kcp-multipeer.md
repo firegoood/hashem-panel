@@ -194,6 +194,15 @@ Legacy WSS stop/replacement now cancels and joins its startup/reconnect worker
 before returning, preventing a canceled startup from leaving a late listener.
 This local lifecycle correction does not certify the alternate-carrier gates.
 
+Upstream panel-r147 adds TCP Multiplexing controls for legacy tunnels. New legacy
+configs default to off; an unset old perf.json field leaves existing live configs
+unchanged. Both sides must match. For managed peers, global perf commands/API/UI
+mutations are refused before saving or executing because that writer cannot
+synchronize per-peer revisions or rollback both sides. Existing managed mux
+configuration stays unchanged. A future supported per-peer mux migration needs
+schema/bundle compatibility and real traffic/rollback evidence. Kernel TCP RTT
+and ICMP latency are link observations; KCP without ICMP has no guessed TCP RTT.
+
 Web Panel Repair starts an existing owned binary/unit. A missing unit or binary
 requires `install-fork.sh` from the reviewed checkout; the menu never fetches a
 floating upstream replacement. Installer ownership refusal is an explicit

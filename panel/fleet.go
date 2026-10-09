@@ -48,24 +48,29 @@ type fleetStats struct {
 }
 
 type fleetNode struct {
-	ID        int           `json:"id"`
-	Name      string        `json:"name"`
-	RemotePub string        `json:"remote_pub"`
-	Engine    string        `json:"engine"`
-	Transport string        `json:"transport"`
-	Carrier   string        `json:"carrier"`
-	GreUp     bool          `json:"gre_up"`
-	FrpUp     bool          `json:"frp_up"`
-	PingOK    bool          `json:"ping_ok"`
-	PingMs    float64       `json:"ping_ms"`
-	FrpOnly   bool          `json:"frp_only"`
-	Main      bool          `json:"main"`
-	Health    string        `json:"health"` // healthy | degraded | down
-	Rx        *uint64       `json:"rx"`
-	Tx        *uint64       `json:"tx"`
-	Ports     []int         `json:"ports"`
-	History   []fleetSample `json:"history"`
-	Stats     fleetStats    `json:"stats"`
+	ID          int           `json:"id"`
+	Name        string        `json:"name"`
+	RemotePub   string        `json:"remote_pub"`
+	Engine      string        `json:"engine"`
+	Transport   string        `json:"transport"`
+	Carrier     string        `json:"carrier"`
+	GreUp       bool          `json:"gre_up"`
+	FrpUp       bool          `json:"frp_up"`
+	PingOK      bool          `json:"ping_ok"`
+	PingMs      float64       `json:"ping_ms"`
+	FrpOnly     bool          `json:"frp_only"`
+	Linked      bool          `json:"linked"`
+	LatencyMs   float64       `json:"latency_ms"`
+	LatKind     string        `json:"latency_kind"`
+	GreInner    string        `json:"gre_inner"`
+	ControlPort int           `json:"control_port"`
+	Main        bool          `json:"main"`
+	Health      string        `json:"health"` // healthy | degraded | down
+	Rx          *uint64       `json:"rx"`
+	Tx          *uint64       `json:"tx"`
+	Ports       []int         `json:"ports"`
+	History     []fleetSample `json:"history"`
+	Stats       fleetStats    `json:"stats"`
 }
 
 var (
@@ -166,9 +171,12 @@ func fleetRecord(peers []peerLive, now time.Time) {
 	alive := map[int]bool{}
 	for _, p := range peers {
 		alive[p.ID] = true
-		ms := -1.0
-		if p.PingOK {
-			ms = parsePingMs(p.PingMs)
+		ms := p.LatencyMs
+		if p.LatencyKind == "" {
+			ms = -1
+			if p.PingOK {
+				ms = parsePingMs(p.PingMs)
+			}
 		}
 		h := append(fleetHist[p.ID], fleetSample{T: now.Unix(), Ms: ms, S: fleetHealth(p)})
 		if len(h) > fleetKeepSamples {
@@ -235,6 +243,7 @@ func fleetSnapshot(recs []peerRecord, live map[int]peerLive) []fleetNode {
 		n := fleetNode{
 			ID: r.ID, Name: r.Name, RemotePub: r.RemotePub, Engine: r.Engine,
 			Transport: r.Transport, Carrier: r.Carrier, Ports: r.Ports, PingMs: -1,
+			LatencyMs: -1, ControlPort: r.FrpPort,
 			Health: "down", History: append([]fleetSample{}, win...), Stats: fleetCompute(win),
 		}
 		if n.Name == "" {
@@ -246,7 +255,11 @@ func fleetSnapshot(recs []peerRecord, live map[int]peerLive) []fleetNode {
 		}
 		if l, ok := live[r.ID]; ok {
 			n.GreUp, n.FrpUp, n.PingOK, n.Rx, n.Tx = l.GreUp, l.FrpUp, l.PingOK, l.Rx, l.Tx
-			n.FrpOnly = l.FrpOnly
+			n.FrpOnly, n.Linked, n.GreInner = l.FrpOnly, l.Linked, l.GreInner
+			n.LatencyMs, n.LatKind = l.LatencyMs, l.LatencyKind
+			if n.LatKind == "" {
+				n.LatencyMs = -1
+			}
 			if l.PingOK {
 				n.PingMs = parsePingMs(l.PingMs)
 			}
@@ -254,6 +267,7 @@ func fleetSnapshot(recs []peerRecord, live map[int]peerLive) []fleetNode {
 		} else if len(win) > 0 {
 			last := win[len(win)-1]
 			n.Health, n.PingOK, n.PingMs = healthName(last.S), last.Ms >= 0, last.Ms
+			n.LatencyMs = last.Ms
 		}
 		out = append(out, n)
 	}
@@ -302,7 +316,7 @@ func handleFleet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, map[string]any{
-		"nodes": nodes, "count": len(nodes),
+		"nodes": nodes, "count": len(nodes), "latency": hubLatency(nodes),
 		"healthy": healthy, "degraded": degraded, "down": down,
 		"interval_s": int(fleetSampleEvery / time.Second),
 		"hub":        nilIfEmpty(detectPublicIPCached()),
@@ -383,7 +397,50 @@ func mainTunnelLive() *peerLive {
 		Transport: st.Transport, FrpPort: st.BindPort, Ports: st.ProxyPorts}
 	l := &peerLive{peerRecord: rec, GreUp: st.Gre.Exists, FrpUp: st.FrpUp, PingOK: st.PingOK, PingMs: st.PingMs,
 		GreInner: st.Gre.Inner}
-	l.Linked = st.FrpUp && controlLinkedAny(st.BindPort)
+	var tcpRTT float64 = -1
+	if st.FrpUp {
+		l.Linked, tcpRTT = controlSession(st.BindPort)
+	}
 	l.FrpOnly = l.Linked && !l.PingOK
+	l.LatencyMs, l.LatencyKind = pickLatency(l.PingOK, l.PingMs, tcpRTT)
 	return l
+}
+
+type hubLat struct {
+	Avg   float64 `json:"avg_ms"`
+	Min   float64 `json:"min_ms"`
+	Max   float64 `json:"max_ms"`
+	Count int     `json:"count"` // links with a latency value
+	ICMP  int     `json:"icmp"`
+	TCP   int     `json:"tcp"`
+}
+
+// hubLatency summarises the hub -> servers latency over links that have a
+// current value. Links with no value (down / no answer) are not counted.
+func hubLatency(nodes []fleetNode) hubLat {
+	var h hubLat
+	sum := 0.0
+	for _, n := range nodes {
+		if n.LatencyMs < 0 || n.LatKind == "" {
+			continue
+		}
+		if h.Count == 0 || n.LatencyMs < h.Min {
+			h.Min = n.LatencyMs
+		}
+		if n.LatencyMs > h.Max {
+			h.Max = n.LatencyMs
+		}
+		sum += n.LatencyMs
+		h.Count++
+		if n.LatKind == "icmp" {
+			h.ICMP++
+		} else {
+			h.TCP++
+		}
+	}
+	if h.Count > 0 {
+		h.Avg = round1(sum / float64(h.Count))
+		h.Min, h.Max = round1(h.Min), round1(h.Max)
+	}
+	return h
 }
