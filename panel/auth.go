@@ -6,9 +6,7 @@ package main
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -153,12 +151,7 @@ func authed(r *http.Request) bool {
 	if err != nil || c.Value == "" {
 		return false
 	}
-	mac := sha256.Sum256(append(nonce[:], []byte(cfg.PassHash)...))
-	want := hex.EncodeToString(mac[:])
-	if subtle.ConstantTimeCompare([]byte(c.Value), []byte(want)) == 1 {
-		return true
-	}
-	// persistent server-side sessions (survive restarts, 24h absolute)
+	// server-side random session ids (survive restarts, 24h absolute expiry)
 	return validSession(c.Value)
 }
 
@@ -191,18 +184,22 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, "E-AUTH-03", "")
 		return
 	}
-	h := sha256.Sum256([]byte(body.Password))
-	got := hex.EncodeToString(h[:])
-	if subtle.ConstantTimeCompare([]byte(body.Username), []byte(cfg.Username)) != 1 ||
-		subtle.ConstantTimeCompare([]byte(got), []byte(cfg.PassHash)) != 1 {
+	passOK, upgrade := verifyPassword(cfg.PassHash, body.Password)
+	if subtle.ConstantTimeCompare([]byte(body.Username), []byte(cfg.Username)) != 1 || !passOK {
 		recordLoginFailure(ip)
 		LogSecurityAudit("login_failed", body.Username, ip, "invalid credentials")
 		writeAPIError(w, r, "E-AUTH-02", "")
 		return
 	}
 	recordLoginSuccess(ip)
-	mac := sha256.Sum256(append(nonce[:], []byte(cfg.PassHash)...))
-	tok := hex.EncodeToString(mac[:])
+	if upgrade { // transparent migration: legacy SHA-256 / weak argon2 params -> current argon2id
+		mu.Lock()
+		cfg.PassHash = hashPassword(body.Password)
+		saveCfg()
+		mu.Unlock()
+		LogSecurityAudit("password_hash_upgraded", cfg.Username, ip, "re-hashed with argon2id")
+	}
+	tok := newSessionToken()
 	addSession(tok) // persistent: survives restarts, 24h absolute expiry
 
 	csrfTok := GenerateCSRFToken(tok)
@@ -240,9 +237,7 @@ func handlePassword(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 
 	// Verify current password
-	currH := sha256.Sum256([]byte(body.CurrentPassword))
-	gotCurr := hex.EncodeToString(currH[:])
-	if subtle.ConstantTimeCompare([]byte(gotCurr), []byte(cfg.PassHash)) != 1 {
+	if okCur, _ := verifyPassword(cfg.PassHash, body.CurrentPassword); !okCur {
 		recordLoginFailure(ip)
 		LogSecurityAudit("password_change_rejected", cfg.Username, ip, "incorrect current password")
 		writeAPIError(w, r, "E-AUTH-07", "current password does not match")
@@ -262,8 +257,7 @@ func handlePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mu.Lock()
-	h := sha256.Sum256([]byte(targetPass))
-	cfg.PassHash = hex.EncodeToString(h[:])
+	cfg.PassHash = hashPassword(targetPass)
 	_ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600)
 	// CWE-256: Plaintext passwords are NEVER stored on disk!
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -276,8 +270,7 @@ func handlePassword(w http.ResponseWriter, r *http.Request) {
 	// Invalidate all existing sessions
 	dropAllSessions()
 
-	mac := sha256.Sum256(append(nonce[:], []byte(cfg.PassHash)...))
-	tok := hex.EncodeToString(mac[:])
+	tok := newSessionToken()
 	addSession(tok) // Keep the changer logged in with a fresh session
 	csrfTok := GenerateCSRFToken(tok)
 

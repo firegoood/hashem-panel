@@ -8,9 +8,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/rand"
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -142,8 +140,7 @@ func loadOrInit() {
 	if err == nil && json.Unmarshal(data, &cfg) == nil && cfg.PassHash != "" {
 		// Test/dev override: fixed password via env (takes effect on restart).
 		if pw := os.Getenv("GRE_PANEL_PASSWORD"); pw != "" {
-			h := sha256.Sum256([]byte(pw))
-			cfg.PassHash = hex.EncodeToString(h[:])
+			cfg.PassHash = hashPassword(pw)
 			_ = os.WriteFile(cfgPath(), mustJSON(cfg), 0600)
 			log.Printf("panel password updated from GRE_PANEL_PASSWORD environment variable")
 		}
@@ -153,10 +150,9 @@ func loadOrInit() {
 	if pass == "" {
 		pass = SecureRandomPassword(16)
 	}
-	h := sha256.Sum256([]byte(pass))
 	cfg = panelConfig{
 		Username: "admin",
-		PassHash: hex.EncodeToString(h[:]),
+		PassHash: hashPassword(pass),
 		Port:     7777,
 		BasePath: randomBase(12),
 	}

@@ -263,8 +263,7 @@ func TestHandlePasswordSecurity(t *testing.T) {
 	}
 
 	// Verify password hash was updated
-	newExpectedHash := sha256.Sum256([]byte(newStrongPass))
-	if cfg.PassHash != hex.EncodeToString(newExpectedHash[:]) {
+	if ok, _ := verifyPassword(cfg.PassHash, newStrongPass); !ok || isLegacyHash(cfg.PassHash) {
 		t.Fatalf("expected pass hash to be updated")
 	}
 }
