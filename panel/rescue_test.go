@@ -173,7 +173,9 @@ func fakeSystem(t *testing.T) (*[]string, string) {
 	// Default: the origin is unreachable from here, so every port is relayed.
 	oldFrp := rescueFrpConfigs
 	rescueFrpConfigs = []string{filepath.Join(dir, "frpc.toml")}
-	_ = os.WriteFile(rescueFrpConfigs[0], []byte("[[proxies]]\nlocalPort = 1020\nremotePort = 1020\n"), 0600)
+	// High, free port: CI runs unprivileged and cannot bind below 1024.
+	fp := pickFreePort(43000)
+	_ = os.WriteFile(rescueFrpConfigs[0], []byte(fmt.Sprintf("[[proxies]]\nlocalPort = %d\nremotePort = %d\n", fp, fp)), 0600)
 	t.Cleanup(func() { rescueFrpConfigs = oldFrp })
 	oldDial := rescueDial
 	rescueDial = func(string, time.Duration) (net.Conn, error) { return nil, os.ErrDeadlineExceeded }
