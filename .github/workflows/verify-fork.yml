@@ -20,7 +20,7 @@ jobs:
       - run: docker build -t hashem-qa -f tests/integration/Dockerfile .
       - run: docker run --rm --privileged -v "$PWD:/work" hashem-qa bash tests/integration/run.sh
       - name: Check dependency vulnerabilities
-        run: docker run --rm -v "$PWD:/work" hashem-qa bash -c 'go install golang.org/x/vuln/cmd/govulncheck@v1.8.0 && cd panel && /go/bin/govulncheck ./...'
+        run: docker run --rm -v "$PWD:/work" hashem-qa bash -c 'go install golang.org/x/vuln/cmd/govulncheck@v1.8.0 && cd panel && /go/bin/govulncheck -show verbose ./...'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
