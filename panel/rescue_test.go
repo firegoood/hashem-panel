@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -140,6 +141,10 @@ func TestRenderedFilesAreWellFormed(t *testing.T) {
 	if !strings.Contains(fw, "tcp dport 31000 ip saddr != 194.107.116.102") || !strings.Contains(fw, `iifname "lo" accept`) {
 		t.Fatalf("firewall wrong:\n%s", fw)
 	}
+	dn := rescueDnatNft("5.75.197.22", []int{1020, 1030})
+	if !strings.Contains(dn, "fib daddr type local meta l4proto { tcp, udp } th dport { 1020, 1030 } dnat ip to 5.75.197.22") || !strings.Contains(dn, "ip daddr 5.75.197.22 meta l4proto { tcp, udp } th dport { 1020, 1030 } masquerade") {
+		t.Fatalf("dnat wrong:\n%s", dn)
+	}
 }
 
 // fakeSystem swaps runCmd/ dirs so enable/disable runs for real on disk
@@ -165,7 +170,12 @@ func fakeSystem(t *testing.T) (*[]string, string) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return "", nil
 	}
-	t.Cleanup(func() { configDir, rescueUnitDir, rescueBinDir, runCmd, cfg = oldDir, oldUnit, oldBin, oldRun, oldCfg })
+	// Default: the origin is unreachable from here, so every port is relayed.
+	oldDial := rescueDial
+	rescueDial = func(string, time.Duration) (net.Conn, error) { return nil, os.ErrDeadlineExceeded }
+	t.Cleanup(func() {
+		configDir, rescueUnitDir, rescueBinDir, runCmd, cfg, rescueDial = oldDir, oldUnit, oldBin, oldRun, oldCfg, oldDial
+	})
 	return &calls, dir
 }
 
@@ -372,5 +382,46 @@ func TestRescueAutoEnableAndAutoJoin(t *testing.T) {
 	}
 	if stEntry.Role != "entry" {
 		t.Fatalf("expected entry role, got %q", stEntry.Role)
+	}
+}
+
+func TestApplyCodeUsesKernelDNATForDirectlyReachablePorts(t *testing.T) {
+	calls, _ := fakeSystem(t)
+	p1, p2 := pickFreePort(42000), pickFreePort(42100)
+	// p1 answers directly (fast path), p2 is filtered (frp fallback).
+	rescueDial = func(addr string, _ time.Duration) (net.Conn, error) {
+		if strings.HasSuffix(addr, ":"+strconv.Itoa(p1)) {
+			a, b := net.Pipe()
+			_ = b.Close()
+			return a, nil
+		}
+		return nil, os.ErrDeadlineExceeded
+	}
+	st := rescueState{CtrlPort: 31000, Token: randHex(24), Secret: randHex(16), Ports: []int{p1, p2}}
+	got, err := rescueApplyCode(rescueEncode(st, "5.75.197.22"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Direct) != 1 || got.Direct[0] != p1 || len(got.Relay) != 1 || got.Relay[0] != p2 {
+		t.Fatalf("split wrong: direct=%v relay=%v", got.Direct, got.Relay)
+	}
+	dn, err := os.ReadFile(filepath.Join(configDir, "rescue", "dnat.nft"))
+	if err != nil || !strings.Contains(string(dn), fmt.Sprintf("th dport { %d } dnat ip to 5.75.197.22", p1)) {
+		t.Fatalf("dnat rules wrong: %v\n%s", err, dn)
+	}
+	fc, _ := os.ReadFile(filepath.Join(configDir, "rescue", "frpc.toml"))
+	if strings.Contains(string(fc), fmt.Sprintf("bindPort = %d\n", p1)) || !strings.Contains(string(fc), fmt.Sprintf("bindPort = %d\n", p2)) {
+		t.Fatalf("frpc must only carry the filtered port:\n%s", fc)
+	}
+	j := strings.Join(*calls, "\n")
+	if !strings.Contains(j, "enable --now hashem-rescue-dnat.service") || !strings.Contains(j, "enable --now hashem-rescue-frpc.service") {
+		t.Fatalf("services not started:\n%s", j)
+	}
+	rescueDisable()
+	if left, _ := filepath.Glob(filepath.Join(rescueUnitDir, "hashem-rescue-*")); len(left) != 0 {
+		t.Fatalf("disable left units: %v", left)
+	}
+	if !strings.Contains(strings.Join(*calls, "\n"), "nft delete table inet hashem_dnat") {
+		t.Fatal("disable must drop the dnat table")
 	}
 }

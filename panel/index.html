@@ -2977,7 +2977,7 @@ const I18N = {
     rsc_cancel: "Cancel", rsc_getcode: "Show rescue code", rsc_copy: "Copy code", rsc_nocfg: "frp binaries are missing on this server. Run hashem update first.",
     rsc_origin: "This server is the blocked side. {n} port(s) are forwarded through {ip}.", rsc_origin_auto: "One-way block detected: connectivity automatically established through {ip} ({n} ports forwarded).", rsc_entry: "This server is the entry. {n} port(s) are served here and tunnelled to {ip}.", rsc_entry_auto: "This server is acting as the entry for {ip} ({n} ports tunnelled).",
     rsc_skipped: "Skipped (busy or reserved): {p}", rsc_conn: "Control link", rsc_conn_ok: "connected", rsc_conn_no: "not connected yet",
-    rsc_svc: "Services", rsc_auto: "The other panel picks this up by itself within a few minutes if the two panels are paired. Otherwise use the code.",
+    rsc_svc: "Services", rsc_direct: "Kernel forward (full speed)", rsc_relay: "FRP relay (filtered path)", rsc_auto: "The other panel picks this up by itself within a few minutes if the two panels are paired. Otherwise use the code.",
     rsc_lift: "The direct route works again. You can disable Rescue and use the normal tunnel.",
     rsc_confirm_t: "Enable Connectivity Rescue?", rsc_confirm_b: "This starts three small services here and opens one firewalled control port. The reachable server is the only host allowed to use it. You can remove everything with one click.",
     rsc_dis_t: "Remove Rescue?", rsc_dis_b: "The forwarded ports on the entry server stop working until the normal tunnel is up.",
@@ -3378,7 +3378,7 @@ const I18N = {
     rsc_cancel: "انصراف", rsc_getcode: "نمایش کد نجات", rsc_copy: "کپی کد", rsc_nocfg: "فایل‌های frp روی این سرور نیست. اول hashem update را اجرا کنید.",
     rsc_origin: "این سرور طرف بلاک‌شده است. {n} پورت از طریق {ip} فوروارد می‌شود.", rsc_origin_auto: "بلاک یک‌طرفه تشخیص داده شد: اتصال به صورت خودکار از طریق {ip} برقرار شد ({n} پورت فوروارد شده).", rsc_entry: "این سرور ورودی است. {n} پورت اینجا سرو و به {ip} تونل می‌شود.", rsc_entry_auto: "این سرور به صورت خودکار به عنوان ورودی برای {ip} فعال شد ({n} پورت تونل شده).",
     rsc_skipped: "رد شد (مشغول یا رزرو): {p}", rsc_conn: "لینک کنترلی", rsc_conn_ok: "وصل است", rsc_conn_no: "هنوز وصل نشده",
-    rsc_svc: "سرویس‌ها", rsc_auto: "اگر دو پنل جفت شده باشند، پنل مقابل ظرف چند دقیقه خودش این را برمی‌دارد. در غیر این صورت از کد استفاده کنید.",
+    rsc_svc: "سرویس‌ها", rsc_direct: "فوروارد هسته (سرعت کامل)", rsc_relay: "رله FRP (مسیر فیلترشده)", rsc_auto: "اگر دو پنل جفت شده باشند، پنل مقابل ظرف چند دقیقه خودش این را برمی‌دارد. در غیر این صورت از کد استفاده کنید.",
     rsc_lift: "مسیر مستقیم دوباره کار می‌کند. می‌توانید نجات را غیرفعال کنید و از تونل عادی استفاده کنید.",
     rsc_confirm_t: "نجات اتصال فعال شود؟", rsc_confirm_b: "سه سرویس کوچک اینجا اجرا می‌شود و یک پورت کنترلی فایروال‌شده باز می‌شود. فقط سرور قابل‌دسترس اجازه‌ی استفاده دارد. با یک کلیک همه چیز حذف می‌شود.",
     rsc_dis_t: "نجات حذف شود؟", rsc_dis_b: "پورت‌های فوروارد روی سرور ورودی تا بالا آمدن تونل عادی کار نمی‌کنند.",
@@ -7344,6 +7344,8 @@ function rscRender() {
     if (s.block_lifted) { rscBadge('warn', 'rsc_b_lift'); msg += ' ' + tr('rsc_lift', ''); }
     const rows = [[tr('rsc_conn', ''), s.connected ? tr('rsc_conn_ok', '') : tr('rsc_conn_no', '')],
       ['TCP/UDP', (s.ports || []).join(', ')]];
+    if (s.direct && s.direct.length) rows.push([tr('rsc_direct', ''), s.direct.join(', ')]);
+    if (s.role === 'entry' && s.relay && s.relay.length) rows.push([tr('rsc_relay', ''), s.relay.join(', ')]);
     if (s.skipped && s.skipped.length) rows.push([tr('rsc_skipped', '').replace('{p}', '').replace(/[:：]\s*$/, ''), s.skipped.join(', ')]);
     if (s.services) rows.push([tr('rsc_svc', ''), Object.entries(s.services).map(([k, v]) => k + (v ? ' ✓' : ' ✗')).join('  ')]);
     rows.forEach(([k, v]) => { const d = document.createElement('div'); d.className = 'rsc-row'; const a = document.createElement('span'); a.textContent = k; const b = document.createElement('b'); b.textContent = v; d.append(a, b); det.appendChild(d); });

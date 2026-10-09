@@ -79,6 +79,8 @@ type rescueState struct {
 	Secret           string `json:"secret,omitempty"`
 	Ports            []int  `json:"ports,omitempty"`
 	Skipped          []int  `json:"skipped,omitempty"`
+	Direct           []int  `json:"direct,omitempty"` // entry: kernel-DNAT'd straight to origin (fast path)
+	Relay            []int  `json:"relay,omitempty"`  // entry: carried by frp stcp/sudp (fallback)
 	Since            int64  `json:"since,omitempty"`
 	Consumed         bool   `json:"consumed,omitempty"`
 	Strikes          int    `json:"strikes,omitempty"`
@@ -209,7 +211,7 @@ func rescueFrpsToml(cport int, token string) string {
 
 func rescueOriginFrpcToml(cport int, token, secret string, ports []int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "serverAddr = \"127.0.0.1\"\nserverPort = %d\nauth.method = \"token\"\nauth.token = %q\nloginFailExit = false\nlog.to = \"console\"\nlog.level = \"info\"\n", cport, token)
+	fmt.Fprintf(&b, "serverAddr = \"127.0.0.1\"\nserverPort = %d\nauth.method = \"token\"\nauth.token = %q\nloginFailExit = false\nlog.to = \"console\"\nlog.level = \"info\"\ntransport.poolCount = 20\ntransport.tcpMux = true\ntransport.tcpMuxKeepaliveInterval = 30\n", cport, token)
 	for _, p := range ports {
 		for _, t := range [][2]string{{"tcp", "stcp"}, {"udp", "sudp"}} {
 			fmt.Fprintf(&b, "\n[[proxies]]\nname = \"rescue-%d-%s\"\ntype = %q\nsecretKey = %q\nlocalIP = \"127.0.0.1\"\nlocalPort = %d\n", p, t[0], t[1], secret, p)
@@ -220,7 +222,7 @@ func rescueOriginFrpcToml(cport int, token, secret string, ports []int) string {
 
 func rescueEntryFrpcToml(originIP string, cport int, token, secret string, ports []int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "serverAddr = %q\nserverPort = %d\nauth.method = \"token\"\nauth.token = %q\nloginFailExit = false\nlog.to = \"console\"\nlog.level = \"info\"\n", originIP, cport, token)
+	fmt.Fprintf(&b, "serverAddr = %q\nserverPort = %d\nauth.method = \"token\"\nauth.token = %q\nloginFailExit = false\nlog.to = \"console\"\nlog.level = \"info\"\ntransport.poolCount = 20\ntransport.tcpMux = true\ntransport.tcpMuxKeepaliveInterval = 30\n", originIP, cport, token)
 	for _, p := range ports {
 		for _, t := range [][2]string{{"tcp", "stcp"}, {"udp", "sudp"}} {
 			fmt.Fprintf(&b, "\n[[visitors]]\nname = \"rescue-v-%d-%s\"\ntype = %q\nserverName = \"rescue-%d-%s\"\nsecretKey = %q\nbindAddr = \"0.0.0.0\"\nbindPort = %d\n", p, t[0], t[1], p, t[0], secret, p)
@@ -239,6 +241,51 @@ func rescueUnit(desc, exec, after, before string) string {
 		s += "Before=" + before + "\n"
 	}
 	return s + "\n[Service]\nType=simple\nExecStart=" + exec + "\nRestart=always\nRestartSec=3\nLimitNOFILE=1048576\n\n[Install]\nWantedBy=multi-user.target\n"
+}
+
+// rescueDnatNft forwards ports that the entry can reach directly on the
+// origin in the kernel: no userspace hop, no extra encryption, full line rate.
+// Only packets addressed to this host are touched (fib daddr type local), so
+// transit traffic is never hijacked.
+func rescueDnatNft(originIP string, ports []int) string {
+	ps := make([]string, 0, len(ports))
+	for _, p := range ports {
+		ps = append(ps, strconv.Itoa(p))
+	}
+	pl := strings.Join(ps, ", ")
+	return fmt.Sprintf("table inet hashem_dnat {\n  chain prerouting {\n    type nat hook prerouting priority dstnat - 5; policy accept;\n    fib daddr type local meta l4proto { tcp, udp } th dport { %s } dnat ip to %s\n  }\n  chain postrouting {\n    type nat hook postrouting priority srcnat + 5; policy accept;\n    ip daddr %s meta l4proto { tcp, udp } th dport { %s } masquerade\n  }\n}\n", pl, originIP, originIP, pl)
+}
+
+// rescueSplitDirect dials every port on the origin from here. A port that
+// answers (SYN-ACK or RST) is reachable in this direction and goes through
+// kernel DNAT; a timeout means the path is filtered and frp must carry it.
+func rescueSplitDirect(ip string, ports []int) (direct, relay []int) {
+	res := make([]bool, len(ports))
+	var wg sync.WaitGroup
+	for i, p := range ports {
+		wg.Add(1)
+		go func(i, p int) {
+			defer wg.Done()
+			c, err := rescueDial(net.JoinHostPort(ip, strconv.Itoa(p)), 3*time.Second)
+			if c != nil {
+				_ = c.Close()
+			}
+			res[i] = classifyDial(err) != "timeout"
+		}(i, p)
+	}
+	wg.Wait()
+	for i, p := range ports {
+		if res[i] {
+			direct = append(direct, p)
+		} else {
+			relay = append(relay, p)
+		}
+	}
+	return
+}
+
+func rescueDnatUnit(nftFile string) string {
+	return "[Unit]\nDescription=Hashem rescue: high-speed kernel DNAT\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/bin/sh -c \"sysctl -w net.ipv4.ip_forward=1 && nft delete table inet hashem_dnat 2>/dev/null; nft -f " + nftFile + "\"\nExecStop=/bin/sh -c \"nft delete table inet hashem_dnat 2>/dev/null; true\"\n\n[Install]\nWantedBy=multi-user.target\n"
 }
 
 func rescueFwUnit(nftFile string) string {
@@ -440,17 +487,30 @@ func rescueApplyCode(code string) (rescueState, error) {
 	if len(use) == 0 {
 		return st, errors.New("none of the ports can be used here (reserved or already in use)")
 	}
-	st = rescueState{Role: "entry", RemoteIP: c.IP, CtrlPort: c.CPort, Token: c.Token, Secret: c.Secret, Ports: use, Skipped: skipped, Since: time.Now().Unix()}
+	direct, relay := rescueSplitDirect(c.IP, use)
+	st = rescueState{Role: "entry", RemoteIP: c.IP, CtrlPort: c.CPort, Token: c.Token, Secret: c.Secret, Ports: use, Skipped: skipped, Direct: direct, Relay: relay, Since: time.Now().Unix()}
 	d := rescueDir()
 	frpc := filepath.Join(rescueBinDir, "frpc")
 	write := func() error {
-		for _, f := range []struct {
+		files := []struct {
 			p, c string
 			m    os.FileMode
 		}{
-			{filepath.Join(d, "frpc.toml"), rescueEntryFrpcToml(c.IP, c.CPort, c.Token, c.Secret, use), 0600},
+			{filepath.Join(d, "frpc.toml"), rescueEntryFrpcToml(c.IP, c.CPort, c.Token, c.Secret, relay), 0600},
 			{rescueUnitPath("hashem-rescue-frpc"), rescueUnit("Hashem rescue entry (frpc visitors)", frpc+" -c "+filepath.Join(d, "frpc.toml"), "", ""), 0644},
-		} {
+		}
+		if len(direct) > 0 {
+			files = append(files,
+				struct {
+					p, c string
+					m    os.FileMode
+				}{filepath.Join(d, "dnat.nft"), rescueDnatNft(c.IP, direct), 0600},
+				struct {
+					p, c string
+					m    os.FileMode
+				}{rescueUnitPath("hashem-rescue-dnat"), rescueDnatUnit(filepath.Join(d, "dnat.nft")), 0644})
+		}
+		for _, f := range files {
 			if err := writeSecretFile(f.p, f.c, f.m); err != nil {
 				return err
 			}
@@ -464,24 +524,30 @@ func rescueApplyCode(code string) (rescueState, error) {
 		if err := sysctl("daemon-reload"); err != nil {
 			return err
 		}
+		if len(direct) > 0 {
+			if err := sysctl("enable", "--now", "hashem-rescue-dnat.service"); err != nil {
+				return err
+			}
+		}
 		return sysctl("enable", "--now", "hashem-rescue-frpc.service")
 	}
 	if err := write(); err != nil {
 		rescueTeardownLocked()
 		return rescueState{}, err
 	}
-	LogSecurityAudit("rescue_enabled", "admin", "", fmt.Sprintf("role=entry origin=%s ports=%d skipped=%d", c.IP, len(use), len(skipped)))
+	LogSecurityAudit("rescue_enabled", "admin", "", fmt.Sprintf("role=entry origin=%s direct=%d relay=%d skipped=%d", c.IP, len(direct), len(relay), len(skipped)))
 	return st, nil
 }
 
 // rescueTeardownLocked removes everything this feature ever created.
 func rescueTeardownLocked() {
-	for _, s := range []string{"hashem-rescue-frpc", "hashem-rescue-frps", "hashem-rescue-fw"} {
+	for _, s := range []string{"hashem-rescue-frpc", "hashem-rescue-frps", "hashem-rescue-fw", "hashem-rescue-dnat"} {
 		_, _ = runCmd("systemctl", "disable", "--now", s+".service")
 		_ = os.Remove(rescueUnitPath(s))
 	}
 	_, _ = runCmd("systemctl", "daemon-reload")
 	_, _ = runCmd("nft", "delete", "table", "inet", "hashem_rescue")
+	_, _ = runCmd("nft", "delete", "table", "inet", "hashem_dnat")
 	_ = os.RemoveAll(rescueDir())
 	cur := loadRescueLocked()
 	_ = os.Remove(rescueStatePath())
@@ -934,6 +1000,7 @@ func rescueStatusMap(full bool) map[string]any {
 	m := map[string]any{
 		"role": st.Role, "remote_ip": st.RemoteIP, "ports": st.Ports, "skipped": st.Skipped,
 		"since": st.Since, "verdict": st.LastVerdict, "last_probe": st.LastProbe,
+		"direct": st.Direct, "relay": st.Relay,
 		"suspected":         st.Role == "" && st.SuspectedSince > 0,
 		"block_lifted":      st.Role == "origin" && st.LiftedSince > 0,
 		"offer_pending":     st.Role == "origin" && !st.Consumed,
@@ -950,6 +1017,8 @@ func rescueStatusMap(full bool) map[string]any {
 		if st.Role == "origin" {
 			svc["frps"] = rescueUnitActive("hashem-rescue-frps")
 			svc["firewall"] = rescueUnitActive("hashem-rescue-fw")
+		} else if len(st.Direct) > 0 {
+			svc["dnat"] = rescueUnitActive("hashem-rescue-dnat")
 		}
 		m["services"] = svc
 		m["connected"] = rescueConnected(st)
